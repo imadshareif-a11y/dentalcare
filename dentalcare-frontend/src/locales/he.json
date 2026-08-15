@@ -28,5 +28,20 @@
   "ledger_col_details": "פרטים",
   "ledger_col_running": "יתרה מתגלגלת",
   "error_generic": "אירעה שגיאה בלתי צפויה",
-  "error_network": "לא ניתן להתחבר לשרת — נסה שוב"
+  "error_network": "לא ניתן להתחבר לשרת — נסה שוב",
+  "nav_receipt": "קבלה",
+  "nav_payment": "תשלום",
+  "receipt_title": "שובר קבלה",
+  "payment_title": "שובר תשלום",
+  "receipt_cash_account": "קבלה אל (קופה/בנק)",
+  "receipt_patient_account": "קבלה מ (חשבון מטופל)",
+  "payment_payee_account": "תשלום אל (ספק/הוצאה)",
+  "payment_cash_account": "תשלום מ (קופה/בנק)",
+  "amount": "סכום",
+  "save_voucher": "שמור ותעד שובר",
+  "saving_voucher": "מתעד...",
+  "amount_required": "הסכום חייב להיות גדול מאפס",
+  "accounts_required": "יש לבחור את שני החשבונות",
+  "voucher_posted_success_receipt": "הקבלה נשמרה בהצלחה",
+  "voucher_posted_success_payment": "התשלום נשמר בהצלחה"
 }

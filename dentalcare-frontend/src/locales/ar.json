@@ -28,5 +28,20 @@
   "ledger_col_details": "البيان",
   "ledger_col_running": "الرصيد المتحرك",
   "error_generic": "حدث خطأ غير متوقع",
-  "error_network": "تعذّر الاتصال بالسيرفر — حاول مرة أخرى"
+  "error_network": "تعذّر الاتصال بالسيرفر — حاول مرة أخرى",
+  "nav_receipt": "سند قبض",
+  "nav_payment": "سند صرف",
+  "receipt_title": "سند قبض",
+  "payment_title": "سند صرف",
+  "receipt_cash_account": "قبض إلى (الصندوق/البنك)",
+  "receipt_patient_account": "قبض من (الذمة)",
+  "payment_payee_account": "صرف إلى (المورد/المصروف)",
+  "payment_cash_account": "صرف من (الصندوق/البنك)",
+  "amount": "المبلغ",
+  "save_voucher": "حفظ وترحيل السند",
+  "saving_voucher": "جارٍ الترحيل...",
+  "amount_required": "المبلغ يجب أن يكون أكبر من صفر",
+  "accounts_required": "يجب اختيار الحسابين",
+  "voucher_posted_success_receipt": "تم ترحيل سند القبض بنجاح",
+  "voucher_posted_success_payment": "تم ترحيل سند الصرف بنجاح"
 }

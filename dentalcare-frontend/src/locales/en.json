@@ -28,5 +28,20 @@
   "ledger_col_details": "Details",
   "ledger_col_running": "Running balance",
   "error_generic": "An unexpected error occurred",
-  "error_network": "Could not reach the server — try again"
+  "error_network": "Could not reach the server — try again",
+  "nav_receipt": "Receipt",
+  "nav_payment": "Payment",
+  "receipt_title": "Receipt Voucher",
+  "payment_title": "Payment Voucher",
+  "receipt_cash_account": "Receive into (Cash/Bank)",
+  "receipt_patient_account": "Receive from (Patient account)",
+  "payment_payee_account": "Pay to (Supplier/Expense)",
+  "payment_cash_account": "Pay from (Cash/Bank)",
+  "amount": "Amount",
+  "save_voucher": "Save & Post Voucher",
+  "saving_voucher": "Posting...",
+  "amount_required": "Amount must be greater than zero",
+  "accounts_required": "Both accounts are required",
+  "voucher_posted_success_receipt": "Receipt posted successfully",
+  "voucher_posted_success_payment": "Payment posted successfully"
 }
