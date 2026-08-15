@@ -27,12 +27,17 @@ router.post(
     try {
       const result = await withTenantClient(req.user.tenantId, async (client) => {
         // 1) ننشئ حساب ذمة جديد بشجرة الحسابات (نوع RECEIVABLE)
+        // ملاحظة: اسم المريض نفسه ما بيتترجم (قرار متعمّد لحماية
+        // دقة الهوية) — بس التسمية "ذمة:" قبل الاسم بتتكرر بنفس
+        // الاسم بالأعمدة التلاتة، فبتضل الحساب قابل للعرض بأي لغة
+        // واجهة، والاسم الفعلي زي ما انكتب بالضبط
         const accountCode = `PAT-${Date.now()}`; // بالإنتاج: مولّد أرقام تسلسلي حقيقي
         const accountResult = await client.query(
-          `INSERT INTO chart_of_accounts (tenant_id, account_code, account_name, account_type)
-           VALUES ($1, $2, $3, 'RECEIVABLE')
+          `INSERT INTO chart_of_accounts
+             (tenant_id, account_code, account_name_ar, account_name_en, account_name_he, account_type)
+           VALUES ($1, $2, $3, $4, $5, 'RECEIVABLE')
            RETURNING id`,
-          [req.user.tenantId, accountCode, `ذمة: ${name}`]
+          [req.user.tenantId, accountCode, `ذمة: ${name}`, `Balance: ${name}`, `יתרת: ${name}`]
         );
         const accountId = accountResult.rows[0].id;
 

@@ -11,11 +11,13 @@
 // -----------------------------------------------------------
 
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 
 const emptyLine = () => ({ accountId: '', debit: '', credit: '', lineMemo: '' });
 
 export default function VoucherForm({ accounts, onPosted }) {
+  const { t } = useTranslation();
   const [lines, setLines] = useState([emptyLine(), emptyLine()]);
   const [memo, setMemo] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -53,7 +55,7 @@ export default function VoucherForm({ accounts, onPosted }) {
     // تحقق بصري سريع — نفس التحقق النهائي رح يصير بالسيرفر بغض
     // النظر شو صار هون، فما في خطورة لو فاتنا شي هون بالغلط
     if (!isBalanced) {
-      setError(`القيد غير متوازن (الفارق: ${Math.abs(diff)} ₪)`);
+      setError(t('voucher_unbalanced', { diff: Math.abs(diff) }));
       return;
     }
 
@@ -84,7 +86,7 @@ export default function VoucherForm({ accounts, onPosted }) {
       if (err instanceof ApiError) {
         setError(err.body?.error || err.message);
       } else {
-        setError('تعذّر الاتصال بالسيرفر — حاول مرة أخرى');
+        setError(t('error_network'));
       }
     } finally {
       setSubmitting(false);
@@ -100,23 +102,23 @@ export default function VoucherForm({ accounts, onPosted }) {
             onChange={(e) => updateLine(i, 'accountId', e.target.value)}
             required
           >
-            <option value="">اختر حساب</option>
+            <option value="">{t('voucher_choose_account')}</option>
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>{a.account_name}</option>
             ))}
           </select>
           <input
-            type="number" min="0" step="0.01" placeholder="مدين"
+            type="number" min="0" step="0.01" placeholder={t('voucher_debit')}
             value={line.debit}
             onChange={(e) => updateLine(i, 'debit', e.target.value)}
           />
           <input
-            type="number" min="0" step="0.01" placeholder="دائن"
+            type="number" min="0" step="0.01" placeholder={t('voucher_credit')}
             value={line.credit}
             onChange={(e) => updateLine(i, 'credit', e.target.value)}
           />
           <input
-            type="text" placeholder="بيان السطر"
+            type="text" placeholder={t('voucher_line_memo')}
             value={line.lineMemo}
             onChange={(e) => updateLine(i, 'lineMemo', e.target.value)}
           />
@@ -124,15 +126,15 @@ export default function VoucherForm({ accounts, onPosted }) {
         </div>
       ))}
 
-      <button type="button" onClick={addLine}>+ إضافة سطر</button>
+      <button type="button" onClick={addLine}>{t('voucher_add_line')}</button>
 
       <div className={isBalanced ? 'text-emerald-700' : 'text-rose-700'}>
-        مدين: {totalDebit.toFixed(2)} ₪ — دائن: {totalCredit.toFixed(2)} ₪
-        {!isBalanced && ` — الفارق: ${Math.abs(diff).toFixed(2)} ₪`}
+        {t('voucher_debit')}: {totalDebit.toFixed(2)} — {t('voucher_credit')}: {totalCredit.toFixed(2)}
+        {!isBalanced && ` — ${Math.abs(diff).toFixed(2)}`}
       </div>
 
       <input
-        type="text" placeholder="بيان القيد"
+        type="text" placeholder={t('voucher_memo')}
         value={memo}
         onChange={(e) => setMemo(e.target.value)}
       />
@@ -142,7 +144,7 @@ export default function VoucherForm({ accounts, onPosted }) {
       {/* الزر يتعطّل أثناء الإرسال (منع ضغط مزدوج بصريًا) — لكن
           idempotencyKey هو الضمان الحقيقي، مش هاد التعطيل لحاله */}
       <button type="submit" disabled={!isBalanced || submitting}>
-        {submitting ? 'جارٍ الترحيل...' : 'حفظ وترحيل القيد'}
+        {submitting ? t('voucher_saving') : t('voucher_save')}
       </button>
     </form>
   );

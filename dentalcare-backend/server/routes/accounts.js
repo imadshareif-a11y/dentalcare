@@ -8,12 +8,25 @@ router.get('/accounts', requireAuth, async (req, res) => {
   try {
     const accounts = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(
-        `SELECT id, account_code, account_name, account_type
+        `SELECT id, account_code, account_type,
+                account_name_ar, account_name_en, account_name_he
          FROM chart_of_accounts
          WHERE is_active = TRUE
          ORDER BY account_code ASC`
       );
-      return result.rows;
+      // fallback chain: لغة المستخدم → عربي → أي ترجمة موجودة → كود الحساب
+      const locale = req.user.locale || 'ar';
+      return result.rows.map((row) => ({
+        id: row.id,
+        account_code: row.account_code,
+        account_type: row.account_type,
+        account_name:
+          row[`account_name_${locale}`] ||
+          row.account_name_ar ||
+          row.account_name_en ||
+          row.account_name_he ||
+          row.account_code,
+      }));
     });
     res.json(accounts);
   } catch (err) {

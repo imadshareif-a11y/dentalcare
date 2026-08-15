@@ -29,7 +29,7 @@ router.post('/auth/login', async (req, res) => {
       // منرجع أول تطابق. لنظام إنتاجي فعلي بعدد كبير من العيادات،
       // الأفضل إضافة عمود email فريد عالميًا بدل هالبحث المفتوح.
       const result = await client.query(
-        `SELECT id, tenant_id, name, username, password_hash, role
+        `SELECT id, tenant_id, name, username, password_hash, role, locale
          FROM users WHERE username = $1 AND is_active = TRUE LIMIT 1`,
         [username]
       );
@@ -46,14 +46,14 @@ router.post('/auth/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { userId: user.id, tenantId: user.tenant_id, role: user.role },
+      { userId: user.id, tenantId: user.tenant_id, role: user.role, locale: user.locale },
       process.env.JWT_SECRET,
       { expiresIn: '12h' }
     );
 
     res.json({
       token,
-      user: { id: user.id, name: user.name, username: user.username, role: user.role },
+      user: { id: user.id, name: user.name, username: user.username, role: user.role, locale: user.locale },
     });
   } catch (err) {
     console.error('Login failed:', err);

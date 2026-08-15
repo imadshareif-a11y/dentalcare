@@ -1,8 +1,10 @@
 // pages/Login.jsx
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
+  const { t } = useTranslation();
   const { login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -15,9 +17,8 @@ export default function Login() {
     setSubmitting(true);
     try {
       await login(username, password);
-      // لا يوجد "دخول احتياطي محلي" — فشل تسجيل الدخول = خطأ صريح
     } catch (err) {
-      setError(err.body?.error || 'تعذّر تسجيل الدخول');
+      setError(err.body?.error || t('error_generic'));
     } finally {
       setSubmitting(false);
     }
@@ -25,21 +26,21 @@ export default function Login() {
 
   return (
     <div style={{ maxWidth: 360, margin: '80px auto', textAlign: 'center' }}>
-      <h2>تسجيل الدخول</h2>
+      <h2>{t('login')}</h2>
       <form onSubmit={handleSubmit}>
         <input
-          type="text" placeholder="اسم المستخدم" value={username}
+          type="text" placeholder={t('username')} value={username}
           onChange={(e) => setUsername(e.target.value)} required
           style={{ display: 'block', width: '100%', margin: '8px 0', padding: 8 }}
         />
         <input
-          type="password" placeholder="كلمة المرور" value={password}
+          type="password" placeholder={t('password')} value={password}
           onChange={(e) => setPassword(e.target.value)} required
           style={{ display: 'block', width: '100%', margin: '8px 0', padding: 8 }}
         />
         {error && <div style={{ color: 'crimson', marginBottom: 8 }}>{error}</div>}
         <button type="submit" disabled={submitting} style={{ width: '100%', padding: 10 }}>
-          {submitting ? 'جارٍ الدخول...' : 'دخول'}
+          {submitting ? t('loggingIn') : t('login')}
         </button>
       </form>
     </div>

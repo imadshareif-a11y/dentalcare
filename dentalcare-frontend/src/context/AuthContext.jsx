@@ -7,6 +7,7 @@
 
 import { createContext, useContext, useState, useCallback } from 'react';
 import { api } from '../api/client';
+import { changeLocale } from '../i18n';
 
 const AuthContext = createContext(null);
 
@@ -23,6 +24,8 @@ export function AuthProvider({ children }) {
     localStorage.setItem('auth_token', data.token);
     localStorage.setItem('auth_user', JSON.stringify(data.user));
     setUser(data.user);
+    // نطبّق لغة المستخدم المحفوظة بحسابه فورًا بعد الدخول
+    if (data.user.locale) changeLocale(data.user.locale);
   }, []);
 
   const logout = useCallback(() => {

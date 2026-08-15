@@ -40,20 +40,21 @@ async function seed() {
       [tenantId, clinicName + ' - المدير', username, passwordHash]
     );
 
-    // شجرة حسابات أساسية — الحد الأدنى للتشغيل، تُوسّع لاحقًا
-    // من داخل الواجهة نفسها
+    // شجرة حسابات أساسية بالثلاث لغات — الحد الأدنى للتشغيل،
+    // تُوسّع لاحقًا من داخل شاشة الإعدادات
     const baseAccounts = [
-      ['1000', 'الصندوق الرئيسي (نقد)', 'ASSET'],
-      ['1100', 'البنك', 'ASSET'],
-      ['3000', 'رأس المال', 'EQUITY'],
-      ['4000', 'إيرادات العلاجات السريرية', 'REVENUE'],
-      ['5000', 'مصاريف عامة', 'EXPENSE'],
+      ['1000', 'الصندوق الرئيسي (نقد)', 'Main Cash', 'קופה ראשית (מזומן)', 'ASSET'],
+      ['1100', 'البنك', 'Bank', 'בנק', 'ASSET'],
+      ['3000', 'رأس المال', 'Equity', 'הון עצמי', 'EQUITY'],
+      ['4000', 'إيرادات العلاجات السريرية', 'Clinical Revenue', 'הכנסות מטיפולים', 'REVENUE'],
+      ['5000', 'مصاريف عامة', 'General Expenses', 'הוצאות כלליות', 'EXPENSE'],
     ];
-    for (const [code, name, type] of baseAccounts) {
+    for (const [code, nameAr, nameEn, nameHe, type] of baseAccounts) {
       await client.query(
-        `INSERT INTO chart_of_accounts (tenant_id, account_code, account_name, account_type)
-         VALUES ($1, $2, $3, $4)`,
-        [tenantId, code, name, type]
+        `INSERT INTO chart_of_accounts
+           (tenant_id, account_code, account_name_ar, account_name_en, account_name_he, account_type)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [tenantId, code, nameAr, nameEn, nameHe, type]
       );
     }
 
