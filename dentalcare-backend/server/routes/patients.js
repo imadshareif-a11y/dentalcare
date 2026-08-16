@@ -34,8 +34,8 @@ router.post(
         const accountCode = `PAT-${Date.now()}`; // بالإنتاج: مولّد أرقام تسلسلي حقيقي
         const accountResult = await client.query(
           `INSERT INTO chart_of_accounts
-             (tenant_id, account_code, account_name_ar, account_name_en, account_name_he, account_type)
-           VALUES ($1, $2, $3, $4, $5, 'RECEIVABLE')
+             (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type)
+           VALUES ($1, $2, $3, $3, $4, $5, 'RECEIVABLE')
            RETURNING id`,
           [req.user.tenantId, accountCode, `ذمة: ${name}`, `Balance: ${name}`, `יתרת: ${name}`]
         );

@@ -1,5 +1,5 @@
 // App.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from './context/AuthContext';
 import { api } from './api/client';
@@ -8,6 +8,8 @@ import VoucherForm from './components/VoucherForm';
 import ReceiptForm from './components/ReceiptForm';
 import PaymentForm from './components/PaymentForm';
 import LedgerReport from './pages/LedgerReport';
+import Patients from './pages/Patients';
+import Checks from './pages/Checks';
 import LanguageSwitcher from './components/LanguageSwitcher';
 
 export default function App() {
@@ -16,12 +18,16 @@ export default function App() {
   const [accounts, setAccounts] = useState([]);
   const [tab, setTab] = useState('receipt');
 
-  useEffect(() => {
+  const loadAccounts = useCallback(() => {
     if (!user) return;
     api.get('/accounts').then(setAccounts).catch((err) => {
       console.error('فشل جلب الحسابات:', err);
     });
   }, [user]);
+
+  useEffect(() => {
+    loadAccounts();
+  }, [loadAccounts]);
 
   if (!user) return <Login />;
 
@@ -39,9 +45,13 @@ export default function App() {
         <button onClick={() => setTab('receipt')}>{t('nav_receipt')}</button>
         <button onClick={() => setTab('payment')}>{t('nav_payment')}</button>
         <button onClick={() => setTab('voucher')}>{t('nav_voucher')}</button>
+        <button onClick={() => setTab('patients')}>{t('nav_patients')}</button>
+        <button onClick={() => setTab('checks')}>{t('nav_checks')}</button>
         <button onClick={() => setTab('ledger')}>{t('nav_ledger')}</button>
       </nav>
 
+      {tab === 'checks' && <Checks accounts={accounts} onAccountsChanged={loadAccounts} />}
+      {tab === 'patients' && <Patients onAccountsChanged={loadAccounts} />}
       {tab === 'receipt' && (
         <ReceiptForm
           accounts={accounts}
