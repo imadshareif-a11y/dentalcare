@@ -17,7 +17,7 @@ router.post(
   requireAuth,
   requireRole(['OWNER', 'DOCTOR', 'ACCOUNTANT']),
   async (req, res) => {
-    const { patientId, revenueAccountId, treatments } = req.body;
+    const { patientId, revenueAccountId, treatments, doctorId, idempotencyKey } = req.body;
     // treatments: [{ tooth, name, cost }, ...]
 
     if (!patientId || !revenueAccountId || !Array.isArray(treatments) || treatments.length === 0) {
@@ -25,9 +25,6 @@ router.post(
     }
 
     try {
-      // نجيب حساب ذمة المريض من جدول parties — هذا هو التوحيد
-      // الفعلي: ما في حقل منفصل نمرره يدويًا، القسم الطبي بيسأل
-      // "شو حساب هذا المريض؟" ومحرك المحاسبة بيجاوب من مصدر واحد
       const patientAccountId = await withTenantClient(req.user.tenantId, async (client) => {
         const result = await client.query(
           `SELECT account_id FROM parties WHERE id = $1 AND party_type = 'PATIENT'`,
@@ -44,22 +41,61 @@ router.post(
         return res.status(400).json({ error: 'إجمالي الجلسة يجب أن يكون أكبر من صفر' });
       }
 
+      // لو محدَّد طبيب ونوع تعويضه "نسبة"، نحسب عمولته تلقائيًا
+      // ونضيفها كسطرين إضافيين *بنفس القيد* — القيد بيضل متوازن
+      // لأنهم زوج متوازن لحالهم (مدين مصروف = دائن ذمة الطبيب)
+      let doctorLines = [];
+      let doctorNameForMemo = '';
+      if (doctorId) {
+        const doctorInfo = await withTenantClient(req.user.tenantId, async (client) => {
+          const result = await client.query(
+            `SELECT p.name, p.account_id, d.compensation_type, d.percentage_rate
+             FROM doctors d JOIN parties p ON p.id = d.party_id
+             WHERE d.party_id = $1`,
+            [doctorId]
+          );
+          return result.rows[0] || null;
+        });
+
+        if (doctorInfo) {
+          doctorNameForMemo = doctorInfo.name;
+          if (doctorInfo.compensation_type === 'PERCENTAGE' && doctorInfo.percentage_rate) {
+            const commissionExpenseAccountId = await withTenantClient(req.user.tenantId, async (client) => {
+              const result = await client.query(
+                `SELECT id FROM chart_of_accounts WHERE tenant_id = $1 AND account_code = '5100'`,
+                [req.user.tenantId]
+              );
+              return result.rows[0]?.id || null;
+            });
+
+            if (commissionExpenseAccountId) {
+              const commission = Math.round(sessionTotal * (doctorInfo.percentage_rate / 100) * 100) / 100;
+              if (commission > 0) {
+                doctorLines = [
+                  { accountId: commissionExpenseAccountId, debit: commission, lineMemo: `عمولة د. ${doctorInfo.name}` },
+                  { accountId: doctorInfo.account_id, credit: commission, lineMemo: `عمولة جلسة — ${treatments.length} إجراء` },
+                ];
+              }
+            }
+          }
+        }
+      }
+
       const { journalEntryId } = await postJournalEntry({
         tenantId: req.user.tenantId,
         userId: req.user.userId,
         sourceType: 'CLINICAL_SESSION',
         sourceRefId: patientId,
-        memo: `جلسة عالجية — ${treatments.length} إجراء`,
+        memo: `جلسة عالجية — ${treatments.length} إجراء${doctorNameForMemo ? ` — د. ${doctorNameForMemo}` : ''}`,
+        idempotencyKey,
         lines: [
           { accountId: patientAccountId, debit: sessionTotal, lineMemo: 'ترحيل تكلفة الجلسة لذمة المريض' },
-          // كل إجراء كسطر دائن منفصل بنفس حساب الإيرادات — هيك
-          // كشف الحساب بيقدر يعرض تفصيل كل إجراء لحاله، مش رقم
-          // مجمّع بس
           ...treatments.map((t) => ({
             accountId: revenueAccountId,
             credit: Number(t.cost),
             lineMemo: `السن #${t.tooth} - ${t.name}`,
           })),
+          ...doctorLines,
         ],
       });
 

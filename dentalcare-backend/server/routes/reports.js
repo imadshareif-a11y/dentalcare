@@ -13,6 +13,18 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 
+// نفس منطق fallback chain الموجود بـ routes/accounts.js — موحّد
+// هون عشان كل التقارير تحترم لغة المستخدم بنفس الطريقة بالضبط
+function resolveAccountName(row, locale) {
+  return (
+    row[`account_name_${locale}`] ||
+    row.account_name_ar ||
+    row.account_name_en ||
+    row.account_name_he ||
+    row.account_code
+  );
+}
+
 // 1) كشف حساب الذمة المفلتر (Ledger Account Detailed)
 router.get('/reports/ledger', requireAuth, async (req, res) => {
   const { accountId, fromDate, toDate } = req.query;
@@ -24,7 +36,8 @@ router.get('/reports/ledger', requireAuth, async (req, res) => {
   try {
     const data = await withTenantClient(req.user.tenantId, async (client) => {
       const accountInfo = await client.query(
-        `SELECT account_name FROM chart_of_accounts WHERE id = $1`,
+        `SELECT account_code, account_name_ar, account_name_en, account_name_he
+         FROM chart_of_accounts WHERE id = $1`,
         [accountId]
       );
       if (accountInfo.rows.length === 0) {
@@ -66,7 +79,7 @@ router.get('/reports/ledger', requireAuth, async (req, res) => {
       });
 
       return {
-        accountName: accountInfo.rows[0].account_name,
+        accountName: resolveAccountName(accountInfo.rows[0], req.user.locale || 'ar'),
         openingBalance,
         movements,
         closingBalance: runningBalance,
@@ -91,7 +104,8 @@ router.get('/reports/trial-balance', requireAuth, async (req, res) => {
 
       const result = await client.query(
         `SELECT
-           a.account_code, a.account_name, a.account_type,
+           a.account_code, a.account_type,
+           a.account_name_ar, a.account_name_en, a.account_name_he,
            COALESCE(SUM(l.debit), 0) AS total_debit,
            COALESCE(SUM(l.credit), 0) AS total_credit,
            COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS balance
@@ -99,11 +113,20 @@ router.get('/reports/trial-balance', requireAuth, async (req, res) => {
          LEFT JOIN journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN journal_entries e ON e.id = l.journal_entry_id ${dateFilter}
          WHERE a.tenant_id = $1
-         GROUP BY a.id, a.account_code, a.account_name, a.account_type
+         GROUP BY a.id, a.account_code, a.account_type,
+                  a.account_name_ar, a.account_name_en, a.account_name_he
          ORDER BY a.account_code ASC`,
         params
       );
-      return result.rows;
+      const locale = req.user.locale || 'ar';
+      return result.rows.map((row) => ({
+        account_code: row.account_code,
+        account_name: resolveAccountName(row, locale),
+        account_type: row.account_type,
+        total_debit: row.total_debit,
+        total_credit: row.total_credit,
+        balance: row.balance,
+      }));
     });
 
     res.json(rows);
@@ -125,7 +148,7 @@ router.get('/reports/profit-loss', requireAuth, async (req, res) => {
     const data = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(
         `SELECT
-           a.account_type, a.account_name,
+           a.account_type, a.account_name_ar, a.account_name_en, a.account_name_he, a.account_code,
            COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS net_amount
          FROM chart_of_accounts a
          JOIN journal_entry_lines l ON l.account_id = a.id
@@ -133,11 +156,12 @@ router.get('/reports/profit-loss', requireAuth, async (req, res) => {
          WHERE a.tenant_id = $1
            AND a.account_type IN ('REVENUE', 'EXPENSE')
            AND e.entry_date BETWEEN $2 AND $3
-         GROUP BY a.account_type, a.account_name
-         ORDER BY a.account_type, a.account_name`,
+         GROUP BY a.account_type, a.account_code, a.account_name_ar, a.account_name_en, a.account_name_he
+         ORDER BY a.account_type, a.account_code`,
         [req.user.tenantId, fromDate, toDate]
       );
 
+      const locale = req.user.locale || 'ar';
       const revenues = result.rows.filter((r) => r.account_type === 'REVENUE');
       const expenses = result.rows.filter((r) => r.account_type === 'EXPENSE');
 
@@ -147,8 +171,8 @@ router.get('/reports/profit-loss', requireAuth, async (req, res) => {
       const totalExpense = expenses.reduce((sum, r) => sum + Math.abs(Number(r.net_amount)), 0);
 
       return {
-        revenues: revenues.map((r) => ({ name: r.account_name, amount: Number(r.net_amount) })),
-        expenses: expenses.map((r) => ({ name: r.account_name, amount: Math.abs(Number(r.net_amount)) })),
+        revenues: revenues.map((r) => ({ name: resolveAccountName(r, locale), amount: Number(r.net_amount) })),
+        expenses: expenses.map((r) => ({ name: resolveAccountName(r, locale), amount: Math.abs(Number(r.net_amount)) })),
         totalRevenue,
         totalExpense,
         netProfit: totalRevenue - totalExpense,

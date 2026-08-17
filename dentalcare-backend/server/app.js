@@ -22,6 +22,7 @@ app.use('/api', require('./routes/clinical'));       // POST /api/clinical/commi
 app.use('/api', require('./routes/patients'));       // POST+GET /api/patients
 app.use('/api', require('./routes/reports'));        // GET /api/reports/*
 app.use('/api', require('./routes/checks'));          // GET/POST /api/checks/*
+app.use('/api', require('./routes/doctors'));          // GET/POST /api/doctors
 
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);

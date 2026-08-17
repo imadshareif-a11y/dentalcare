@@ -17,7 +17,10 @@ import CheckFields from './CheckFields';
 export default function PaymentForm({ accounts, onPosted }) {
   const { t } = useTranslation();
   const cashAccounts = accounts.filter((a) => ['ASSET', 'LIABILITY'].includes(a.account_type));
-  const payeeAccounts = accounts.filter((a) => ['RECEIVABLE', 'EXPENSE'].includes(a.account_type));
+  // المستفيد ممكن يكون مورد (RECEIVABLE بطبيعة معكوسة)، بند
+  // مصروف مباشر، أو طبيب/التزام (LIABILITY) — زي راتب أو عمولة
+  // طبيب لسا ما انصرفتلها
+  const payeeAccounts = accounts.filter((a) => ['RECEIVABLE', 'EXPENSE', 'LIABILITY'].includes(a.account_type));
 
   const [method, setMethod] = useState('normal'); // normal | newCheck | existingCheck
   const [payeeAccountId, setPayeeAccountId] = useState('');

@@ -9,7 +9,11 @@ import ReceiptForm from './components/ReceiptForm';
 import PaymentForm from './components/PaymentForm';
 import LedgerReport from './pages/LedgerReport';
 import Patients from './pages/Patients';
+import Doctors from './pages/Doctors';
 import Checks from './pages/Checks';
+import TrialBalance from './pages/TrialBalance';
+import ProfitLoss from './pages/ProfitLoss';
+import Clinical from './pages/Clinical';
 import LanguageSwitcher from './components/LanguageSwitcher';
 
 export default function App() {
@@ -42,16 +46,24 @@ export default function App() {
       </header>
 
       <nav style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        <button onClick={() => setTab('clinical')}>{t('nav_clinical')}</button>
         <button onClick={() => setTab('receipt')}>{t('nav_receipt')}</button>
         <button onClick={() => setTab('payment')}>{t('nav_payment')}</button>
         <button onClick={() => setTab('voucher')}>{t('nav_voucher')}</button>
         <button onClick={() => setTab('patients')}>{t('nav_patients')}</button>
+        <button onClick={() => setTab('doctors')}>{t('nav_doctors')}</button>
         <button onClick={() => setTab('checks')}>{t('nav_checks')}</button>
         <button onClick={() => setTab('ledger')}>{t('nav_ledger')}</button>
+        <button onClick={() => setTab('trialBalance')}>{t('nav_trial_balance')}</button>
+        <button onClick={() => setTab('profitLoss')}>{t('nav_profit_loss')}</button>
       </nav>
 
+      {tab === 'clinical' && <Clinical accounts={accounts} onAccountsChanged={loadAccounts} />}
+      {tab === 'trialBalance' && <TrialBalance />}
+      {tab === 'profitLoss' && <ProfitLoss />}
       {tab === 'checks' && <Checks accounts={accounts} onAccountsChanged={loadAccounts} />}
       {tab === 'patients' && <Patients onAccountsChanged={loadAccounts} />}
+      {tab === 'doctors' && <Doctors onAccountsChanged={loadAccounts} />}
       {tab === 'receipt' && (
         <ReceiptForm
           accounts={accounts}
