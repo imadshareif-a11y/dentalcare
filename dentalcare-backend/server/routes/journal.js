@@ -9,14 +9,14 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
 const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
 
 // يغطي كلا الحالتين: تسوية بسيطة (سطرين) أو قيد مركّب (أكثر من سطرين)
 router.post(
   '/journal-entries',
   requireAuth,
-  requireRole(['OWNER', 'ACCOUNTANT']),
+  requirePermission('journal', 'edit'),
   async (req, res) => {
     const { lines, memo } = req.body;
 
@@ -66,7 +66,7 @@ router.post(
 router.post(
   '/opening-balance',
   requireAuth,
-  requireRole(['OWNER']),
+  requirePermission('openingBalance', 'edit'),
   async (req, res) => {
     const { equityAccountId, lines, memo } = req.body;
     // lines هون = أرصدة الذمم الافتتاحية (كل واحدة مدين على حساب

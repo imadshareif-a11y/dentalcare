@@ -10,13 +10,13 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 
 router.post(
   '/patients',
   requireAuth,
-  requireRole(['OWNER', 'ACCOUNTANT', 'RECEPTIONIST']),
+  requirePermission('patients'),
   async (req, res) => {
     const { name, phone } = req.body;
 
@@ -60,7 +60,7 @@ router.post(
   }
 );
 
-router.get('/patients', requireAuth, async (req, res) => {
+router.get('/patients', requireAuth, requirePermission('patients', 'view'), async (req, res) => {
   try {
     const patients = await withTenantClient(req.user.tenantId, async (client) => {
       // الرصيد محسوب مباشرة من القيود (مش عمود مخزّن) — نفس مبدأ

@@ -7,7 +7,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
 
@@ -15,7 +15,7 @@ const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine
 router.post(
   '/receipts',
   requireAuth,
-  requireRole(['OWNER', 'ACCOUNTANT']),
+  requirePermission('receipts', 'edit'),
   async (req, res) => {
     const { cashAccountId, patientAccountId, amount, memo, idempotencyKey, checks } = req.body;
     // checks (اختياري): [{ checkNumber, bankName, dueDate, drawerName, amount, idempotencyKey }, ...]

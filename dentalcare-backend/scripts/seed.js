@@ -34,10 +34,14 @@ async function seed() {
     const tenantId = tenantResult.rows[0].id;
 
     const passwordHash = await bcrypt.hash(password, 10);
+    const ownerPermissions = {
+      clinical: 'edit', receipts: 'edit', payments: 'edit', journal: 'edit', openingBalance: 'edit',
+      patients: 'edit', doctors: 'edit', checks: 'edit', reports: 'view', users: 'edit',
+    };
     await client.query(
-      `INSERT INTO users (tenant_id, name, username, password_hash, role)
-       VALUES ($1, $2, $3, $4, 'OWNER')`,
-      [tenantId, clinicName + ' - المدير', username, passwordHash]
+      `INSERT INTO users (tenant_id, name, username, password_hash, role, permissions)
+       VALUES ($1, $2, $3, $4, 'OWNER', $5)`,
+      [tenantId, clinicName + ' - المدير', username, passwordHash, JSON.stringify(ownerPermissions)]
     );
 
     // شجرة حسابات أساسية بالثلاث لغات — الحد الأدنى للتشغيل،

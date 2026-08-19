@@ -10,7 +10,7 @@ const STATUS_LABEL_KEY = {
   ENDORSED: 'check_status_endorsed',
 };
 
-export default function Checks({ accounts, onAccountsChanged }) {
+export default function Checks({ canEdit = true, accounts, onAccountsChanged }) {
   const { t } = useTranslation();
   const [checks, setChecks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -137,7 +137,7 @@ export default function Checks({ accounts, onAccountsChanged }) {
                 <td>{Number(c.amount).toFixed(2)}</td>
                 <td>{t(STATUS_LABEL_KEY[c.status])}</td>
                 <td>
-                  {c.status === 'PENDING' && (
+                  {canEdit && c.status === 'PENDING' && (
                     <>
                       {clearingId === c.id ? (
                         <span style={{ display: 'flex', gap: 4 }}>

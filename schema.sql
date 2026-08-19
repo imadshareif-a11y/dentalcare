@@ -33,6 +33,8 @@ CREATE TABLE users (
     username        VARCHAR(100) NOT NULL,
     password_hash   TEXT NOT NULL,        -- bcrypt hash فعلي — لا كلمات مرور نصية أبدًا
     role            VARCHAR(50) NOT NULL, -- OWNER / DOCTOR / ACCOUNTANT / RECEPTIONIST / SUPER_ADMIN
+    permissions     JSONB NOT NULL DEFAULT '{}'::jsonb, -- none/view/edit لكل قسم
+    locale          VARCHAR(5) NOT NULL DEFAULT 'ar' CHECK (locale IN ('ar', 'en', 'he')),
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, username)  -- اسم المستخدم فريد ضمن نفس العيادة، مش عالميًا

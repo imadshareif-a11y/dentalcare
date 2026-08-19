@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server/app.js",
     "dev": "node --watch server/app.js",
-    "seed": "node scripts/seed.js"
+    "seed": "node scripts/seed.js",
+    "migrate:permissions": "node scripts/migrate-permissions.js"
   },
   "dependencies": {
     "express": "^4.19.2",

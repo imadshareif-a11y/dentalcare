@@ -10,7 +10,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 
 // نفس منطق fallback chain الموجود بـ routes/accounts.js — موحّد
@@ -26,7 +26,7 @@ function resolveAccountName(row, locale) {
 }
 
 // 1) كشف حساب الذمة المفلتر (Ledger Account Detailed)
-router.get('/reports/ledger', requireAuth, async (req, res) => {
+router.get('/reports/ledger', requireAuth, requirePermission('reports', 'view'), async (req, res) => {
   const { accountId, fromDate, toDate } = req.query;
 
   if (!accountId || !fromDate || !toDate) {
@@ -94,7 +94,7 @@ router.get('/reports/ledger', requireAuth, async (req, res) => {
 });
 
 // 2) ميزان المراجعة (Trial Balance) — كل الحسابات وأرصدتها بتاريخ معيّن
-router.get('/reports/trial-balance', requireAuth, async (req, res) => {
+router.get('/reports/trial-balance', requireAuth, requirePermission('reports', 'view'), async (req, res) => {
   const { asOfDate } = req.query;
 
   try {
@@ -137,7 +137,7 @@ router.get('/reports/trial-balance', requireAuth, async (req, res) => {
 });
 
 // 3) قائمة الأرباح والخسائر المفلترة بفترة زمنية
-router.get('/reports/profit-loss', requireAuth, async (req, res) => {
+router.get('/reports/profit-loss', requireAuth, requirePermission('reports', 'view'), async (req, res) => {
   const { fromDate, toDate } = req.query;
 
   if (!fromDate || !toDate) {

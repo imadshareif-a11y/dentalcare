@@ -10,7 +10,7 @@ const COMPENSATION_LABEL_KEY = {
   PARTNER: 'doctor_compensation_partner',
 };
 
-export default function Doctors({ onAccountsChanged }) {
+export default function Doctors({ canEdit = true, onAccountsChanged }) {
   const { t } = useTranslation();
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +38,7 @@ export default function Doctors({ onAccountsChanged }) {
 
   return (
     <div className="space-y-4">
-      <DoctorForm onRegistered={handleRegistered} />
+      {canEdit && <DoctorForm onRegistered={handleRegistered} />}
 
       <h3>{t('doctor_list_title')}</h3>
       {loading && <div>{t('ledger_loading')}</div>}

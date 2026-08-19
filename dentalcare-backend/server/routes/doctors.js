@@ -6,13 +6,13 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 
 router.post(
   '/doctors',
   requireAuth,
-  requireRole(['OWNER']),
+  requirePermission('doctors', 'edit'),
   async (req, res) => {
     const { name, phone, compensationType, percentageRate, monthlySalary } = req.body;
 
@@ -76,7 +76,7 @@ router.post(
   }
 );
 
-router.get('/doctors', requireAuth, async (req, res) => {
+router.get('/doctors', requireAuth, requirePermission('doctors', 'view'), async (req, res) => {
   try {
     const doctors = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(`

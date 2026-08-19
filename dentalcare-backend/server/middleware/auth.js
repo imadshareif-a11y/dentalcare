@@ -46,4 +46,37 @@ function requireRole(allowedRoles) {
   };
 }
 
-module.exports = { requireAuth, requireRole };
+/**
+ * التحقق الفعلي من مستوى صلاحية فردي مخزّن بعمود
+ * users.permissions (JSONB) — كل قسم إله مستوى مستقل من
+ * ثلاثة: 'none' (مخفي) / 'view' (مشاهدة بس) / 'edit' (كامل).
+ * بيُقرأ من قاعدة البيانات مباشرة بكل طلب — قصدًا، مش من
+ * التوكن — عشان أي تعديل صلاحيات من المدير يصير نافذ فورًا.
+ *
+ * مثال استخدام:
+ *   requirePermission('receipts', 'edit')   // لازم صلاحية كاملة
+ *   requirePermission('patients', 'view')   // مشاهدة تكفي (edit كمان بتحقق الشرط)
+ */
+const PERMISSION_LEVEL_RANK = { none: 0, view: 1, edit: 2 };
+
+function requirePermission(key, minLevel = 'edit') {
+  return async (req, res, next) => {
+    try {
+      const { withTenantClient } = require('../db/pool');
+      const level = await withTenantClient(req.user.tenantId, async (client) => {
+        const result = await client.query('SELECT permissions FROM users WHERE id = $1', [req.user.userId]);
+        return result.rows[0]?.permissions?.[key] || 'none';
+      });
+      const hasEnough = (PERMISSION_LEVEL_RANK[level] || 0) >= (PERMISSION_LEVEL_RANK[minLevel] || 0);
+      if (!hasEnough) {
+        return res.status(403).json({ error: 'ليس لديك صلاحية لهذه العملية' });
+      }
+      next();
+    } catch (err) {
+      console.error('Permission check failed:', err);
+      res.status(500).json({ error: 'تعذّر التحقق من الصلاحيات' });
+    }
+  };
+}
+
+module.exports = { requireAuth, requireRole, requirePermission };

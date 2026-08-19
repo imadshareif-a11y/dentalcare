@@ -8,12 +8,12 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { postJournalEntry, reverseJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
 
 // قائمة الشيكات (الحافظة) — قابلة للفلترة بالحالة
-router.get('/checks', requireAuth, async (req, res) => {
+router.get('/checks', requireAuth, requirePermission('checks', 'view'), async (req, res) => {
   const { status } = req.query; // PENDING / CLEARED / BOUNCED (اختياري)
 
   try {
@@ -41,7 +41,7 @@ router.get('/checks', requireAuth, async (req, res) => {
 router.post(
   '/checks/:id/clear',
   requireAuth,
-  requireRole(['OWNER', 'ACCOUNTANT']),
+  requirePermission('checks', 'edit'),
   async (req, res) => {
     const { id } = req.params;
     const { bankAccountId } = req.body;
@@ -109,7 +109,7 @@ router.post(
 router.post(
   '/checks/:id/bounce',
   requireAuth,
-  requireRole(['OWNER', 'ACCOUNTANT']),
+  requirePermission('checks', 'edit'),
   async (req, res) => {
     const { id } = req.params;
 
@@ -152,7 +152,7 @@ router.post(
 router.post(
   '/checks/:id/endorse',
   requireAuth,
-  requireRole(['OWNER', 'ACCOUNTANT']),
+  requirePermission('checks', 'edit'),
   async (req, res) => {
     const { id } = req.params;
     const { payeeAccountId } = req.body;

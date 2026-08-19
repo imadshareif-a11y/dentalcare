@@ -29,7 +29,7 @@ router.post('/auth/login', async (req, res) => {
       // منرجع أول تطابق. لنظام إنتاجي فعلي بعدد كبير من العيادات،
       // الأفضل إضافة عمود email فريد عالميًا بدل هالبحث المفتوح.
       const result = await client.query(
-        `SELECT id, tenant_id, name, username, password_hash, role, locale
+        `SELECT id, tenant_id, name, username, password_hash, role, locale, permissions
          FROM users WHERE username = $1 AND is_active = TRUE LIMIT 1`,
         [username]
       );
@@ -53,7 +53,10 @@ router.post('/auth/login', async (req, res) => {
 
     res.json({
       token,
-      user: { id: user.id, name: user.name, username: user.username, role: user.role, locale: user.locale },
+      user: {
+        id: user.id, name: user.name, username: user.username, role: user.role,
+        locale: user.locale, permissions: user.permissions || {},
+      },
     });
   } catch (err) {
     console.error('Login failed:', err);

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import PatientForm from '../components/PatientForm';
 
-export default function Patients({ onAccountsChanged }) {
+export default function Patients({ canEdit = true, onAccountsChanged }) {
   const { t } = useTranslation();
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +36,7 @@ export default function Patients({ onAccountsChanged }) {
 
   return (
     <div className="space-y-4">
-      <PatientForm onRegistered={handleRegistered} />
+      {canEdit && <PatientForm onRegistered={handleRegistered} />}
 
       <h3>{t('patient_list_title')}</h3>
       {loading && <div>{t('ledger_loading')}</div>}

@@ -6,14 +6,14 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
 
 router.post(
   '/payments',
   requireAuth,
-  requireRole(['OWNER', 'ACCOUNTANT']),
+  requirePermission('payments', 'edit'),
   async (req, res) => {
     // payeeAccountId: حساب المورد أو بند المصروف المباشر
     // cashAccountId: الصندوق/البنك، أو حساب "حافظة الشيكات الصادرة"
