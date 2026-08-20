@@ -22,6 +22,7 @@ CREATE TABLE tenants (
     status          VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE / SUSPENDED / CANCELLED
     active_from     DATE,
     active_until    DATE,
+    max_users       INTEGER NOT NULL DEFAULT 10,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -78,6 +79,9 @@ CREATE TABLE chart_of_accounts (
     tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     account_code    VARCHAR(50) NOT NULL,
     account_name    VARCHAR(255) NOT NULL,
+    account_name_ar VARCHAR(255),
+    account_name_en VARCHAR(255),
+    account_name_he VARCHAR(255),
     account_type    VARCHAR(20) NOT NULL,  -- ASSET / LIABILITY / EQUITY / REVENUE / EXPENSE
     parent_id       UUID REFERENCES chart_of_accounts(id),  -- لدعم شجرة فرعية
     party_id        UUID REFERENCES parties(id),  -- إذا هذا الحساب = ذمة طرف معيّن

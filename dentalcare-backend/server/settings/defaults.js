@@ -89,17 +89,21 @@ async function seedClinicExtras(client, tenantId) {
     }
   }
 
-  await client.query(
-    `INSERT INTO currencies
-       (tenant_id, code, name, name_en, name_he, symbol, decimal_places, rate_to_base, is_base, is_active)
-     SELECT
-       $1, 'ILS', 'شيكل إسرائيلي', 'Israeli Shekel', 'שקל חדש',
-       COALESCE(NULLIF(trim(s.currency_symbol), ''), '₪'), 2, 1, TRUE, TRUE
-     FROM tenant_settings s
-     WHERE s.tenant_id = $1
-       AND NOT EXISTS (SELECT 1 FROM currencies c WHERE c.tenant_id = $1)`,
-    [tenantId]
-  );
+  try {
+    await client.query(
+      `INSERT INTO currencies
+         (tenant_id, code, name, name_en, name_he, symbol, decimal_places, rate_to_base, is_base, is_active)
+       SELECT
+         $1, 'ILS', 'شيكل إسرائيلي', 'Israeli Shekel', 'שקל חדש',
+         COALESCE(NULLIF(trim(s.currency_symbol), ''), '₪'), 2, 1, TRUE, TRUE
+       FROM tenant_settings s
+       WHERE s.tenant_id = $1
+         AND NOT EXISTS (SELECT 1 FROM currencies c WHERE c.tenant_id = $1)`,
+      [tenantId]
+    );
+  } catch (err) {
+    if (err.code !== '42P01') throw err;
+  }
 
   try {
     const { ensureBoxesForAllCurrencies } = require('../accounting/cashBoxes');

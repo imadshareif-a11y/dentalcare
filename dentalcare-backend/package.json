@@ -36,6 +36,7 @@
     "migrate:fiscal-years": "node scripts/migrate-fiscal-years.js",
     "migrate:all": "node scripts/migrate-all.js",
     "seed:trial": "node scripts/seed-trial.js",
+    "patch:trial-db": "node scripts/patch-trial-db.js",
     "backup:full": "node scripts/ops/run-backup-full.js",
     "test:permissions": "node scripts/test-permissions.js"
   },
