@@ -4,8 +4,8 @@ const path = require('path');
 const { pool } = require('../server/db/pool');
 
 /**
- * ترتيب: schema أساسي ثم migrations تراكمية (معظمها idempotent).
- * على قاعدة فيها بيانات سابقة: schema يُتخطّى إن وُجد جدول tenants.
+ * ترتيب: schema أساسي ثم migrations تراكمية.
+ * كل جملة SQL تُنفَّذ لوحدها حتى لا يُلغى ملف كامل عند فشل سطر واحد.
  */
 const MIGRATION_FILES = [
   'sql/permissions_v0_add_column.sql',
@@ -47,10 +47,30 @@ const MIGRATION_FILES = [
   'sql/multilang.sql',
 ];
 
-async function runSqlText(label, sql) {
-  console.log(`Running ${label}...`);
-  await pool.query(sql);
-  console.log(`Done: ${label}`);
+const IGNORABLE = /already exists|duplicate_column|duplicate_object|duplicate key|does not exist|undefined_table|undefined_column|cannot drop/i;
+
+function splitSqlStatements(sql) {
+  return String(sql)
+    .split(/;\s*\n/)
+    .map((s) => s.trim())
+    .filter((s) => s && !s.split('\n').every((line) => {
+      const t = line.trim();
+      return !t || t.startsWith('--');
+    }));
+}
+
+async function runStatement(label, sql) {
+  try {
+    await pool.query(sql.endsWith(';') ? sql : `${sql};`);
+    return true;
+  } catch (err) {
+    const msg = String(err.message || err);
+    if (IGNORABLE.test(msg)) {
+      console.warn(`  skip (${label}): ${msg}`);
+      return false;
+    }
+    throw err;
+  }
 }
 
 async function runSqlFile(relativePath) {
@@ -59,8 +79,46 @@ async function runSqlFile(relativePath) {
     console.warn(`Skip missing: ${relativePath}`);
     return;
   }
+  console.log(`Running ${relativePath}...`);
   const sql = fs.readFileSync(filePath, 'utf8');
-  await runSqlText(relativePath, sql);
+  const parts = splitSqlStatements(sql);
+  for (let i = 0; i < parts.length; i += 1) {
+    await runStatement(`${relativePath}#${i + 1}`, parts[i]);
+  }
+  console.log(`Done: ${relativePath}`);
+}
+
+async function ensureEssentials() {
+  console.log('Ensuring essential columns/tables...');
+  await runStatement('max_users', `
+    ALTER TABLE tenants
+      ADD COLUMN IF NOT EXISTS max_users INTEGER NOT NULL DEFAULT 10
+  `);
+  await runStatement('slug', `
+    ALTER TABLE tenants
+      ADD COLUMN IF NOT EXISTS slug VARCHAR(50)
+  `);
+  await runStatement('active_from', `
+    ALTER TABLE tenants ADD COLUMN IF NOT EXISTS active_from DATE
+  `);
+  await runStatement('active_until', `
+    ALTER TABLE tenants ADD COLUMN IF NOT EXISTS active_until DATE
+  `);
+  await runStatement('tenant_settings', `
+    CREATE TABLE IF NOT EXISTS tenant_settings (
+      tenant_id            UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+      date_format          VARCHAR(20) NOT NULL DEFAULT 'DD/MM/YYYY',
+      currency_symbol      VARCHAR(8) NOT NULL DEFAULT '₪',
+      decimal_places       SMALLINT NOT NULL DEFAULT 2,
+      thousands_separator  VARCHAR(2) NOT NULL DEFAULT ',',
+      decimal_separator    VARCHAR(2) NOT NULL DEFAULT '.',
+      print_header_text    TEXT NOT NULL DEFAULT '',
+      letterhead_mime      VARCHAR(100),
+      letterhead_bytes     BYTEA,
+      updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  console.log('Essentials OK.');
 }
 
 async function main() {
@@ -72,26 +130,27 @@ async function main() {
     if (!fs.existsSync(schemaPath)) {
       throw new Error('schema.sql not found at repo root — cannot bootstrap empty database');
     }
+    console.log('Running schema.sql (core)...');
     const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-    await runSqlText('schema.sql (core)', schemaSql);
+    for (const part of splitSqlStatements(schemaSql)) {
+      await runStatement('schema.sql', part);
+    }
+    console.log('Done: schema.sql (core)');
   } else {
     console.log('Core schema already present (tenants) — skipping schema.sql');
   }
+
+  await ensureEssentials();
 
   for (const file of MIGRATION_FILES) {
     try {
       await runSqlFile(file);
     } catch (err) {
-      // بعض الملفات القديمة قد تفشل على مخطط أحدث — نعرض ونكمل إن أمكن
-      const msg = String(err.message || err);
-      if (/already exists|duplicate_column|duplicate_object/i.test(msg)) {
-        console.warn(`Continue after: ${file} — ${msg}`);
-        continue;
-      }
-      throw err;
+      console.warn(`Continue after hard error in ${file}: ${err.message}`);
     }
   }
 
+  await ensureEssentials();
   await pool.end();
   console.log('migrate:all completed.');
 }
