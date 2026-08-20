@@ -79,12 +79,16 @@ git push -u origin master
 ### هـ) تهيئة القاعدة مرة واحدة
 
 1. خدمة الويب → **Shell** (أو **Railway CLI**).
-2. نفّذ:
+2. انتظر حتى يكتمل آخر **Deploy** من GitHub، ثم نفّذ:
 
 ```bash
+npm run patch:trial-db
 npm run migrate:all
 npm run seed:trial
 ```
+
+`patch:trial-db` يصلح أعمدة/جداول أساسية ناقصة على Postgres فاضي.  
+`migrate:all` يكمّل باقي الـ migrations (عيادات، عملات، صناديق، …).
 
 ## خطوات Railway (ملخص قديم)
 
@@ -147,7 +151,8 @@ npm start
 ## أوامر مفيدة
 
 ```bash
-npm run migrate:all   # schema + كل migrations
-npm run seed:trial    # منصة + عيادة تجريبية (idempotent)
-npm start             # تشغيل الـ API (+ SPA في الإنتاج)
+npm run patch:trial-db  # إصلاح سريع لجداول/أعمدة ناقصة
+npm run migrate:all     # schema + كل migrations
+npm run seed:trial      # منصة + عيادة تجريبية (idempotent)
+npm start               # تشغيل الـ API (+ SPA في الإنتاج)
 ```

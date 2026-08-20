@@ -1,7 +1,7 @@
 require('dotenv').config();
 const { pool } = require('../server/db/pool');
 
-/** إصلاح سريع لقاعدة Railway قبل seed:trial */
+/** إصلاح سريع لقاعدة Railway قبل seed:trial — جداول/أعمدة أساسية ناقصة */
 async function main() {
   await pool.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
   const stmts = [
@@ -34,6 +34,62 @@ async function main() {
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       sort_order INT NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS currencies (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      code VARCHAR(10) NOT NULL,
+      name VARCHAR(120) NOT NULL,
+      name_en VARCHAR(120),
+      name_he VARCHAR(120),
+      symbol VARCHAR(16) NOT NULL,
+      decimal_places SMALLINT NOT NULL DEFAULT 2,
+      rate_to_base NUMERIC(18, 8) NOT NULL DEFAULT 1,
+      is_base BOOLEAN NOT NULL DEFAULT FALSE,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (tenant_id, code)
+    )`,
+    `CREATE TABLE IF NOT EXISTS cash_boxes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      currency_id UUID NOT NULL REFERENCES currencies(id) ON DELETE CASCADE,
+      box_kind VARCHAR(20) NOT NULL CHECK (box_kind IN ('CASH', 'CHECKS_IN', 'CHECKS_OUT')),
+      name VARCHAR(160) NOT NULL,
+      name_en VARCHAR(160),
+      name_he VARCHAR(160),
+      account_id UUID NOT NULL REFERENCES chart_of_accounts(id),
+      is_system BOOLEAN NOT NULL DEFAULT FALSE,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (tenant_id, account_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS banks (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      bank_number VARCHAR(20) NOT NULL,
+      name VARCHAR(160) NOT NULL,
+      name_en VARCHAR(160),
+      name_he VARCHAR(160),
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (tenant_id, bank_number)
+    )`,
+    `CREATE TABLE IF NOT EXISTS bank_accounts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      bank_id UUID REFERENCES banks(id) ON DELETE SET NULL,
+      account_kind VARCHAR(20) NOT NULL
+        CHECK (account_kind IN ('CURRENT', 'COLLECTION', 'PAYMENT', 'SAVINGS')),
+      name VARCHAR(160) NOT NULL,
+      name_en VARCHAR(160),
+      name_he VARCHAR(160),
+      account_number VARCHAR(60),
+      currency_id UUID REFERENCES currencies(id) ON DELETE SET NULL,
+      chart_account_id UUID NOT NULL REFERENCES chart_of_accounts(id),
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (tenant_id, chart_account_id)
     )`,
   ];
   for (const sql of stmts) {

@@ -69,27 +69,49 @@ function publicSettings(row) {
   };
 }
 
-async function seedClinicExtras(client, tenantId) {
-  await client.query(
-    `INSERT INTO tenant_settings (tenant_id) VALUES ($1)
-     ON CONFLICT (tenant_id) DO NOTHING`,
-    [tenantId]
-  );
-  const existing = await client.query(
-    'SELECT 1 FROM treatment_catalog WHERE tenant_id = $1 LIMIT 1',
-    [tenantId]
-  );
-  if (existing.rowCount === 0) {
-    for (const [name, price, sortOrder] of DEFAULT_TREATMENTS) {
-      await client.query(
-        `INSERT INTO treatment_catalog (tenant_id, name, price, sort_order)
-         VALUES ($1, $2, $3, $4)`,
-        [tenantId, name, price, sortOrder]
-      );
-    }
-  }
+function isMissingRelation(err) {
+  return err?.code === '42P01' || /does not exist/i.test(String(err?.message || ''));
+}
 
+/** داخل معاملة: فشل جدول ناقص لازم SAVEPOINT وإلا الـ transaction بتنهار */
+async function withOptionalTable(client, label, fn) {
+  const sp = `sp_${label}`.replace(/[^a-z0-9_]/gi, '_').slice(0, 60);
+  await client.query(`SAVEPOINT ${sp}`);
   try {
+    await fn();
+    await client.query(`RELEASE SAVEPOINT ${sp}`);
+  } catch (err) {
+    await client.query(`ROLLBACK TO SAVEPOINT ${sp}`).catch(() => {});
+    if (!isMissingRelation(err)) throw err;
+  }
+}
+
+async function seedClinicExtras(client, tenantId) {
+  await withOptionalTable(client, 'tenant_settings', async () => {
+    await client.query(
+      `INSERT INTO tenant_settings (tenant_id) VALUES ($1)
+       ON CONFLICT (tenant_id) DO NOTHING`,
+      [tenantId]
+    );
+  });
+
+  await withOptionalTable(client, 'treatment_catalog', async () => {
+    const existing = await client.query(
+      'SELECT 1 FROM treatment_catalog WHERE tenant_id = $1 LIMIT 1',
+      [tenantId]
+    );
+    if (existing.rowCount === 0) {
+      for (const [name, price, sortOrder] of DEFAULT_TREATMENTS) {
+        await client.query(
+          `INSERT INTO treatment_catalog (tenant_id, name, price, sort_order)
+           VALUES ($1, $2, $3, $4)`,
+          [tenantId, name, price, sortOrder]
+        );
+      }
+    }
+  });
+
+  await withOptionalTable(client, 'currencies', async () => {
     await client.query(
       `INSERT INTO currencies
          (tenant_id, code, name, name_en, name_he, symbol, decimal_places, rate_to_base, is_base, is_active)
@@ -101,24 +123,17 @@ async function seedClinicExtras(client, tenantId) {
          AND NOT EXISTS (SELECT 1 FROM currencies c WHERE c.tenant_id = $1)`,
       [tenantId]
     );
-  } catch (err) {
-    if (err.code !== '42P01') throw err;
-  }
+  });
 
-  try {
+  await withOptionalTable(client, 'cash_boxes', async () => {
     const { ensureBoxesForAllCurrencies } = require('../accounting/cashBoxes');
     await ensureBoxesForAllCurrencies(client, tenantId);
-  } catch (err) {
-    // الجدول قد لا يكون مُرحَّلًا بعد على بيئات قديمة
-    if (err.code !== '42P01') throw err;
-  }
+  });
 
-  try {
+  await withOptionalTable(client, 'banks', async () => {
     const { seedStandardBanks } = require('../accounting/bankCatalog');
     await seedStandardBanks(client, tenantId);
-  } catch (err) {
-    if (err.code !== '42P01') throw err;
-  }
+  });
 }
 
 module.exports = { DEFAULT_TREATMENTS, DATE_FORMATS, publicSettings, seedClinicExtras };

@@ -125,6 +125,23 @@ async function ensureEssentials() {
         created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `],
+    [`currencies`, `
+      CREATE TABLE IF NOT EXISTS currencies (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        code VARCHAR(10) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        name_en VARCHAR(120),
+        name_he VARCHAR(120),
+        symbol VARCHAR(16) NOT NULL,
+        decimal_places SMALLINT NOT NULL DEFAULT 2,
+        rate_to_base NUMERIC(18, 8) NOT NULL DEFAULT 1,
+        is_base BOOLEAN NOT NULL DEFAULT FALSE,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, code)
+      )
+    `],
   ];
   for (const [label, sql] of stmts) {
     await runStatement(label, sql);
