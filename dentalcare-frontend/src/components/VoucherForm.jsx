@@ -10,22 +10,27 @@
 //    الطلب تكرر شبكيًا.
 // -----------------------------------------------------------
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
+import CurrencySelect from './CurrencySelect';
+import { useCurrencies } from '../hooks/useCurrencies';
 
 const emptyLine = () => ({ accountId: '', debit: '', credit: '', lineMemo: '' });
 
 export default function VoucherForm({ accounts, onPosted }) {
   const { t } = useTranslation();
+  const { currencies, baseCurrency } = useCurrencies();
   const [lines, setLines] = useState([emptyLine(), emptyLine()]);
   const [memo, setMemo] = useState('');
+  const [currencyId, setCurrencyId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
-
-  // مفتاح ثابت طول عمر النموذج المفتوح — ما بيتغيّر إلا لما
-  // ينترحّل بنجاح وينفتح نموذج جديد فاضي
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
+
+  useEffect(() => {
+    if (!currencyId && baseCurrency?.id) setCurrencyId(baseCurrency.id);
+  }, [baseCurrency, currencyId]);
 
   const { totalDebit, totalCredit, diff } = useMemo(() => {
     const d = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
@@ -58,11 +63,16 @@ export default function VoucherForm({ accounts, onPosted }) {
       setError(t('voucher_unbalanced', { diff: Math.abs(diff) }));
       return;
     }
+    if (!currencyId) {
+      setError(t('doc_currency_required'));
+      return;
+    }
 
     setSubmitting(true);
     try {
       const result = await api.post('/journal-entries', {
         memo,
+        currencyId,
         idempotencyKey,
         lines: lines
           .filter((l) => l.accountId && (Number(l.debit) > 0 || Number(l.credit) > 0))
@@ -77,6 +87,7 @@ export default function VoucherForm({ accounts, onPosted }) {
       // نجاح — نفتح نموذج جديد بمفتاح جديد (النموذج القديم "انتهى")
       setLines([emptyLine(), emptyLine()]);
       setMemo('');
+      setCurrencyId(baseCurrency?.id || '');
       setIdempotencyKey(newIdempotencyKey());
       onPosted?.(result);
     } catch (err) {
@@ -95,6 +106,8 @@ export default function VoucherForm({ accounts, onPosted }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
+      <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
+
       {lines.map((line, i) => (
         <div key={i} className="flex gap-2 items-center">
           <select

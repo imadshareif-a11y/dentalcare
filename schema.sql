@@ -17,8 +17,11 @@
 CREATE TABLE tenants (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name            VARCHAR(255) NOT NULL,
+    slug            VARCHAR(50) NOT NULL UNIQUE,
     plan            VARCHAR(50) NOT NULL DEFAULT 'TRIAL',   -- TRIAL / PRO / ENTERPRISE
     status          VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE / SUSPENDED / CANCELLED
+    active_from     DATE,
+    active_until    DATE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -37,8 +40,11 @@ CREATE TABLE users (
     locale          VARCHAR(5) NOT NULL DEFAULT 'ar' CHECK (locale IN ('ar', 'en', 'he')),
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (tenant_id, username)  -- اسم المستخدم فريد ضمن نفس العيادة، مش عالميًا
+    UNIQUE (tenant_id, username)
 );
+
+CREATE UNIQUE INDEX users_username_global_key ON users (LOWER(username));
+CREATE UNIQUE INDEX users_platform_username_key ON users (username) WHERE tenant_id IS NULL;
 
 CREATE INDEX idx_users_tenant ON users(tenant_id);
 

@@ -1,34 +1,84 @@
 // routes/payments.js
-// -----------------------------------------------------------
-// سند صرف: من حـ/ المورد أو المصروف (مدين) إلى حـ/ الخزينة أو
-// البنك (دائن). نفس نمط سند القبض تمامًا، بس بالاتجاه المعاكس.
-// -----------------------------------------------------------
+// سند صرف — دفعات نقدية متعددة العملات + شيكات بعملة لكل شيك.
 
 const express = require('express');
 const router = express.Router();
 const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
+const { resolveCurrencyContext, toBaseAmount } = require('../accounting/currency');
+
+async function resolveAccountByCode(tenantId, code) {
+  return withTenantClient(tenantId, async (client) => {
+    const result = await client.query(
+      `SELECT id FROM chart_of_accounts WHERE account_code = $1 AND is_active = TRUE LIMIT 1`,
+      [code]
+    );
+    return result.rows[0]?.id || null;
+  });
+}
+
+async function resolveCashBoxAccount(tenantId, currencyId, boxKind, fallbackCode) {
+  return withTenantClient(tenantId, async (client) => {
+    if (currencyId) {
+      const byCurrency = await client.query(
+        `SELECT account_id FROM cash_boxes
+         WHERE currency_id = $1 AND box_kind = $2 AND is_active = TRUE
+         ORDER BY is_system DESC, created_at ASC
+         LIMIT 1`,
+        [currencyId, boxKind]
+      );
+      if (byCurrency.rowCount > 0) return byCurrency.rows[0].account_id;
+    }
+    const byCode = await client.query(
+      `SELECT id FROM chart_of_accounts WHERE account_code = $1 AND is_active = TRUE LIMIT 1`,
+      [fallbackCode]
+    );
+    return byCode.rows[0]?.id || null;
+  });
+}
+
+function normalizeCashPayments(body) {
+  if (Array.isArray(body.cashPayments) && body.cashPayments.length > 0) {
+    return body.cashPayments.map((p) => ({
+      cashAccountId: p.cashAccountId,
+      currencyId: p.currencyId || null,
+      amount: Number(p.amount),
+    }));
+  }
+  if (body.cashAccountId && Number(body.amount) > 0) {
+    return [{
+      cashAccountId: body.cashAccountId,
+      currencyId: body.currencyId || null,
+      amount: Number(body.amount),
+    }];
+  }
+  return [];
+}
 
 router.post(
   '/payments',
   requireAuth,
   requirePermission('payments', 'edit'),
   async (req, res) => {
-    // payeeAccountId: حساب المورد أو بند المصروف المباشر
-    // cashAccountId: الصندوق/البنك، أو حساب "حافظة الشيكات الصادرة"
-    // checks (اختياري): [{ checkNumber, bankName, dueDate, drawerName, amount, idempotencyKey }, ...]
-    // نفس منطق سند القبض بالضبط: كل شيك = قيد مستقل بذاته
-    const { payeeAccountId, cashAccountId, amount, memo, idempotencyKey, checks } = req.body;
+    const { payeeAccountId, memo, idempotencyKey, checks, date } = req.body;
+    const entryDate = date ? String(date).slice(0, 10) : null;
 
-    if (!payeeAccountId || !cashAccountId) {
-      return res.status(400).json({ error: 'يجب تحديد حساب المستفيد وحساب الخزينة/البنك' });
-    }
-    if (payeeAccountId === cashAccountId) {
-      return res.status(400).json({ error: 'لا يمكن أن يكون الحسابان متطابقين' });
+    if (!payeeAccountId) {
+      return res.status(400).json({ error: 'يجب تحديد حساب المستفيد' });
     }
 
+    const cashPayments = normalizeCashPayments(req.body);
     const hasChecks = Array.isArray(checks) && checks.length > 0;
+
+    for (const p of cashPayments) {
+      if (!p.cashAccountId || !Number.isFinite(p.amount) || p.amount <= 0) {
+        return res.status(400).json({ error: 'كل دفعة نقدية تحتاج حساب صندوق ومبلغًا أكبر من صفر' });
+      }
+      if (p.cashAccountId === payeeAccountId) {
+        return res.status(400).json({ error: 'لا يمكن أن يكون حساب الصندوق مطابقًا للمستفيد' });
+      }
+    }
 
     if (hasChecks) {
       for (const c of checks) {
@@ -42,76 +92,112 @@ router.post(
           return res.status(400).json({ error: 'خطأ داخلي: مفتاح تكرار الشيك مفقود' });
         }
       }
+    }
 
-      const journalEntryIds = [];
-      try {
+    if (cashPayments.length === 0 && !hasChecks) {
+      return res.status(400).json({ error: 'أدخل مبلغًا نقديًا أو شيكًا واحدًا على الأقل' });
+    }
+
+    let checksHoldingId = null;
+    if (hasChecks) {
+      checksHoldingId = await resolveCashBoxAccount(req.user.tenantId, null, 'CHECKS_OUT', '2200');
+      if (!checksHoldingId) {
+        return res.status(400).json({ error: 'حساب حافظة الشيكات الصادرة غير موجود' });
+      }
+    }
+
+    const journalEntryIds = [];
+    const createdChecks = [];
+    try {
+      for (let i = 0; i < cashPayments.length; i += 1) {
+        const p = cashPayments[i];
+        const currency = await resolveCurrencyContext(req.user.tenantId, p.currencyId || null);
+        const baseAmount = toBaseAmount(p.amount, currency.rate);
+        const { journalEntryId } = await postJournalEntry({
+          tenantId: req.user.tenantId,
+          userId: req.user.userId,
+          sourceType: 'PAYMENT',
+          memo,
+          entryDate,
+          idempotencyKey: i === 0 ? idempotencyKey : `${idempotencyKey || 'pay'}:cash:${i}`,
+          currencyId: currency.currencyId,
+          exchangeRate: currency.rate,
+          lines: [
+            { accountId: payeeAccountId, debit: baseAmount },
+            { accountId: p.cashAccountId, credit: baseAmount },
+          ],
+        });
+        journalEntryIds.push(journalEntryId);
+      }
+
+      if (hasChecks) {
         for (const c of checks) {
-          const numericAmount = Number(c.amount);
+          const currency = await resolveCurrencyContext(req.user.tenantId, c.currencyId || null);
+          const foreignAmount = Number(c.amount);
+          const baseAmount = toBaseAmount(foreignAmount, currency.rate);
+          const holdingId = c.cashAccountId
+            || await resolveCashBoxAccount(req.user.tenantId, currency.currencyId, 'CHECKS_OUT', '2200')
+            || checksHoldingId;
           const { journalEntryId } = await postJournalEntry({
             tenantId: req.user.tenantId,
             userId: req.user.userId,
             sourceType: 'PAYMENT',
             memo,
+            entryDate,
             idempotencyKey: c.idempotencyKey,
+            currencyId: currency.currencyId,
+            exchangeRate: currency.rate,
             lines: [
-              { accountId: payeeAccountId, debit: numericAmount },
-              { accountId: cashAccountId, credit: numericAmount },
+              { accountId: payeeAccountId, debit: baseAmount },
+              { accountId: holdingId, credit: baseAmount },
             ],
           });
 
-          await withTenantClient(req.user.tenantId, async (client) => {
-            await client.query(
+          const inserted = await withTenantClient(req.user.tenantId, async (client) => {
+            const result = await client.query(
               `INSERT INTO checks
                  (tenant_id, journal_entry_id, check_number, bank_name, due_date,
-                  drawer_name, amount, holding_account_id, check_type)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ISSUED')`,
+                  drawer_name, amount, holding_account_id, check_type,
+                  currency_id, exchange_rate, foreign_amount, bank_number,
+                  location, location_account_id, status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ISSUED', $9, $10, $11, $12,
+                       'CHECKS_BOX', $8, 'PENDING')
+               RETURNING id, check_number`,
               [
                 req.user.tenantId, journalEntryId, c.checkNumber, c.bankName,
-                c.dueDate, c.drawerName || null, numericAmount, cashAccountId,
+                c.dueDate, c.drawerName || null, baseAmount, holdingId,
+                currency.currencyId, currency.rate, foreignAmount,
+                c.bankNumber || null,
               ]
             );
+            return result.rows[0];
           });
 
           journalEntryIds.push(journalEntryId);
+          createdChecks.push({
+            id: inserted.id,
+            checkNumber: inserted.check_number,
+            journalEntryId,
+          });
         }
-        return res.status(201).json({ success: true, journalEntryIds });
-      } catch (err) {
-        if (err instanceof UnbalancedEntryError) {
-          return res.status(400).json({ error: err.message });
-        }
-        console.error('Multi-check payment posting failed:', err);
-        return res.status(500).json({
-          error: 'تعذّر ترحيل أحد الشيكات — راجع حافظة الشيكات لمعرفة ما تم ترحيله فعليًا قبل إعادة المحاولة',
-          postedSoFar: journalEntryIds,
-        });
       }
-    }
 
-    // مسار السند العادي (بلا شيكات)
-    const numericAmount = Number(amount);
-    if (!numericAmount || numericAmount <= 0) {
-      return res.status(400).json({ error: 'المبلغ يجب أن يكون أكبر من صفر' });
-    }
-
-    try {
-      const { journalEntryId } = await postJournalEntry({
-        tenantId: req.user.tenantId,
-        userId: req.user.userId,
-        sourceType: 'PAYMENT',
-        memo,
-        idempotencyKey,
-        lines: [
-          { accountId: payeeAccountId, debit: numericAmount },
-          { accountId: cashAccountId, credit: numericAmount },
-        ],
+      return res.status(201).json({
+        success: true,
+        journalEntryId: journalEntryIds[0],
+        journalEntryIds,
+        checks: createdChecks,
       });
-      res.status(201).json({ success: true, journalEntryId });
     } catch (err) {
-      if (err instanceof UnbalancedEntryError) {
-        return res.status(400).json({ error: err.message });
+      if (err.statusCode === 400) return res.status(400).json({ error: err.message });
+      if (err instanceof UnbalancedEntryError || err?.name === 'ClosedFiscalYearError') {
+        return res.status(err.statusCode || 400).json({ error: err.message });
       }
       console.error('Payment posting failed:', err);
-      res.status(500).json({ error: 'تعذّر ترحيل السند، يرجى المحاولة لاحقًا' });
+      return res.status(500).json({
+        error: 'تعذّر ترحيل السند — راجع حافظة الشيكات لمعرفة ما تم ترحيله فعليًا قبل إعادة المحاولة',
+        postedSoFar: journalEntryIds,
+      });
     }
   }
 );

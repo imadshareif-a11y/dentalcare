@@ -9,14 +9,37 @@
 
 const { Pool } = require('pg');
 
-const pool = new Pool({
-  user: process.env.DB_USER || 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  database: process.env.DB_NAME || 'dentalcare',
-  password: process.env.DB_PASSWORD || 'postgres',
-  port: process.env.DB_PORT || 5432,
-  max: 20,
-});
+function buildPoolConfig() {
+  const connectionString = process.env.DATABASE_URL && String(process.env.DATABASE_URL).trim();
+  if (connectionString) {
+    const config = {
+      connectionString,
+      max: Number(process.env.DB_POOL_MAX) || 20,
+    };
+    // Railway / managed Postgres غالبًا يحتاج SSL
+    if (process.env.DB_SSL === '0' || process.env.DB_SSL === 'false') {
+      config.ssl = false;
+    } else if (
+      process.env.DB_SSL === '1'
+      || process.env.DB_SSL === 'true'
+      || /railway\.app|render\.com|amazonaws\.com|neon\.tech|supabase\.co/i.test(connectionString)
+    ) {
+      config.ssl = { rejectUnauthorized: false };
+    }
+    return config;
+  }
+
+  return {
+    user: process.env.DB_USER || 'postgres',
+    host: process.env.DB_HOST || 'localhost',
+    database: process.env.DB_NAME || 'dentalcare',
+    password: process.env.DB_PASSWORD || 'postgres',
+    port: process.env.DB_PORT || 5432,
+    max: Number(process.env.DB_POOL_MAX) || 20,
+  };
+}
+
+const pool = new Pool(buildPoolConfig());
 
 /**
  * ينفّذ دالة (callback) ضمن transaction واحدة، بعد ما يحدد
@@ -66,4 +89,4 @@ async function withSystemClient(callback) {
   }
 }
 
-module.exports = { pool, withTenantClient, withSystemClient };
+module.exports = { pool, withTenantClient, withSystemClient, buildPoolConfig };

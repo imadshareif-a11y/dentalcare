@@ -32,6 +32,45 @@ function requireAuth(req, res, next) {
   }
 }
 
+function requireSuperAdmin(req, res, next) {
+  if (!req.user || req.user.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ error: 'هذه العملية مخصصة لمدير المنصة' });
+  }
+  next();
+}
+
+/**
+ * أي مسار يلمس بيانات عيادة: لازم tenantId بالتوكن، والعيادة ACTIVE.
+ * يمنع SUPER_ADMIN من لمس بيانات عيادية بالغلط عبر /api/accounts وغيرها.
+ */
+function requireClinicContext(req, res, next) {
+  if (!req.user?.tenantId) {
+    return res.status(403).json({ error: 'هذه العملية مخصصة لحسابات العيادات' });
+  }
+
+  // جلسة الدعم الفني من مدير المنصة: السماح حتى لو العيادة موقوفة للمساعدة
+  if (req.user.supportMode) {
+    return next();
+  }
+
+  const { withSystemClient } = require('../db/pool');
+  withSystemClient(async (client) => {
+    const result = await client.query(
+      `SELECT status, active_from, active_until FROM tenants WHERE id = $1`,
+      [req.user.tenantId]
+    );
+    return result.rows[0] || null;
+  }).then((tenant) => {
+    const { clinicAccessDeniedReason } = require('../tenants/access');
+    const denied = clinicAccessDeniedReason(tenant);
+    if (denied) return res.status(403).json({ error: denied });
+    next();
+  }).catch((err) => {
+    console.error('Clinic context check failed:', err);
+    res.status(500).json({ error: 'تعذّر التحقق من العيادة' });
+  });
+}
+
 /**
  * middleware إضافي: يتحقق إنه دور المستخدم من ضمن الأدوار
  * المسموحة للـ route. مثال استخدام:
@@ -60,23 +99,39 @@ function requireRole(allowedRoles) {
 const PERMISSION_LEVEL_RANK = { none: 0, view: 1, edit: 2 };
 
 function requirePermission(key, minLevel = 'edit') {
-  return async (req, res, next) => {
-    try {
-      const { withTenantClient } = require('../db/pool');
-      const level = await withTenantClient(req.user.tenantId, async (client) => {
-        const result = await client.query('SELECT permissions FROM users WHERE id = $1', [req.user.userId]);
-        return result.rows[0]?.permissions?.[key] || 'none';
-      });
-      const hasEnough = (PERMISSION_LEVEL_RANK[level] || 0) >= (PERMISSION_LEVEL_RANK[minLevel] || 0);
-      if (!hasEnough) {
-        return res.status(403).json({ error: 'ليس لديك صلاحية لهذه العملية' });
+  return requireAnyPermission([[key, minLevel]]);
+}
+
+function requireAnyPermission(requirements) {
+  return (req, res, next) => {
+    requireClinicContext(req, res, async () => {
+      try {
+        const { withTenantClient } = require('../db/pool');
+        const perms = await withTenantClient(req.user.tenantId, async (client) => {
+          const result = await client.query('SELECT permissions FROM users WHERE id = $1', [req.user.userId]);
+          return result.rows[0]?.permissions || {};
+        });
+        const hasEnough = requirements.some(([key, minLevel]) => {
+          const level = perms[key] || 'none';
+          return (PERMISSION_LEVEL_RANK[level] || 0) >= (PERMISSION_LEVEL_RANK[minLevel] || 0);
+        });
+        if (!hasEnough) {
+          return res.status(403).json({ error: 'ليس لديك صلاحية لهذه العملية' });
+        }
+        next();
+      } catch (err) {
+        console.error('Permission check failed:', err);
+        res.status(500).json({ error: 'تعذّر التحقق من الصلاحيات' });
       }
-      next();
-    } catch (err) {
-      console.error('Permission check failed:', err);
-      res.status(500).json({ error: 'تعذّر التحقق من الصلاحيات' });
-    }
+    });
   };
 }
 
-module.exports = { requireAuth, requireRole, requirePermission };
+module.exports = {
+  requireAuth,
+  requireRole,
+  requirePermission,
+  requireAnyPermission,
+  requireSuperAdmin,
+  requireClinicContext,
+};

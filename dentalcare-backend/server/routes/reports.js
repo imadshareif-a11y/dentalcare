@@ -10,7 +10,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAuth, requirePermission } = require('../middleware/auth');
+const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 
 // نفس منطق fallback chain الموجود بـ routes/accounts.js — موحّد
@@ -183,6 +183,91 @@ router.get('/reports/profit-loss', requireAuth, requirePermission('reports', 'vi
   } catch (err) {
     console.error('Profit & loss report failed:', err);
     res.status(500).json({ error: 'تعذّر توليد تقرير الأرباح والخسائر' });
+  }
+});
+
+router.get('/reports/journal-book', requireAuth, requirePermission('reports', 'view'), async (req, res) => {
+  const { fromDate, toDate } = req.query;
+  if (!fromDate || !toDate) {
+    return res.status(400).json({ error: 'يجب تحديد الفترة الزمنية' });
+  }
+  try {
+    const data = await withTenantClient(req.user.tenantId, async (client) => {
+      const result = await client.query(
+        `SELECT to_char(e.entry_date, 'YYYY-MM-DD') AS entry_date, e.source_type, e.memo,
+                a.account_code, a.account_name_ar, a.account_name_en, a.account_name_he,
+                l.debit, l.credit, l.line_memo
+         FROM journal_entries e
+         JOIN journal_entry_lines l ON l.journal_entry_id = e.id
+         JOIN chart_of_accounts a ON a.id = l.account_id
+         WHERE e.tenant_id = $1 AND e.entry_date BETWEEN $2 AND $3
+         ORDER BY e.entry_date ASC, e.created_at ASC, e.id ASC`,
+        [req.user.tenantId, fromDate, toDate]
+      );
+      const locale = req.user.locale || 'ar';
+      return result.rows.map((row) => ({
+        date: row.entry_date,
+        sourceType: row.source_type,
+        memo: row.memo,
+        accountCode: row.account_code,
+        accountName: resolveAccountName(row, locale),
+        debit: Number(row.debit),
+        credit: Number(row.credit),
+        lineMemo: row.line_memo,
+      }));
+    });
+    res.json(data);
+  } catch (err) {
+    console.error('Journal book failed:', err);
+    res.status(500).json({ error: 'تعذّر توليد دفتر القيود' });
+  }
+});
+
+router.get(
+  '/reports/clinical',
+  requireAuth,
+  requireAnyPermission([['reports', 'view'], ['clinical', 'view']]),
+  async (req, res) => {
+  const { fromDate, toDate } = req.query;
+  if (!fromDate || !toDate) {
+    return res.status(400).json({ error: 'يجب تحديد الفترة الزمنية' });
+  }
+  try {
+    const data = await withTenantClient(req.user.tenantId, async (client) => {
+      const sessions = await client.query(
+        `SELECT s.id, to_char(s.created_at, 'YYYY-MM-DD') AS session_date, s.total,
+                s.notes, p.name AS patient_name, d.name AS doctor_name
+         FROM clinical_sessions s
+         JOIN parties p ON p.id = s.patient_id
+         LEFT JOIN parties d ON d.id = s.doctor_id
+         WHERE s.tenant_id = $1 AND s.created_at::date BETWEEN $2 AND $3
+         ORDER BY s.created_at ASC`,
+        [req.user.tenantId, fromDate, toDate]
+      );
+      const items = await client.query(
+        `SELECT i.session_id, i.tooth, i.name, i.cost
+         FROM clinical_session_items i
+         JOIN clinical_sessions s ON s.id = i.session_id
+         WHERE s.tenant_id = $1 AND s.created_at::date BETWEEN $2 AND $3
+         ORDER BY i.name`,
+        [req.user.tenantId, fromDate, toDate]
+      );
+      const bySession = new Map();
+      for (const session of sessions.rows) {
+        bySession.set(session.id, { ...session, total: Number(session.total), items: [] });
+      }
+      for (const item of items.rows) {
+        const session = bySession.get(item.session_id);
+        if (session) session.items.push({ tooth: item.tooth, name: item.name, cost: Number(item.cost) });
+      }
+      const list = [...bySession.values()];
+      const total = list.reduce((sum, s) => sum + s.total, 0);
+      return { sessions: list, total, count: list.length };
+    });
+    res.json(data);
+  } catch (err) {
+    console.error('Clinical report failed:', err);
+    res.status(500).json({ error: 'تعذّر توليد التقرير الطبي' });
   }
 });
 

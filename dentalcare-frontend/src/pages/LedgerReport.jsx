@@ -10,12 +10,16 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
+import PrintHeader, { PrintButton } from '../components/PrintHeader';
+import { useSettings } from '../context/SettingsContext';
+import ReportPeriodPicker from '../components/ReportPeriodPicker';
+import useReportPeriod from '../hooks/useReportPeriod';
 
 export default function LedgerReport({ accounts }) {
   const { t } = useTranslation();
+  const { money, date } = useSettings();
+  const { fromDate, toDate, preset, setFromDate, setToDate, setPreset } = useReportPeriod();
   const [accountId, setAccountId] = useState('');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -40,29 +44,40 @@ export default function LedgerReport({ accounts }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
+      <div className="flex gap-2 no-print" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
           <option value="">{t('ledger_choose_account')}</option>
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>{a.account_name}</option>
           ))}
         </select>
-        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+        <ReportPeriodPicker
+          fromDate={fromDate}
+          toDate={toDate}
+          preset={preset}
+          onFromDate={setFromDate}
+          onToDate={setToDate}
+          onPreset={setPreset}
+        />
         <button onClick={generateReport} disabled={loading}>
           {loading ? t('ledger_loading') : t('ledger_show')}
         </button>
+        {report && <PrintButton />}
       </div>
 
       {error && <div className="text-rose-700 font-bold">{error}</div>}
 
       {report && (
-        <div>
+        <div className="print-document">
+          <PrintHeader
+            title={t('nav_ledger')}
+            subtitle={t('report_period_range', { from: date(fromDate), to: date(toDate) })}
+          />
           <div className="flex justify-between font-bold border-b pb-2">
             <span>{report.accountName}</span>
-            <span>{t('ledger_opening_balance')}: {report.openingBalance.toFixed(2)}</span>
+            <span>{t('ledger_opening_balance')}: {money(report.openingBalance)}</span>
           </div>
-          <table className="w-full text-sm">
+          <table className="w-full text-sm print-table">
             <thead>
               <tr>
                 <th>{t('ledger_col_date')}</th><th>{t('ledger_col_details')}</th><th>{t('voucher_debit')}</th><th>{t('voucher_credit')}</th><th>{t('ledger_col_running')}</th>
@@ -71,17 +86,17 @@ export default function LedgerReport({ accounts }) {
             <tbody>
               {report.movements.map((m, i) => (
                 <tr key={i}>
-                  <td>{m.date}</td>
+                  <td>{date(m.date)}</td>
                   <td>{m.details}</td>
-                  <td>{m.debit.toFixed(2)}</td>
-                  <td>{m.credit.toFixed(2)}</td>
-                  <td>{m.runningBalance.toFixed(2)}</td>
+                  <td>{money(m.debit)}</td>
+                  <td>{money(m.credit)}</td>
+                  <td>{money(m.runningBalance)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div className="font-bold text-left">
-            {t('ledger_closing_balance')}: {report.closingBalance.toFixed(2)}
+            {t('ledger_closing_balance')}: {money(report.closingBalance)}
           </div>
         </div>
       )}

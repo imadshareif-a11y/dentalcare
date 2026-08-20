@@ -11,58 +11,116 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
-const { requireAuth, requireRole } = require('../middleware/auth');
-const { withTenantClient } = require('../db/pool');
+const { requireAuth, requireRole, requireClinicContext } = require('../middleware/auth');
+const { withTenantClient, withSystemClient } = require('../db/pool');
+const { assertUsernameAvailable } = require('../tenants/bootstrap');
+const {
+  VALID_ROLES,
+  PERMISSION_KEYS,
+  VALID_LEVELS,
+  BUILTIN_DEFAULTS,
+  sanitizePermissionsOverride,
+  sanitizeRoleDefaultsMap,
+  mergeTenantDefaults,
+} = require('../permissions/defaults');
 
-const VALID_ROLES = ['OWNER', 'ACCOUNTANT', 'DOCTOR', 'RECEPTIONIST'];
-const PERMISSION_KEYS = [
-  'clinical', 'receipts', 'payments', 'journal', 'openingBalance',
-  'patients', 'doctors', 'checks', 'reports', 'users',
-];
-const VALID_LEVELS = ['none', 'view', 'edit'];
-
-// الصلاحيات الافتراضية حسب الدور — نقطة انطلاق وقت إنشاء مستخدم
-// جديد، وبعدها المدير يقدر يعدّلها فرديًا أي وقت. لاحظ الـ
-// RECEPTIONIST هون: عندها صلاحية "سند قبض" كاملة (edit) — سيناريو
-// حقيقي طلبته عيادات فعلية — بس باقي المحاسبة (صرف، قيد) مخفية
-// عنها تمامًا، ومرضى/شيكات/تقارير مشاهدة بس
-const DEFAULT_PERMISSIONS = {
-  OWNER: {
-    clinical: 'edit', receipts: 'edit', payments: 'edit', journal: 'edit', openingBalance: 'edit',
-    patients: 'edit', doctors: 'edit', checks: 'edit', reports: 'view', users: 'edit',
-  },
-  ACCOUNTANT: {
-    clinical: 'none', receipts: 'edit', payments: 'edit', journal: 'edit', openingBalance: 'none',
-    patients: 'edit', doctors: 'view', checks: 'edit', reports: 'view', users: 'none',
-  },
-  DOCTOR: {
-    clinical: 'edit', receipts: 'none', payments: 'none', journal: 'none', openingBalance: 'none',
-    patients: 'view', doctors: 'none', checks: 'none', reports: 'view', users: 'none',
-  },
-  RECEPTIONIST: {
-    clinical: 'none', receipts: 'edit', payments: 'none', journal: 'none', openingBalance: 'none',
-    patients: 'edit', doctors: 'none', checks: 'view', reports: 'view', users: 'none',
-  },
-};
-
-function sanitizePermissionsOverride(overrides) {
-  if (!overrides || typeof overrides !== 'object') return {};
-  const clean = {};
-  for (const key of PERMISSION_KEYS) {
-    if (VALID_LEVELS.includes(overrides[key])) clean[key] = overrides[key];
-  }
-  return clean;
+async function loadRoleDefaults(tenantId) {
+  return withTenantClient(tenantId, async (client) => {
+    const result = await client.query(
+      `SELECT role_permission_defaults FROM tenant_settings WHERE tenant_id = $1`,
+      [tenantId]
+    );
+    return mergeTenantDefaults(result.rows[0]?.role_permission_defaults);
+  });
 }
 
-// يرجّع القوائم والافتراضيات — الواجهة بتستخدمها عشان تبني
-// checkboxes ديناميكيًا بدون ما تكرر نفس القائمة يدويًا بالفرونت
-router.get('/permission-defaults', requireAuth, requireRole(['OWNER']), (req, res) => {
-  res.json({ keys: PERMISSION_KEYS, levels: VALID_LEVELS, defaults: DEFAULT_PERMISSIONS });
+router.get('/permission-defaults', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
+  try {
+    const defaults = await loadRoleDefaults(req.user.tenantId);
+    res.json({
+      keys: PERMISSION_KEYS,
+      levels: VALID_LEVELS,
+      roles: VALID_ROLES,
+      defaults,
+      builtin: BUILTIN_DEFAULTS,
+    });
+  } catch (err) {
+    console.error('Loading permission defaults failed:', err);
+    res.status(500).json({ error: 'تعذّر جلب صلاحيات الأدوار الافتراضية' });
+  }
 });
+
+router.put('/permission-defaults', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
+  const clean = sanitizeRoleDefaultsMap(req.body?.defaults || req.body);
+  try {
+    const saved = await withTenantClient(req.user.tenantId, async (client) => {
+      await client.query(
+        `INSERT INTO tenant_settings (tenant_id) VALUES ($1) ON CONFLICT (tenant_id) DO NOTHING`,
+        [req.user.tenantId]
+      );
+      const result = await client.query(
+        `UPDATE tenant_settings
+         SET role_permission_defaults = $2::jsonb, updated_at = now()
+         WHERE tenant_id = $1
+         RETURNING role_permission_defaults`,
+        [req.user.tenantId, JSON.stringify(clean)]
+      );
+      return mergeTenantDefaults(result.rows[0]?.role_permission_defaults);
+    });
+    res.json({
+      success: true,
+      keys: PERMISSION_KEYS,
+      levels: VALID_LEVELS,
+      roles: VALID_ROLES,
+      defaults: saved,
+      builtin: BUILTIN_DEFAULTS,
+    });
+  } catch (err) {
+    console.error('Saving permission defaults failed:', err);
+    res.status(500).json({ error: 'تعذّر حفظ صلاحيات الأدوار الافتراضية' });
+  }
+});
+
+router.post(
+  '/permission-defaults/reset',
+  requireAuth,
+  requireClinicContext,
+  requireRole(['OWNER']),
+  async (req, res) => {
+    try {
+      const saved = await withTenantClient(req.user.tenantId, async (client) => {
+        await client.query(
+          `INSERT INTO tenant_settings (tenant_id) VALUES ($1) ON CONFLICT (tenant_id) DO NOTHING`,
+          [req.user.tenantId]
+        );
+        const result = await client.query(
+          `UPDATE tenant_settings
+           SET role_permission_defaults = NULL, updated_at = now()
+           WHERE tenant_id = $1
+           RETURNING role_permission_defaults`,
+          [req.user.tenantId]
+        );
+        return mergeTenantDefaults(result.rows[0]?.role_permission_defaults);
+      });
+      res.json({
+        success: true,
+        keys: PERMISSION_KEYS,
+        levels: VALID_LEVELS,
+        roles: VALID_ROLES,
+        defaults: saved,
+        builtin: BUILTIN_DEFAULTS,
+      });
+    } catch (err) {
+      console.error('Resetting permission defaults failed:', err);
+      res.status(500).json({ error: 'تعذّر استعادة الافتراضيات' });
+    }
+  }
+);
 
 router.post(
   '/users',
   requireAuth,
+  requireClinicContext,
   requireRole(['OWNER']),
   async (req, res) => {
     const { name, username, password, role, permissions } = req.body;
@@ -77,16 +135,35 @@ router.post(
       return res.status(400).json({ error: 'دور غير صالح' });
     }
 
-    // نبلش من الصلاحيات الافتراضية لهذا الدور، وبعدها نطبّق أي
-    // تخصيص أرسله المدير فوقها (لو حدد)
-    const finalPermissions = {
-      ...DEFAULT_PERMISSIONS[role],
-      ...sanitizePermissionsOverride(permissions),
-    };
-
     try {
+      const roleDefaults = await loadRoleDefaults(req.user.tenantId);
+      const finalPermissions = {
+        ...roleDefaults[role],
+        ...sanitizePermissionsOverride(permissions),
+      };
+
+      await withSystemClient(async (client) => {
+        await assertUsernameAvailable(client, username.trim());
+      });
       const passwordHash = await bcrypt.hash(password, 10);
       const userId = await withTenantClient(req.user.tenantId, async (client) => {
+        const limits = await client.query(
+          `SELECT t.max_users,
+                  (SELECT COUNT(*)::int FROM users u
+                    WHERE u.tenant_id = t.id
+                      AND LOWER(u.username) NOT LIKE 'support.%') AS user_count
+           FROM tenants t
+           WHERE t.id = $1`,
+          [req.user.tenantId]
+        );
+        const maxUsers = Number(limits.rows[0]?.max_users) || 10;
+        const userCount = Number(limits.rows[0]?.user_count) || 0;
+        if (userCount >= maxUsers) {
+          const err = new Error(`تم بلوغ الحد الأقصى للمستخدمين لهذه العيادة (${maxUsers})`);
+          err.statusCode = 400;
+          throw err;
+        }
+
         const result = await client.query(
           `INSERT INTO users (tenant_id, name, username, password_hash, role, permissions)
            VALUES ($1, $2, $3, $4, $5, $6)
@@ -98,6 +175,7 @@ router.post(
 
       res.status(201).json({ success: true, userId, permissions: finalPermissions });
     } catch (err) {
+      if (err.statusCode === 400) return res.status(400).json({ error: err.message });
       if (err.code === '23505') {
         return res.status(409).json({ error: 'اسم المستخدم هذا مستخدم مسبقًا' });
       }
@@ -110,13 +188,18 @@ router.post(
 router.get(
   '/users',
   requireAuth,
+  requireClinicContext,
   requireRole(['OWNER']),
   async (req, res) => {
     try {
       const users = await withTenantClient(req.user.tenantId, async (client) => {
         const result = await client.query(
           `SELECT id, name, username, role, is_active, permissions
-           FROM users ORDER BY name ASC`
+           FROM users
+           WHERE tenant_id = $1 AND role <> 'SUPER_ADMIN'
+             AND LOWER(username) NOT LIKE 'support.%'
+           ORDER BY name ASC`,
+          [req.user.tenantId]
         );
         return result.rows;
       });
@@ -128,11 +211,10 @@ router.get(
   }
 );
 
-// تعديل صلاحيات مستخدم موجود — دمج جزئي (مش استبدال كامل)، أي
-// مفتاح ما تم إرساله بيضل على قيمته الحالية بدون تغيير
 router.patch(
   '/users/:id/permissions',
   requireAuth,
+  requireClinicContext,
   requireRole(['OWNER']),
   async (req, res) => {
     const { id } = req.params;
@@ -146,9 +228,9 @@ router.patch(
       const updated = await withTenantClient(req.user.tenantId, async (client) => {
         const result = await client.query(
           `UPDATE users SET permissions = permissions || $1::jsonb
-           WHERE id = $2
+           WHERE id = $2 AND tenant_id = $3 AND role <> 'SUPER_ADMIN'
            RETURNING id, permissions`,
-          [JSON.stringify(clean), id]
+          [JSON.stringify(clean), id, req.user.tenantId]
         );
         return result.rows[0] || null;
       });

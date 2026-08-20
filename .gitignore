@@ -1,0 +1,6 @@
+# Root ignores for DentalCare
+dentalcare-backend/backups/
+dentalcare-backend/.env
+**/node_modules/
+*.dump
+.DS_Store

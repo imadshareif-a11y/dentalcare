@@ -11,6 +11,7 @@
 // -----------------------------------------------------------
 
 const { withTenantClient } = require('../db/pool');
+const { assertEntryDateAllowed, ClosedFiscalYearError } = require('./fiscalYears');
 
 class UnbalancedEntryError extends Error {
   constructor(totalDebit, totalCredit) {
@@ -35,7 +36,18 @@ class UnbalancedEntryError extends Error {
  * @returns {Promise<{journalEntryId: string}>}
  * @throws {UnbalancedEntryError} لو مجموع المدين لا يساوي مجموع الدائن
  */
-async function postJournalEntry({ tenantId, userId, sourceType, sourceRefId, memo, lines, idempotencyKey }) {
+async function postJournalEntry({
+  tenantId,
+  userId,
+  sourceType,
+  sourceRefId,
+  memo,
+  lines,
+  idempotencyKey,
+  currencyId = null,
+  exchangeRate = 1,
+  entryDate = null,
+}) {
   // --- حماية من التكرار: نفس idempotencyKey ما بيترحّل مرتين ---
   // لو الواجهة أرسلت نفس الطلب مرتين (تأخر شبكة، ضغط مزدوج،
   // ريفريش)، نرجّع نفس النتيجة الأولى بدون ما نكرر الترحيل.
@@ -80,16 +92,25 @@ async function postJournalEntry({ tenantId, userId, sourceType, sourceRefId, mem
     throw new UnbalancedEntryError(totalDebit.toFixed(2), totalCredit.toFixed(2));
   }
 
+  const rate = Number(exchangeRate) > 0 ? Number(exchangeRate) : 1;
+
   // --- الطبقة الثانية من الحماية: transaction + RLS + trigger ---
   // حتى لو في bug بالتحقق فوق (مثلاً عدّله AI بالمستقبل وكسره)،
   // الـ trigger بقاعدة البيانات (شوف sql/trigger_balance_check.sql)
   // رح يرفض أي قيد غير متوازن قبل ما ينترحل نهائيًا.
+  const day = entryDate && /^\d{4}-\d{2}-\d{2}$/.test(String(entryDate).slice(0, 10))
+    ? String(entryDate).slice(0, 10)
+    : null;
+
+  await assertEntryDateAllowed(tenantId, day || new Date().toISOString().slice(0, 10));
+
   return withTenantClient(tenantId, async (client) => {
     const entryResult = await client.query(
-      `INSERT INTO journal_entries (tenant_id, source_type, source_ref_id, memo, created_by)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO journal_entries
+         (tenant_id, source_type, source_ref_id, memo, created_by, currency_id, exchange_rate, entry_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::date, CURRENT_DATE))
        RETURNING id`,
-      [tenantId, sourceType, sourceRefId || null, memo || null, userId]
+      [tenantId, sourceType, sourceRefId || null, memo || null, userId, currencyId, rate, day]
     );
     const journalEntryId = entryResult.rows[0].id;
 
@@ -126,6 +147,15 @@ async function reverseJournalEntry({ tenantId, userId, originalEntryId, memo }) 
       throw new Error('القيد الأصلي غير موجود');
     }
 
+    const original = await client.query(
+      `SELECT entry_date FROM journal_entries WHERE id = $1`,
+      [originalEntryId]
+    );
+    const originalDay = original.rows[0]?.entry_date
+      ? String(original.rows[0].entry_date).slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    await assertEntryDateAllowed(tenantId, originalDay, client);
+
     // نعكس كل سطر: المدين يصير دائن والعكس
     const reversedLines = linesResult.rows.map((row) => ({
       accountId: row.account_id,
@@ -134,10 +164,10 @@ async function reverseJournalEntry({ tenantId, userId, originalEntryId, memo }) 
     }));
 
     const entryResult = await client.query(
-      `INSERT INTO journal_entries (tenant_id, source_type, source_ref_id, memo, created_by)
-       VALUES ($1, 'REVERSAL', $2, $3, $4)
+      `INSERT INTO journal_entries (tenant_id, source_type, source_ref_id, memo, created_by, entry_date)
+       VALUES ($1, 'REVERSAL', $2, $3, $4, $5::date)
        RETURNING id`,
-      [tenantId, originalEntryId, memo || 'قيد عكسي لتصحيح', userId]
+      [tenantId, originalEntryId, memo || 'قيد عكسي لتصحيح', userId, originalDay]
     );
     const reversalId = entryResult.rows[0].id;
 
@@ -181,4 +211,5 @@ module.exports = {
   reverseJournalEntry,
   getAccountBalance,
   UnbalancedEntryError,
+  ClosedFiscalYearError,
 };

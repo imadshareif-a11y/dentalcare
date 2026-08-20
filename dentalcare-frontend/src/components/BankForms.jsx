@@ -1,0 +1,279 @@
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { api, ApiError } from '../api/client';
+
+const EMPTY_BANK = { bankNumber: '', name: '', nameEn: '', nameHe: '', isActive: true };
+
+export function BankCatalogForm({ record, onSaved }) {
+  const { t } = useTranslation();
+  const isEdit = Boolean(record?.id);
+  const [form, setForm] = useState(EMPTY_BANK);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (record) {
+      setForm({
+        bankNumber: record.bank_number || '',
+        name: record.name || '',
+        nameEn: record.name_en || '',
+        nameHe: record.name_he || '',
+        isActive: record.is_active !== false,
+      });
+    } else {
+      setForm(EMPTY_BANK);
+    }
+    setError(null);
+  }, [record]);
+
+  function setField(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    if (!form.bankNumber.trim() || !form.name.trim()) {
+      setError(t('bank_required_fields'));
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const payload = {
+        bankNumber: form.bankNumber.trim(),
+        name: form.name.trim(),
+        nameEn: form.nameEn.trim() || null,
+        nameHe: form.nameHe.trim() || null,
+        isActive: form.isActive,
+      };
+      if (isEdit) await api.patch(`/banks/${record.id}`, payload);
+      else await api.post('/banks', payload);
+      onSaved?.();
+    } catch (err) {
+      setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <div className="dc-form-row">
+        <div className="dc-form-field">
+          <label>{t('bank_number')}</label>
+          <input
+            type="text"
+            value={form.bankNumber}
+            onChange={(e) => setField('bankNumber', e.target.value)}
+            required
+          />
+        </div>
+        <div className="dc-form-field">
+          <label>{t('bank_name')}</label>
+          <input
+            type="text"
+            value={form.name}
+            onChange={(e) => setField('name', e.target.value)}
+            required
+          />
+        </div>
+      </div>
+      <div className="dc-form-row">
+        <div className="dc-form-field">
+          <label>{t('bank_name_en')}</label>
+          <input type="text" value={form.nameEn} onChange={(e) => setField('nameEn', e.target.value)} />
+        </div>
+        <div className="dc-form-field">
+          <label>{t('bank_name_he')}</label>
+          <input type="text" value={form.nameHe} onChange={(e) => setField('nameHe', e.target.value)} />
+        </div>
+      </div>
+      {isEdit && (
+        <label className="dc-check-row">
+          <input
+            type="checkbox"
+            checked={form.isActive}
+            onChange={(e) => setField('isActive', e.target.checked)}
+          />
+          {t('cash_box_is_active')}
+        </label>
+      )}
+      {error && <div className="dc-error">{error}</div>}
+      <button type="submit" disabled={submitting}>
+        {submitting ? t('party_saving') : (isEdit ? t('party_save') : t('bank_add'))}
+      </button>
+    </form>
+  );
+}
+
+const EMPTY_ACCOUNT = {
+  accountKind: 'CURRENT',
+  bankId: '',
+  currencyId: '',
+  name: '',
+  nameEn: '',
+  nameHe: '',
+  accountNumber: '',
+  isActive: true,
+};
+
+export function BankAccountForm({
+  record,
+  banks,
+  currencies,
+  defaultKind = 'CURRENT',
+  onSaved,
+}) {
+  const { t } = useTranslation();
+  const isEdit = Boolean(record?.id);
+  const [form, setForm] = useState(EMPTY_ACCOUNT);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (record) {
+      setForm({
+        accountKind: record.account_kind || 'CURRENT',
+        bankId: record.bank_id || '',
+        currencyId: record.currency_id || '',
+        name: record.name || '',
+        nameEn: record.name_en || '',
+        nameHe: record.name_he || '',
+        accountNumber: record.account_number || '',
+        isActive: record.is_active !== false,
+      });
+    } else {
+      setForm({ ...EMPTY_ACCOUNT, accountKind: defaultKind });
+    }
+    setError(null);
+  }, [record, defaultKind]);
+
+  function setField(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    if (!form.name.trim()) {
+      setError(t('bank_account_name_required'));
+      return;
+    }
+    setSubmitting(true);
+    try {
+      if (isEdit) {
+        await api.patch(`/bank-accounts/${record.id}`, {
+          name: form.name.trim(),
+          nameEn: form.nameEn.trim() || null,
+          nameHe: form.nameHe.trim() || null,
+          accountNumber: form.accountNumber.trim() || null,
+          bankId: form.bankId || null,
+          currencyId: form.currencyId || null,
+          isActive: form.isActive,
+        });
+      } else {
+        await api.post('/bank-accounts', {
+          accountKind: form.accountKind,
+          name: form.name.trim(),
+          nameEn: form.nameEn.trim() || null,
+          nameHe: form.nameHe.trim() || null,
+          accountNumber: form.accountNumber.trim() || null,
+          bankId: form.bankId || null,
+          currencyId: form.currencyId || null,
+        });
+      }
+      onSaved?.();
+    } catch (err) {
+      setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      {!isEdit && (
+        <div>
+          <label className="dc-muted text-sm">{t('bank_account_kind')}</label>
+          <select
+            value={form.accountKind}
+            onChange={(e) => setField('accountKind', e.target.value)}
+            required
+          >
+            <option value="CURRENT">{t('bank_account_kind_current')}</option>
+            <option value="COLLECTION">{t('bank_account_kind_collection')}</option>
+            <option value="PAYMENT">{t('bank_account_kind_payment')}</option>
+            <option value="SAVINGS">{t('bank_account_kind_savings')}</option>
+          </select>
+        </div>
+      )}
+
+      <div>
+        <label className="dc-muted text-sm">{t('bank_account_name')}</label>
+        <input
+          type="text"
+          value={form.name}
+          onChange={(e) => setField('name', e.target.value)}
+          required
+        />
+      </div>
+
+      <div className="dc-form-row">
+        <div className="dc-form-field">
+          <label>{t('bank_linked')}</label>
+          <select value={form.bankId} onChange={(e) => setField('bankId', e.target.value)}>
+            <option value="">{t('bank_choose_optional')}</option>
+            {banks.map((b) => (
+              <option key={b.id} value={b.id}>{b.bank_number} — {b.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="dc-form-field">
+          <label>{t('bank_account_number')}</label>
+          <input
+            type="text"
+            value={form.accountNumber}
+            onChange={(e) => setField('accountNumber', e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="dc-muted text-sm">{t('doc_currency')}</label>
+        <select value={form.currencyId} onChange={(e) => setField('currencyId', e.target.value)}>
+          <option value="">{t('doc_currency_choose')}</option>
+          {currencies.map((c) => (
+            <option key={c.id} value={c.id}>{c.code} — {c.symbol}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="dc-form-row">
+        <div className="dc-form-field">
+          <label>{t('bank_name_en')}</label>
+          <input type="text" value={form.nameEn} onChange={(e) => setField('nameEn', e.target.value)} />
+        </div>
+        <div className="dc-form-field">
+          <label>{t('bank_name_he')}</label>
+          <input type="text" value={form.nameHe} onChange={(e) => setField('nameHe', e.target.value)} />
+        </div>
+      </div>
+
+      {isEdit && (
+        <label className="dc-check-row">
+          <input
+            type="checkbox"
+            checked={form.isActive}
+            onChange={(e) => setField('isActive', e.target.checked)}
+          />
+          {t('cash_box_is_active')}
+        </label>
+      )}
+
+      {error && <div className="dc-error">{error}</div>}
+      <button type="submit" disabled={submitting}>
+        {submitting ? t('party_saving') : (isEdit ? t('party_save') : t('bank_account_add'))}
+      </button>
+    </form>
+  );
+}

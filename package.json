@@ -1,0 +1,16 @@
+{
+  "name": "dentalcare-project",
+  "private": true,
+  "version": "1.0.0",
+  "description": "DentalCare clinic ERP — monorepo root for trial deploy",
+  "scripts": {
+    "build": "npm --prefix dentalcare-frontend ci && npm --prefix dentalcare-frontend run build -- --mode production && npm --prefix dentalcare-backend ci --omit=dev",
+    "build:frontend:prod": "npm --prefix dentalcare-frontend run build",
+    "start": "npm --prefix dentalcare-backend start",
+    "migrate:all": "npm --prefix dentalcare-backend run migrate:all",
+    "seed:trial": "npm --prefix dentalcare-backend run seed:trial"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

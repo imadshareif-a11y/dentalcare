@@ -14,6 +14,9 @@ async function runSqlFile(relativePath) {
 async function main() {
   await runSqlFile('sql/permissions_v0_add_column.sql');
   await runSqlFile('sql/permissions_v1.sql');
+  await runSqlFile('sql/permissions_v2_appointments.sql');
+  await runSqlFile('sql/permissions_v3_accounts.sql');
+  await runSqlFile('sql/employees_v1.sql');
   await pool.end();
   console.log('Permissions migration completed.');
 }

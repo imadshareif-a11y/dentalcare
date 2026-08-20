@@ -1,35 +1,67 @@
 // components/PatientForm.jsx
-// -----------------------------------------------------------
-// عند النجاح، السيرفر بيكون أنشأ حساب ذمة تلقائيًا بنفس
-// الـ transaction (شوف routes/patients.js). الواجهة هون بس
-// بتعرض النتيجة — ما فيها أي منطق "ربط" يدوي بين المريض والحساب.
-// -----------------------------------------------------------
-
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import { ageFromBirthDate, todayIso } from '../lib/patientAge';
 
-export default function PatientForm({ onRegistered }) {
+export default function PatientForm({ record, onSaved, onRegistered }) {
   const { t } = useTranslation();
+  const isEdit = Boolean(record?.id);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [birthDate, setBirthDate] = useState('');
+  const [gender, setGender] = useState('');
+  const [address, setAddress] = useState('');
+  const [medicalNotes, setMedicalNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+
+  const computedAge = useMemo(() => ageFromBirthDate(birthDate), [birthDate]);
+
+  useEffect(() => {
+    if (record) {
+      setName(record.name || '');
+      setPhone(record.phone || '');
+      setBirthDate(record.birth_date ? String(record.birth_date).slice(0, 10) : '');
+      setGender(record.gender || '');
+      setAddress(record.address || '');
+      setMedicalNotes(record.medical_notes || '');
+    } else {
+      setName('');
+      setPhone('');
+      setBirthDate('');
+      setGender('');
+      setAddress('');
+      setMedicalNotes('');
+    }
+    setError(null);
+  }, [record]);
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
-
     if (!name.trim()) {
       setError(t('patient_name_required'));
       return;
     }
-
+    if (birthDate && birthDate > todayIso()) {
+      setError(t('patient_birth_date_invalid'));
+      return;
+    }
     setSubmitting(true);
     try {
-      const result = await api.post('/patients', { name: name.trim(), phone });
-      setName('');
-      setPhone('');
+      const payload = {
+        name: name.trim(),
+        phone,
+        birthDate: birthDate || null,
+        gender: gender || null,
+        address: address.trim() || null,
+        medicalNotes: medicalNotes.trim() || null,
+      };
+      const result = isEdit
+        ? await api.patch(`/patients/${record.id}`, payload)
+        : await api.post('/patients', payload);
+      onSaved?.(result);
       onRegistered?.(result);
     } catch (err) {
       setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
@@ -40,18 +72,34 @@ export default function PatientForm({ onRegistered }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <h3>{t('patient_register')}</h3>
-      <input
-        type="text" placeholder={t('patient_name')}
-        value={name} onChange={(e) => setName(e.target.value)} required
+      <input type="text" placeholder={t('patient_name')} value={name} onChange={(e) => setName(e.target.value)} required />
+      <input type="text" placeholder={t('patient_phone')} value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          type="date"
+          value={birthDate}
+          max={todayIso()}
+          onChange={(e) => setBirthDate(e.target.value)}
+          style={{ flex: 1, minWidth: 160 }}
+        />
+        <select value={gender} onChange={(e) => setGender(e.target.value)} style={{ flex: 1, minWidth: 120 }}>
+          <option value="">{t('patient_gender')}</option>
+          <option value="MALE">{t('patient_gender_male')}</option>
+          <option value="FEMALE">{t('patient_gender_female')}</option>
+        </select>
+      </div>
+      {computedAge != null && (
+        <div className="dc-muted text-sm">{t('patient_age_auto', { age: computedAge })}</div>
+      )}
+      <input type="text" placeholder={t('patient_address')} value={address} onChange={(e) => setAddress(e.target.value)} />
+      <textarea
+        placeholder={t('patient_medical_notes')}
+        value={medicalNotes} onChange={(e) => setMedicalNotes(e.target.value)}
+        rows={2}
       />
-      <input
-        type="text" placeholder={t('patient_phone')}
-        value={phone} onChange={(e) => setPhone(e.target.value)}
-      />
-      {error && <div style={{ color: 'crimson', fontWeight: 'bold' }}>{error}</div>}
+      {error && <div className="dc-error">{error}</div>}
       <button type="submit" disabled={submitting}>
-        {submitting ? t('patient_registering') : t('patient_register')}
+        {submitting ? t('party_saving') : (isEdit ? t('party_save') : t('patient_register'))}
       </button>
     </form>
   );

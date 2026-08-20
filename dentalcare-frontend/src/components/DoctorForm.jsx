@@ -1,10 +1,11 @@
 // components/DoctorForm.jsx
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 
-export default function DoctorForm({ onRegistered }) {
+export default function DoctorForm({ record, onSaved }) {
   const { t } = useTranslation();
+  const isEdit = Boolean(record?.id);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [compensationType, setCompensationType] = useState('SALARY');
@@ -13,10 +14,26 @@ export default function DoctorForm({ onRegistered }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
+  useEffect(() => {
+    if (record) {
+      setName(record.name || '');
+      setPhone(record.phone || '');
+      setCompensationType(record.compensation_type || 'SALARY');
+      setPercentageRate(record.percentage_rate != null ? String(record.percentage_rate) : '');
+      setMonthlySalary(record.monthly_salary != null ? String(record.monthly_salary) : '');
+    } else {
+      setName('');
+      setPhone('');
+      setCompensationType('SALARY');
+      setPercentageRate('');
+      setMonthlySalary('');
+    }
+    setError(null);
+  }, [record]);
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
-
     if (!name.trim()) {
       setError(t('doctor_name_required'));
       return;
@@ -35,22 +52,19 @@ export default function DoctorForm({ onRegistered }) {
         return;
       }
     }
-
     setSubmitting(true);
     try {
-      const result = await api.post('/doctors', {
+      const payload = {
         name: name.trim(),
         phone,
         compensationType,
         percentageRate: compensationType === 'PERCENTAGE' ? Number(percentageRate) : undefined,
         monthlySalary: compensationType === 'SALARY' ? Number(monthlySalary) : undefined,
-      });
-      setName('');
-      setPhone('');
-      setPercentageRate('');
-      setMonthlySalary('');
-      setCompensationType('SALARY');
-      onRegistered?.(result);
+      };
+      const result = isEdit
+        ? await api.patch(`/doctors/${record.id}`, payload)
+        : await api.post('/doctors', payload);
+      onSaved?.(result);
     } catch (err) {
       setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
     } finally {
@@ -60,16 +74,8 @@ export default function DoctorForm({ onRegistered }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <h3>{t('doctor_register')}</h3>
-      <input
-        type="text" placeholder={t('doctor_name')}
-        value={name} onChange={(e) => setName(e.target.value)} required
-      />
-      <input
-        type="text" placeholder={t('doctor_phone')}
-        value={phone} onChange={(e) => setPhone(e.target.value)}
-      />
-
+      <input type="text" placeholder={t('doctor_name')} value={name} onChange={(e) => setName(e.target.value)} required />
+      <input type="text" placeholder={t('doctor_phone')} value={phone} onChange={(e) => setPhone(e.target.value)} />
       <div>
         <label>{t('doctor_compensation_type')}</label>
         <select value={compensationType} onChange={(e) => setCompensationType(e.target.value)}>
@@ -78,25 +84,21 @@ export default function DoctorForm({ onRegistered }) {
           <option value="PARTNER">{t('doctor_compensation_partner')}</option>
         </select>
       </div>
-
       {compensationType === 'PERCENTAGE' && (
         <input
           type="number" min="0" max="100" step="0.5" placeholder={t('doctor_percentage_rate')}
           value={percentageRate} onChange={(e) => setPercentageRate(e.target.value)} required
         />
       )}
-
       {compensationType === 'SALARY' && (
         <input
           type="number" min="0" step="0.01" placeholder={t('doctor_monthly_salary')}
           value={monthlySalary} onChange={(e) => setMonthlySalary(e.target.value)} required
         />
       )}
-
-      {error && <div style={{ color: 'crimson', fontWeight: 'bold' }}>{error}</div>}
-
+      {error && <div className="dc-error">{error}</div>}
       <button type="submit" disabled={submitting}>
-        {submitting ? t('doctor_registering') : t('doctor_register')}
+        {submitting ? t('party_saving') : (isEdit ? t('party_save') : t('doctor_register'))}
       </button>
     </form>
   );

@@ -19,12 +19,27 @@ function getToken() {
   return localStorage.getItem('auth_token');
 }
 
-async function request(path, { method = 'GET', body, params } = {}) {
-  const token = getToken();
-  const url = new URL(`${API_BASE}${path}`);
+/** يدعم Base مطلق (http…) أو نسبي (/api) لنسخة الإنتاج على نفس الدومين */
+function resolveApiUrl(path, params) {
+  const base = String(API_BASE || '').replace(/\/$/, '');
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  const joined = `${base}${suffix}`;
+  const url = /^https?:\/\//i.test(joined)
+    ? new URL(joined)
+    : new URL(joined, window.location.origin);
   if (params) {
     Object.entries(params).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
   }
+  return url;
+}
+
+function apiHref(path) {
+  return resolveApiUrl(path).toString();
+}
+
+async function request(path, { method = 'GET', body, params } = {}) {
+  const token = getToken();
+  const url = resolveApiUrl(path, params);
 
   const res = await fetch(url, {
     method,
@@ -43,14 +58,70 @@ async function request(path, { method = 'GET', body, params } = {}) {
   }
 
   if (!res.ok) {
-    // ما منخفي الخطأ ولا منحاول "نصلحه محليًا" — منرميه صريح
     throw new ApiError(data?.error || 'حدث خطأ غير متوقع', res.status, data);
   }
 
   return data;
 }
 
-/** يولّد مفتاح idempotency فريد — يُستدعى مرة وحدة لحظة فتح النموذج */
+async function upload(path, file, fieldName = 'file') {
+  const form = new FormData();
+  form.append(fieldName, file);
+  return uploadForm(path, form);
+}
+
+async function uploadForm(path, formData) {
+  const token = getToken();
+  const res = await fetch(apiHref(path), {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    // empty
+  }
+  if (!res.ok) {
+    throw new ApiError(data?.error || 'حدث خطأ غير متوقع', res.status, data);
+  }
+  return data;
+}
+
+/** يجلب ملفًا محميًا بالتوكن ويرجّع object URL (يجب استدعاء revoke لاحقًا) */
+async function fetchBlobUrl(path) {
+  const token = getToken();
+  const res = await fetch(apiHref(path), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let data = null;
+    try { data = await res.json(); } catch { /* ignore */ }
+    throw new ApiError(data?.error || 'حدث خطأ غير متوقع', res.status, data);
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
+async function download(path, filename) {
+  const token = getToken();
+  const res = await fetch(apiHref(path), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let data = null;
+    try { data = await res.json(); } catch { /* ignore */ }
+    throw new ApiError(data?.error || 'حدث خطأ غير متوقع', res.status, data);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'download.xlsx';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 function newIdempotencyKey() {
   return crypto.randomUUID();
 }
@@ -58,7 +129,13 @@ function newIdempotencyKey() {
 export const api = {
   get: (path, params) => request(path, { method: 'GET', params }),
   post: (path, body) => request(path, { method: 'POST', body }),
+  put: (path, body) => request(path, { method: 'PUT', body }),
   patch: (path, body) => request(path, { method: 'PATCH', body }),
+  delete: (path) => request(path, { method: 'DELETE' }),
+  upload,
+  uploadForm,
+  fetchBlobUrl,
+  download,
 };
 
-export { ApiError, newIdempotencyKey, getToken };
+export { ApiError, newIdempotencyKey, getToken, apiHref };

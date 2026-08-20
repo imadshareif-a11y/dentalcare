@@ -1,0 +1,4 @@
+backups/
+*.dump
+.env
+node_modules/

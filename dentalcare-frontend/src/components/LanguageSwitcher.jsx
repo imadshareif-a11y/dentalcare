@@ -13,6 +13,7 @@ export default function LanguageSwitcher() {
 
   return (
     <select
+      className="dc-lang"
       value={i18n.language}
       onChange={(e) => changeLocale(e.target.value)}
       aria-label="Language"

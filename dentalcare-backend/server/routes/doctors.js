@@ -8,6 +8,8 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
+const { nextAccountCode } = require('../settings/numbering');
+const { syncPartyAccountName } = require('../parties/syncAccountName');
 
 router.post(
   '/doctors',
@@ -37,7 +39,7 @@ router.post(
 
     try {
       const result = await withTenantClient(req.user.tenantId, async (client) => {
-        const accountCode = `DOC-${Date.now()}`;
+        const accountCode = await nextAccountCode(client, req.user.tenantId, 'doctors');
         const accountResult = await client.query(
           `INSERT INTO chart_of_accounts
              (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type)
@@ -72,6 +74,69 @@ router.post(
     } catch (err) {
       console.error('Doctor creation failed:', err);
       res.status(500).json({ error: 'تعذّر تسجيل الطبيب' });
+    }
+  }
+);
+
+router.patch(
+  '/doctors/:id',
+  requireAuth,
+  requirePermission('doctors', 'edit'),
+  async (req, res) => {
+    const { name, phone, compensationType, percentageRate, monthlySalary } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'اسم الطبيب مطلوب' });
+    }
+    if (!['SALARY', 'PERCENTAGE', 'PARTNER'].includes(compensationType)) {
+      return res.status(400).json({ error: 'نوع التعويض غير صالح' });
+    }
+    if (compensationType === 'PERCENTAGE') {
+      const rate = Number(percentageRate);
+      if (!rate || rate <= 0 || rate > 100) {
+        return res.status(400).json({ error: 'نسبة العمولة يجب أن تكون بين 0 و100' });
+      }
+    }
+    if (compensationType === 'SALARY') {
+      const salary = Number(monthlySalary);
+      if (!salary || salary <= 0) {
+        return res.status(400).json({ error: 'الراتب الشهري يجب أن يكون أكبر من صفر' });
+      }
+    }
+    try {
+      await withTenantClient(req.user.tenantId, async (client) => {
+        const existing = await client.query(
+          `SELECT p.id, p.account_id
+           FROM parties p
+           JOIN doctors d ON d.party_id = p.id
+           WHERE p.id = $1 AND p.party_type = 'DOCTOR'`,
+          [req.params.id]
+        );
+        if (existing.rowCount === 0) {
+          throw Object.assign(new Error('الطبيب غير موجود'), { statusCode: 404 });
+        }
+        const { account_id: accountId } = existing.rows[0];
+        await client.query(
+          `UPDATE parties SET name = $2, phone = $3 WHERE id = $1`,
+          [req.params.id, name.trim(), phone || null]
+        );
+        await client.query(
+          `UPDATE doctors
+           SET compensation_type = $2, percentage_rate = $3, monthly_salary = $4
+           WHERE party_id = $1`,
+          [
+            req.params.id,
+            compensationType,
+            compensationType === 'PERCENTAGE' ? Number(percentageRate) : null,
+            compensationType === 'SALARY' ? Number(monthlySalary) : null,
+          ]
+        );
+        await syncPartyAccountName(client, accountId, 'DOCTOR', name.trim());
+      });
+      res.json({ success: true });
+    } catch (err) {
+      if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+      console.error('Doctor update failed:', err);
+      res.status(500).json({ error: 'تعذّر تحديث بيانات الطبيب' });
     }
   }
 );
