@@ -1,12 +1,12 @@
-# Railway / Nixpacks — نسخة تجريبية
-# Root Directory = جذر المستودع (هذا الملف)
+# Railway — نسخة تجريبية
+# وجود Dockerfile يجعل Railway يبني منه تلقائيًا
 
 [build]
-builder = "NIXPACKS"
-buildCommand = "npm --prefix dentalcare-frontend ci && npm --prefix dentalcare-frontend run build && npm --prefix dentalcare-backend ci --omit=dev"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "npm --prefix dentalcare-backend start"
+startCommand = "node server/app.js"
 healthcheckPath = "/api/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
