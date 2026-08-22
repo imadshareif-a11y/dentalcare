@@ -162,6 +162,13 @@ function isSlotInModalRange(slot, start, end, allSlots) {
   return slotsInRange(start, end || start, allSlots).includes(slot);
 }
 
+function firstAvailableSlot(appointments, doctorId, roomId, allSlots) {
+  for (const slot of allSlots) {
+    if (slotAvailability(appointments, slot, doctorId, roomId).available) return slot;
+  }
+  return '';
+}
+
 function medicalNoteTags(notes) {
   const raw = String(notes || '').trim();
   if (!raw) return [];
@@ -608,8 +615,14 @@ export default function Clinical({
       return;
     }
     if (roomOverride) setScheduleRoomId(roomOverride);
+
+    const startSlot = slot
+      || firstAvailableSlot(appointments, scheduleDoctorId, roomId, slots)
+      || slots[0]
+      || '';
+
     setError(null);
-    setModalRange({ start: slot || '', end: slot || '' });
+    setModalRange({ start: startSlot, end: startSlot });
     setModalPatientId(selectedPatientId || '');
     setModalNotes('');
     setModalPlanItemId('');
@@ -785,6 +798,7 @@ export default function Clinical({
 
   async function saveAppointment(e) {
     e.preventDefault();
+    e.stopPropagation();
     if (!scheduleDoctorId) {
       setError(t('clinical_appointment_doctor_required'));
       return;
@@ -802,7 +816,11 @@ export default function Clinical({
       return;
     }
     const range = normalizeSlotRange(modalRange.start, modalRange.end || modalRange.start);
-    if (!range || !isRangeFullyAvailable(appointments, range.start, range.end, scheduleDoctorId, scheduleRoomId, slots)) {
+    if (!range) {
+      setError(t('clinical_appointment_slot_required'));
+      return;
+    }
+    if (!isRangeFullyAvailable(appointments, range.start, range.end, scheduleDoctorId, scheduleRoomId, slots)) {
       setError(t('clinical_appointment_range_busy'));
       return;
     }
@@ -819,6 +837,8 @@ export default function Clinical({
         planItemId: modalPlanItemId || undefined,
       });
       setApptModalOpen(false);
+      setModalPlanItemId('');
+      setModalNotes('');
       await reloadAppointments();
     } catch (err) {
       setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
@@ -1479,7 +1499,6 @@ export default function Clinical({
                   setApptDate(next);
                   setModalRange({ start: '', end: '' });
                 }}
-                required
               />
               <SearchableSelect
                 label={t('clinical_select_patient')}
@@ -1487,7 +1506,6 @@ export default function Clinical({
                 onChange={setModalPatientId}
                 options={patientSelectOptions}
                 placeholder={t('clinical_search_patient')}
-                required
               />
               <label className="dc-muted text-sm">{t('clinical_appointment_time_range')}</label>
               <p className="dc-muted text-sm">{t('clinical_appointment_time_range_hint')}</p>
@@ -1549,7 +1567,7 @@ export default function Clinical({
                 </label>
               )}
               {error && <div className="dc-error">{error}</div>}
-              <button type="submit" disabled={!modalPatientId || !modalRange.start || !scheduleDoctorId || !scheduleRoomId}>
+              <button type="submit">
                 {t('clinical_appointment_save')}
               </button>
             </form>

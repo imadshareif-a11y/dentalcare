@@ -5,7 +5,11 @@
 // وهو المسؤول يعرضه للمستخدم. ممنوع أي "نجاح صامت" محلي.
 // -----------------------------------------------------------
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_BASE || (
+  typeof window !== 'undefined' && window.location?.hostname
+    ? '/api'
+    : 'http://[::1]:5000/api'
+);
 
 class ApiError extends Error {
   constructor(message, status, body) {
