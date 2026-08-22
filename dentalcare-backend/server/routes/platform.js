@@ -168,7 +168,7 @@ router.delete('/platform/tenants/:id', async (req, res) => {
     if (mapped.statusCode === 409) {
       return res.status(409).json({ error: mapped.message });
     }
-    console.error('Deleting tenant failed:', err);
+    console.error('Deleting tenant failed:', err.message, err.detail || '');
     res.status(500).json({ error: 'تعذّر حذف العيادة' });
   }
 });

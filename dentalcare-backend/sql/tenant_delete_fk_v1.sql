@@ -28,3 +28,24 @@ ALTER TABLE fiscal_years
 ALTER TABLE fiscal_years
   ADD CONSTRAINT fiscal_years_closed_by_fkey
   FOREIGN KEY (closed_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE parties
+  DROP CONSTRAINT IF EXISTS fk_parties_account;
+
+ALTER TABLE parties
+  ADD CONSTRAINT fk_parties_account
+  FOREIGN KEY (account_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL;
+
+ALTER TABLE checks
+  DROP CONSTRAINT IF EXISTS checks_holding_account_id_fkey;
+
+ALTER TABLE checks
+  ADD CONSTRAINT checks_holding_account_id_fkey
+  FOREIGN KEY (holding_account_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL;
+
+ALTER TABLE checks
+  DROP CONSTRAINT IF EXISTS checks_location_account_id_fkey;
+
+ALTER TABLE checks
+  ADD CONSTRAINT checks_location_account_id_fkey
+  FOREIGN KEY (location_account_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL;
