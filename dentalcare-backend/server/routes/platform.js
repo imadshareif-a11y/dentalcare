@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const { requireAuth, requireSuperAdmin } = require('../middleware/auth');
 const { withSystemClient } = require('../db/pool');
 const { bootstrapClinic, slugifyClinicName, OWNER_PERMISSIONS } = require('../tenants/bootstrap');
+const { purgeTenant, mapDeleteError } = require('../tenants/purgeTenant');
 const { parseDateInput, todayUTC, defaultActiveUntil } = require('../tenants/access');
 
 router.use('/platform', requireAuth, requireSuperAdmin);
@@ -150,15 +151,23 @@ router.patch('/platform/tenants/:id', async (req, res) => {
 router.delete('/platform/tenants/:id', async (req, res) => {
   try {
     const deleted = await withSystemClient(async (client) => {
-      const result = await client.query(
-        `DELETE FROM tenants WHERE id = $1 RETURNING id, name`,
-        [req.params.id]
-      );
-      return result.rows[0] || null;
+      await client.query('BEGIN');
+      try {
+        const row = await purgeTenant(client, req.params.id);
+        await client.query('COMMIT');
+        return row;
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      }
     });
     if (!deleted) return res.status(404).json({ error: 'العيادة غير موجودة' });
     res.json({ success: true, tenant: deleted });
   } catch (err) {
+    const mapped = mapDeleteError(err);
+    if (mapped.statusCode === 409) {
+      return res.status(409).json({ error: mapped.message });
+    }
     console.error('Deleting tenant failed:', err);
     res.status(500).json({ error: 'تعذّر حذف العيادة' });
   }

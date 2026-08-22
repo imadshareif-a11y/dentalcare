@@ -42,6 +42,7 @@ const MIGRATION_FILES = [
   'sql/fiscal_years_v1.sql',
   'sql/doctors_v1.sql',
   'sql/idempotency.sql',
+  'sql/tenant_delete_fk_v1.sql',
   'sql/trigger_balance_check.sql',
   'sql/fix_account_name_nullable.sql',
   'sql/multilang.sql',
