@@ -237,6 +237,7 @@ export default function Clinical({
   const [waBusy, setWaBusy] = useState(null);
   const [apptModalOpen, setApptModalOpen] = useState(false);
   const [modalPatientId, setModalPatientId] = useState('');
+  const [modalNotes, setModalNotes] = useState('');
   const [modalRange, setModalRange] = useState({ start: '', end: '' });
   const [modalPlanItemId, setModalPlanItemId] = useState('');
   const [modalPendingPlan, setModalPendingPlan] = useState([]);
