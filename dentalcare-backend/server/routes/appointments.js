@@ -99,8 +99,14 @@ router.get(
           params.push(roomId);
           extraFilter += ` AND a.room_id = $${params.length}`;
         }
-        const result = await client.query(
-          `SELECT a.id, a.patient_id, a.doctor_id, a.room_id, a.starts_at, a.notes, a.status,
+
+        const hasPlan = await client.query(
+          `SELECT to_regclass('public.treatment_plan_items') AS t`
+        );
+        const withPlan = Boolean(hasPlan.rows[0]?.t);
+
+        const sql = withPlan
+          ? `SELECT a.id, a.patient_id, a.doctor_id, a.room_id, a.starts_at, a.notes, a.status,
                   a.appointment_date, a.slot, COALESCE(a.end_slot, a.slot) AS end_slot,
                   a.plan_item_id,
                   p.name AS patient_name, d.name AS doctor_name,
@@ -108,24 +114,38 @@ router.get(
                   tpi.tooth_fdi AS plan_tooth, tpi.name AS plan_item_name,
                   tpi.condition_code AS plan_condition_code,
                   pending.pending_plan
-           FROM appointments a
-           JOIN parties p ON p.id = a.patient_id
-           LEFT JOIN parties d ON d.id = a.doctor_id
-           LEFT JOIN rooms r ON r.id = a.room_id
-           LEFT JOIN treatment_plan_items tpi ON tpi.id = a.plan_item_id
-           LEFT JOIN LATERAL (
-             SELECT string_agg('#' || tpi2.tooth_fdi || ' ' || tpi2.name, ' · ' ORDER BY tpi2.sort_order) AS pending_plan
-             FROM treatment_plan_items tpi2
-             JOIN treatment_plans tp ON tp.id = tpi2.plan_id
-             WHERE tp.tenant_id = a.tenant_id
-               AND tp.patient_id = a.patient_id
-               AND tp.status = 'ACTIVE'
-               AND tpi2.status = 'PLANNED'
-           ) pending ON TRUE
-           WHERE a.appointment_date = $1::date${extraFilter}
-           ORDER BY a.slot ASC, d.name ASC NULLS LAST, r.name ASC NULLS LAST`,
-          params
-        );
+             FROM appointments a
+             JOIN parties p ON p.id = a.patient_id
+             LEFT JOIN parties d ON d.id = a.doctor_id
+             LEFT JOIN rooms r ON r.id = a.room_id
+             LEFT JOIN treatment_plan_items tpi ON tpi.id = a.plan_item_id
+             LEFT JOIN LATERAL (
+               SELECT string_agg('#' || tpi2.tooth_fdi || ' ' || tpi2.name, ' · ' ORDER BY tpi2.sort_order) AS pending_plan
+               FROM treatment_plan_items tpi2
+               JOIN treatment_plans tp ON tp.id = tpi2.plan_id
+               WHERE tp.tenant_id = a.tenant_id
+                 AND tp.patient_id = a.patient_id
+                 AND tp.status = 'ACTIVE'
+                 AND tpi2.status = 'PLANNED'
+             ) pending ON TRUE
+             WHERE a.appointment_date = $1::date${extraFilter}
+             ORDER BY a.slot ASC, d.name ASC NULLS LAST, r.name ASC NULLS LAST`
+          : `SELECT a.id, a.patient_id, a.doctor_id, a.room_id, a.starts_at, a.notes, a.status,
+                  a.appointment_date, a.slot, COALESCE(a.end_slot, a.slot) AS end_slot,
+                  NULL::uuid AS plan_item_id,
+                  p.name AS patient_name, d.name AS doctor_name,
+                  r.name AS room_name, r.name_en AS room_name_en, r.name_he AS room_name_he,
+                  NULL::varchar AS plan_tooth, NULL::varchar AS plan_item_name,
+                  NULL::varchar AS plan_condition_code,
+                  NULL::text AS pending_plan
+             FROM appointments a
+             JOIN parties p ON p.id = a.patient_id
+             LEFT JOIN parties d ON d.id = a.doctor_id
+             LEFT JOIN rooms r ON r.id = a.room_id
+             WHERE a.appointment_date = $1::date${extraFilter}
+             ORDER BY a.slot ASC, d.name ASC NULLS LAST, r.name ASC NULLS LAST`;
+
+        const result = await client.query(sql, params);
         return result.rows;
       });
       res.json(rows);
@@ -157,7 +177,16 @@ router.post(
         await assertRoom(client, req.user.tenantId, roomId);
         await assertNoOverlap(client, { day, doctorId, roomId, slot, endSlot });
 
+        let linkedPlanItemId = null;
         if (planItemId) {
+          const hasPlan = await client.query(
+            `SELECT to_regclass('public.treatment_plan_items') AS t`
+          );
+          if (!hasPlan.rows[0]?.t) {
+            throw Object.assign(new Error('خطة العلاج غير متاحة بعد — أعد المحاولة بدون ربط بند'), {
+              statusCode: 400,
+            });
+          }
           const planCheck = await client.query(
             `SELECT tpi.id
              FROM treatment_plan_items tpi
@@ -168,6 +197,7 @@ router.post(
           if (planCheck.rowCount === 0) {
             throw Object.assign(new Error('بند خطة العلاج غير صالح'), { statusCode: 400 });
           }
+          linkedPlanItemId = planItemId;
         }
 
         const result = await client.query(
@@ -186,7 +216,7 @@ router.post(
             notes || null,
             slot,
             endSlot,
-            planItemId || null,
+            linkedPlanItemId,
           ]
         );
         return result.rows[0];

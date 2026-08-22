@@ -637,7 +637,11 @@ export default function Clinical({
     if (!scheduleDoctorId || !scheduleRoomId) {
       setAppointments([]);
     } else {
-      setAppointments(await api.get('/appointments', { date: apptDate }));
+      try {
+        setAppointments(await api.get('/appointments', { date: apptDate }));
+      } catch {
+        setAppointments([]);
+      }
     }
     if (timelineOpen) {
       setAllDayAppointments(await api.get('/appointments', { date: apptDate }).catch(() => []));
@@ -1268,7 +1272,15 @@ export default function Clinical({
                   </button>
                 )}
                 {canEditAppointments && (
-                  <button type="button" onClick={() => openApptModal('')} disabled={!scheduleDoctorId || !scheduleRoomId}>
+                  <button
+                    type="button"
+                    onClick={() => openApptModal('')}
+                    title={!scheduleDoctorId
+                      ? t('clinical_schedule_doctor_required')
+                      : !scheduleRoomId
+                        ? t('clinical_schedule_room_required')
+                        : undefined}
+                  >
                     {t('clinical_appointment_add')}
                   </button>
                 )}
@@ -1310,6 +1322,9 @@ export default function Clinical({
             )}
             {scheduleDoctorId && activeRooms.length > 0 && !scheduleRoomId && (
               <p className="dc-muted text-sm">{t('clinical_schedule_room_required')}</p>
+            )}
+            {error && !apptModalOpen && (
+              <div className="dc-error">{error}</div>
             )}
             <label className="dc-muted text-sm">{t('clinical_appointment_date')}</label>
             <FormattedDateInput value={apptDate} onChange={setApptDate} />

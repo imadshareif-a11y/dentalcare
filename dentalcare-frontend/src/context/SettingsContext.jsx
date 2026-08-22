@@ -17,6 +17,8 @@ const DEFAULTS = {
   hasLetterhead: false,
   letterheadMime: null,
   aiEnabled: false,
+  aiReady: false,
+  aiReadyReason: null,
   hasAiApiKey: false,
   aiApiKeyHint: null,
   aiProvider: 'openai',

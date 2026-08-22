@@ -934,10 +934,16 @@ export default function SettingsPage() {
             </fieldset>
 
             <div className="dc-muted text-sm">
-              {aiForm.aiEnabled && (settings.hasAiApiKey || aiForm.aiApiKey.trim())
-                && (aiForm.aiProvider !== 'compatible' || aiForm.aiBaseUrl.trim() || settings.aiBaseUrl)
-                ? t('settings_ai_status_ready')
-                : t('settings_ai_status_off')}
+              {(() => {
+                const draftReady = aiForm.aiEnabled
+                  && !aiForm.clearAiApiKey
+                  && (settings.hasAiApiKey || aiForm.aiApiKey.trim())
+                  && (aiForm.aiProvider !== 'compatible'
+                    || aiForm.aiBaseUrl.trim()
+                    || settings.aiBaseUrl);
+                const ready = settings.aiReady || draftReady || (aiTestResult?.ok && aiForm.aiEnabled);
+                return ready ? t('settings_ai_status_ready') : t('settings_ai_status_off');
+              })()}
             </div>
 
             {aiTestResult && (

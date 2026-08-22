@@ -300,6 +300,7 @@ router.post('/settings/ai/test', requireAuth, requireClinicContext, requireRole(
       success: true,
       provider: result.provider,
       model: result.model,
+      aiReady: config.available,
       message: 'اتصال المزوّد ناجح',
     });
   } catch (err) {

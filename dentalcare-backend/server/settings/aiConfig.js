@@ -41,6 +41,7 @@ function publicAiSettings(row) {
   const meta = AI_PROVIDERS[provider];
   const enabled = Boolean(row?.ai_enabled);
   const hasKey = Boolean(row?.ai_api_key && String(row.ai_api_key).trim());
+  const resolved = resolveAiConfig(row);
   return {
     aiEnabled: enabled,
     aiProvider: provider,
@@ -49,6 +50,8 @@ function publicAiSettings(row) {
     aiBaseUrl: row?.ai_base_url || '',
     aiVisionModel: row?.ai_vision_model || meta.defaultModel,
     aiProviders: Object.keys(AI_PROVIDERS),
+    aiReady: resolved.available,
+    aiReadyReason: resolved.available ? null : (resolved.reason || null),
   };
 }
 

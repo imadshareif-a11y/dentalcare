@@ -93,8 +93,11 @@ Promise.all([
   ensureCheckbooksSchema().catch((err) => console.error('checkbooks ensure failed:', err.message)),
   ensureRoomsSchema().catch((err) => console.error('rooms ensure failed:', err.message)),
   ensureTenantSettingsSchema().catch((err) => console.error('tenant_settings ensure failed:', err.message)),
-  ensureAppointmentsSchema().catch((err) => console.error('appointments ensure failed:', err.message)),
-  ensureToothChartSchema().catch((err) => console.error('tooth_chart ensure failed:', err.message)),
+  // مخطط الأسنان أولاً حتى يمكن ربط plan_item_id في المواعيد
+  ensureToothChartSchema()
+    .catch((err) => console.error('tooth_chart ensure failed:', err.message))
+    .then(() => ensureAppointmentsSchema())
+    .catch((err) => console.error('appointments ensure failed:', err.message)),
 ])
   .finally(() => {
     app.listen(PORT, () => console.log(`🚀 DentalCare API running on port ${PORT}`));
