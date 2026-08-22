@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import PartyModal from '../components/PartyModal';
+import FormattedDateInput from '../components/FormattedDateInput';
 
 function emptyCreateForm() {
   const from = new Date().toISOString().slice(0, 10);
@@ -342,20 +343,18 @@ export default function PlatformAdmin() {
           </label>
           <label>
             {t('platform_active_from')}
-            <input
-              type="date"
+            <FormattedDateInput
               required
               value={form.activeFrom}
-              onChange={(e) => updateField('activeFrom', e.target.value)}
+              onChange={(v) => updateField('activeFrom', v)}
             />
           </label>
           <label>
             {t('platform_active_until')}
-            <input
-              type="date"
+            <FormattedDateInput
               required
               value={form.activeUntil}
-              onChange={(e) => updateField('activeUntil', e.target.value)}
+              onChange={(v) => updateField('activeUntil', v)}
             />
           </label>
           <button type="submit" className="dc-success" disabled={saving}>
@@ -397,20 +396,18 @@ export default function PlatformAdmin() {
             </label>
             <label>
               {t('platform_active_from')}
-              <input
-                type="date"
+              <FormattedDateInput
                 required
                 value={editForm.activeFrom}
-                onChange={(e) => setEditForm((p) => ({ ...p, activeFrom: e.target.value }))}
+                onChange={(v) => setEditForm((p) => ({ ...p, activeFrom: v }))}
               />
             </label>
             <label>
               {t('platform_active_until')}
-              <input
-                type="date"
+              <FormattedDateInput
                 required
                 value={editForm.activeUntil}
-                onChange={(e) => setEditForm((p) => ({ ...p, activeUntil: e.target.value }))}
+                onChange={(v) => setEditForm((p) => ({ ...p, activeUntil: v }))}
               />
             </label>
             <label>

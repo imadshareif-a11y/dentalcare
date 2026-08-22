@@ -37,6 +37,7 @@
     "migrate:all": "node scripts/migrate-all.js",
     "seed:trial": "node scripts/seed-trial.js",
     "patch:trial-db": "node scripts/patch-trial-db.js",
+    "dedupe:financials": "node scripts/dedupe-financials.js",
     "backup:full": "node scripts/ops/run-backup-full.js",
     "test:permissions": "node scripts/test-permissions.js"
   },

@@ -142,6 +142,22 @@ async function ensureEssentials() {
         UNIQUE (tenant_id, code)
       )
     `],
+    [`currencies_uq`, `
+      CREATE UNIQUE INDEX IF NOT EXISTS currencies_tenant_code_uq
+        ON currencies (tenant_id, code)
+    `],
+    [`currencies_base_uq`, `
+      CREATE UNIQUE INDEX IF NOT EXISTS currencies_one_base_per_tenant
+        ON currencies (tenant_id) WHERE is_base = TRUE
+    `],
+    [`cash_boxes_sys_uq`, `
+      CREATE UNIQUE INDEX IF NOT EXISTS cash_boxes_one_system_per_currency_kind
+        ON cash_boxes (tenant_id, currency_id, box_kind) WHERE is_system = TRUE
+    `],
+    [`chart_accounts_uq`, `
+      CREATE UNIQUE INDEX IF NOT EXISTS chart_accounts_tenant_code_uq
+        ON chart_of_accounts (tenant_id, account_code)
+    `],
   ];
   for (const [label, sql] of stmts) {
     await runStatement(label, sql);

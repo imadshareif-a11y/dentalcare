@@ -120,7 +120,7 @@ async function seedClinicExtras(client, tenantId) {
          COALESCE(NULLIF(trim(s.currency_symbol), ''), '₪'), 2, 1, TRUE, TRUE
        FROM tenant_settings s
        WHERE s.tenant_id = $1
-         AND NOT EXISTS (SELECT 1 FROM currencies c WHERE c.tenant_id = $1)`,
+       ON CONFLICT (tenant_id, code) DO NOTHING`,
       [tenantId]
     );
   });

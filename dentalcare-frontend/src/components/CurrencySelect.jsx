@@ -10,7 +10,7 @@ export default function CurrencySelect({
 }) {
   const { t } = useTranslation();
   return (
-    <div>
+    <div className="dc-form-field">
       <label>{label || t('doc_currency')}</label>
       <select
         value={value || ''}

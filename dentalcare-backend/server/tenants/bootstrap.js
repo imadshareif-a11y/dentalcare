@@ -3,6 +3,7 @@
 // يُستدعى من seed.js ومن مسار SUPER_ADMIN — نفس المنطق بمكان واحد.
 
 const bcrypt = require('bcryptjs');
+const { ensureChartAccount } = require('../accounting/chartAccounts');
 const { defaultActiveUntil, parseDateInput, todayUTC } = require('./access');
 
 const OWNER_PERMISSIONS = {
@@ -116,12 +117,14 @@ async function bootstrapClinic(client, {
   );
 
   for (const [code, nameAr, nameEn, nameHe, type] of BASE_ACCOUNTS) {
-    await client.query(
-      `INSERT INTO chart_of_accounts
-         (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type)
-       VALUES ($1, $2, $3, $3, $4, $5, $6)`,
-      [tenantId, code, nameAr, nameEn, nameHe, type]
-    );
+    await ensureChartAccount(client, tenantId, {
+      accountCode: code,
+      accountName: nameAr,
+      accountNameAr: nameAr,
+      accountNameEn: nameEn,
+      accountNameHe: nameHe,
+      accountType: type,
+    });
   }
 
   const { seedClinicExtras } = require('../settings/defaults');

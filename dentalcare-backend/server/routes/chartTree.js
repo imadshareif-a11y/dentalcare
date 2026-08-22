@@ -140,10 +140,17 @@ router.post(
         }
 
         const exists = await client.query(
-          `SELECT 1 FROM chart_of_accounts WHERE tenant_id = $1 AND account_code = $2`,
+          `SELECT id, account_name, account_name_ar FROM chart_of_accounts
+           WHERE tenant_id = $1 AND account_code = $2`,
           [req.user.tenantId, accountCode]
         );
         if (exists.rowCount > 0) {
+          const row = exists.rows[0];
+          const wanted = String(name).trim();
+          const existingName = String(row.account_name_ar || row.account_name || '').trim();
+          if (wanted === existingName) {
+            throw Object.assign(new Error('هذا الحساب موجود مسبقًا'), { statusCode: 409 });
+          }
           throw Object.assign(new Error('رمز الحساب مستخدم مسبقًا'), { statusCode: 409 });
         }
 

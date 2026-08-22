@@ -97,6 +97,13 @@ export default function Clinical({
   const [modalPatientSearch, setModalPatientSearch] = useState('');
   const [printJob, setPrintJob] = useState(null);
   const [showAddPatient, setShowAddPatient] = useState(false);
+  const [mobileTab, setMobileTab] = useState('patient');
+
+  const clinicalMobileTabs = useMemo(() => ([
+    { id: 'patient', label: t('clinical_tab_patient'), icon: 'fa-solid fa-user' },
+    { id: 'session', label: t('clinical_tab_treatment'), icon: 'fa-solid fa-tooth' },
+    { id: 'sidebar', label: t('clinical_tab_schedule'), icon: 'fa-solid fa-calendar-days' },
+  ]), [t]);
 
   useEffect(() => {
     api.get('/patients').then(setPatients).catch(() => setPatients([]));
@@ -416,8 +423,22 @@ export default function Clinical({
 
   return (
     <>
+      <nav className="dc-clinical-mobile-tabs" aria-label={t('clinical_mobile_tabs')}>
+        {clinicalMobileTabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={`dc-clinical-mobile-tab${mobileTab === tab.id ? ' is-active' : ''}`}
+            onClick={() => setMobileTab(tab.id)}
+          >
+            <i className={tab.icon} aria-hidden="true" />
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </nav>
+
       <div className="dc-clinical dc-clinical-screen">
-        <section className="dc-col">
+        <section className={`dc-col dc-col-patient${mobileTab !== 'patient' ? ' is-mobile-hidden' : ''}`}>
           <div className="dc-col-head">
             <h3 className="dc-col-title"><span className="dc-dot" /> {t('clinical_select_patient')}</h3>
             {canEditPatients && (
@@ -506,7 +527,7 @@ export default function Clinical({
           )}
         </section>
 
-        <section className="dc-col">
+        <section className={`dc-col dc-col-session${mobileTab !== 'session' ? ' is-mobile-hidden' : ''}`}>
           <DentalChart
             selectedTooth={selectedTooth}
             treatedTeeth={patientFile.treatedTeeth}
@@ -549,33 +570,41 @@ export default function Clinical({
               ))}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <input
-              type="text" placeholder={t('clinical_treatment_name')}
-              value={treatmentName} onChange={(e) => setTreatmentName(e.target.value)}
-            />
-            <select value={selectedDoctorId} onChange={(e) => setSelectedDoctorId(e.target.value)}>
-              <option value="">{t('clinical_select_doctor')}</option>
-              {doctors.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
-            <input
-              type="number" min="0" step="0.01" placeholder={t('clinical_treatment_cost')}
-              value={treatmentCost} onChange={(e) => setTreatmentCost(e.target.value)}
-            />
-            <button type="button" onClick={addToCart}>{t('clinical_add_to_cart')}</button>
+          <div className="dc-form-row dc-clinical-treat-row">
+            <div className="dc-form-field">
+              <input
+                type="text" placeholder={t('clinical_treatment_name')}
+                value={treatmentName} onChange={(e) => setTreatmentName(e.target.value)}
+              />
+            </div>
+            <div className="dc-form-field">
+              <select value={selectedDoctorId} onChange={(e) => setSelectedDoctorId(e.target.value)}>
+                <option value="">{t('clinical_select_doctor')}</option>
+                {doctors.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="dc-form-field">
+              <input
+                type="number" min="0" step="0.01" placeholder={t('clinical_treatment_cost')}
+                value={treatmentCost} onChange={(e) => setTreatmentCost(e.target.value)}
+              />
+            </div>
+            <button type="button" className="dc-clinical-add-btn" onClick={addToCart}>
+              {t('clinical_add_to_cart')}
+            </button>
           </div>
 
           <div className="dc-cart">
             <div className="font-bold" style={{ marginBottom: 4 }}>{t('clinical_cart_title')}</div>
             {cart.length === 0 && <div>{t('clinical_cart_empty')}</div>}
             {cart.map((c, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+              <div key={i} className="dc-cart-line">
                 <span><span className="dc-tooth-badge">#{c.tooth}</span> {c.name}</span>
                 <span className="dc-money">
                   {money(c.cost)}
-                  <button type="button" onClick={() => removeFromCart(i)} style={{ marginInlineStart: 8 }}>×</button>
+                  <button type="button" className="dc-cart-remove" onClick={() => removeFromCart(i)} aria-label="×">×</button>
                 </span>
               </div>
             ))}
@@ -624,7 +653,7 @@ export default function Clinical({
           {!canEditClinical && error && <div className="dc-error">{error}</div>}
         </section>
 
-        <section className="dc-col">
+        <section className={`dc-col dc-col-sidebar${mobileTab !== 'sidebar' ? ' is-mobile-hidden' : ''}`}>
           <div className="dc-mini-card">
             <h4>{t('clinical_current_balance')}</h4>
             <div className={`dc-debt-lg${selectedPatient && Number(selectedPatient.balance) <= 0 ? '' : ''}`}>
@@ -784,7 +813,7 @@ export default function Clinical({
               <button type="button" className="dc-danger" onClick={() => setApptModalOpen(false)}>×</button>
             </div>
             <p className="dc-muted text-sm">{t('clinical_appointment_modal_hint')}</p>
-            <form onSubmit={saveAppointment} className="space-y-2">
+            <form onSubmit={saveAppointment} className="space-y-3">
               <label className="dc-muted text-sm">{t('clinical_appointment_date')}</label>
               <FormattedDateInput
                 value={apptDate}

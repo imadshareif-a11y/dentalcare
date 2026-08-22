@@ -54,26 +54,7 @@ async function nextCodeInRange(client, tenantId, start, end, preferredCodes = []
   throw Object.assign(new Error(`لا يوجد رقم حساب متاح في النطاق ${start}-${end}`), { statusCode: 400 });
 }
 
-async function findAccountByCode(client, tenantId, code) {
-  const result = await client.query(
-    `SELECT id FROM chart_of_accounts WHERE tenant_id = $1 AND account_code = $2 LIMIT 1`,
-    [tenantId, code]
-  );
-  return result.rows[0]?.id || null;
-}
-
-async function createAccount(client, tenantId, {
-  accountCode, accountType, nameAr, nameEn, nameHe,
-}) {
-  const result = await client.query(
-    `INSERT INTO chart_of_accounts
-       (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type)
-     VALUES ($1, $2, $3, $3, $4, $5, $6)
-     RETURNING id`,
-    [tenantId, accountCode, nameAr, nameEn, nameHe, accountType]
-  );
-  return result.rows[0].id;
-}
+const { ensureChartAccount, findAccountByCode } = require('./chartAccounts');
 
 async function insertBox(client, tenantId, {
   currencyId, boxKind, name, nameEn, nameHe, accountId, isSystem,
@@ -101,7 +82,8 @@ async function ensureSystemBoxesForCurrency(client, tenantId, currency) {
   for (const boxKind of Object.keys(KIND_META)) {
     const existing = await client.query(
       `SELECT id FROM cash_boxes
-       WHERE tenant_id = $1 AND currency_id = $2 AND box_kind = $3 AND is_system = TRUE`,
+       WHERE tenant_id = $1 AND currency_id = $2 AND box_kind = $3
+       LIMIT 1`,
       [tenantId, currencyId, boxKind]
     );
     if (existing.rowCount > 0) continue;
@@ -111,8 +93,23 @@ async function ensureSystemBoxesForCurrency(client, tenantId, currency) {
 
     if (isBase) {
       for (const preferred of meta.preferredCodes) {
-        accountId = await findAccountByCode(client, tenantId, preferred);
-        if (accountId) break;
+        const found = await findAccountByCode(client, tenantId, preferred);
+        if (found) {
+          accountId = found.id;
+          break;
+        }
+      }
+    }
+
+    if (accountId) {
+      const accountUsed = await client.query(
+        `SELECT id, currency_id FROM cash_boxes
+         WHERE tenant_id = $1 AND account_id = $2
+         LIMIT 1`,
+        [tenantId, accountId]
+      );
+      if (accountUsed.rowCount > 0 && accountUsed.rows[0].currency_id !== currencyId) {
+        accountId = null;
       }
     }
 
@@ -131,13 +128,16 @@ async function ensureSystemBoxesForCurrency(client, tenantId, currency) {
       // إن وُجد الحساب المفضّل لعملة الأساس ولم يُربط بعد — استخدمه أعلاه.
       // وإلا أنشئ حسابًا جديدًا.
       const already = await findAccountByCode(client, tenantId, accountCode);
-      accountId = already || await createAccount(client, tenantId, {
-        accountCode,
-        accountType: meta.accountType,
-        nameAr,
-        nameEn,
-        nameHe,
-      });
+      accountId = already
+        ? already.id
+        : await ensureChartAccount(client, tenantId, {
+          accountCode,
+          accountName: nameAr,
+          accountNameAr: nameAr,
+          accountNameEn: nameEn,
+          accountNameHe: nameHe,
+          accountType: meta.accountType,
+        });
     } else {
       // حدّث اسم الحساب الافتراضي ليعكس العملة إن كان الاسم عامًا
       await client.query(
@@ -194,12 +194,13 @@ async function createManualBox(client, tenantId, {
 
   const nameAr = (name || '').trim() || meta.ar(currency.rows[0].code);
   const accountCode = await nextCodeInRange(client, tenantId, meta.codeStart, meta.codeEnd);
-  const accountId = await createAccount(client, tenantId, {
+  const accountId = await ensureChartAccount(client, tenantId, {
     accountCode,
+    accountName: nameAr,
+    accountNameAr: nameAr,
+    accountNameEn: nameEn || meta.en(currency.rows[0].code),
+    accountNameHe: nameHe || meta.he(currency.rows[0].code),
     accountType: meta.accountType,
-    nameAr,
-    nameEn: nameEn || meta.en(currency.rows[0].code),
-    nameHe: nameHe || meta.he(currency.rows[0].code),
   });
 
   return insertBox(client, tenantId, {

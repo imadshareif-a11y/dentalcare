@@ -332,11 +332,11 @@ export default function PaymentForm({ accounts, onPosted }) {
             />
             <label>
               {t('check_filter_due_from')}
-              <input type="date" value={dueFrom} onChange={(e) => setDueFrom(e.target.value)} />
+              <FormattedDateInput value={dueFrom} onChange={setDueFrom} />
             </label>
             <label>
               {t('check_filter_due_to')}
-              <input type="date" value={dueTo} onChange={(e) => setDueTo(e.target.value)} />
+              <FormattedDateInput value={dueTo} onChange={setDueTo} />
             </label>
           </div>
 

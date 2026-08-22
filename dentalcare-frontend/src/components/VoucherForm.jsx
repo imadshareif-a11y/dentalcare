@@ -109,7 +109,7 @@ export default function VoucherForm({ accounts, onPosted }) {
       <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
 
       {lines.map((line, i) => (
-        <div key={i} className="flex gap-2 items-center">
+        <div key={i} className="dc-form-row dc-voucher-line">
           <select
             value={line.accountId}
             onChange={(e) => updateLine(i, 'accountId', e.target.value)}

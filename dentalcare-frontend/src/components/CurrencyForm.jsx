@@ -93,8 +93,8 @@ export default function CurrencyForm({ record, baseCurrency, onSaved }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 100 }}>
+      <div className="dc-form-row">
+        <div className="dc-form-field">
           <label className="dc-muted text-sm">{t('currency_code')}</label>
           <input
             type="text"
@@ -104,7 +104,7 @@ export default function CurrencyForm({ record, baseCurrency, onSaved }) {
             required
           />
         </div>
-        <div style={{ flex: 1, minWidth: 80 }}>
+        <div className="dc-form-field">
           <label className="dc-muted text-sm">{t('currency_symbol')}</label>
           <input
             type="text"
@@ -116,7 +116,7 @@ export default function CurrencyForm({ record, baseCurrency, onSaved }) {
         </div>
       </div>
 
-      <div>
+      <div className="dc-form-field">
         <label className="dc-muted text-sm">{t('currency_name')}</label>
         <input
           type="text"
@@ -126,8 +126,8 @@ export default function CurrencyForm({ record, baseCurrency, onSaved }) {
         />
       </div>
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 140 }}>
+      <div className="dc-form-row">
+        <div className="dc-form-field">
           <label className="dc-muted text-sm">{t('currency_name_en')}</label>
           <input
             type="text"
@@ -135,7 +135,7 @@ export default function CurrencyForm({ record, baseCurrency, onSaved }) {
             onChange={(e) => setField('nameEn', e.target.value)}
           />
         </div>
-        <div style={{ flex: 1, minWidth: 140 }}>
+        <div className="dc-form-field">
           <label className="dc-muted text-sm">{t('currency_name_he')}</label>
           <input
             type="text"
@@ -145,7 +145,7 @@ export default function CurrencyForm({ record, baseCurrency, onSaved }) {
         </div>
       </div>
 
-      <div>
+      <div className="dc-form-field">
         <label className="dc-muted text-sm">{t('currency_decimal_places')}</label>
         <input
           type="number"

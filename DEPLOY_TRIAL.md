@@ -147,12 +147,15 @@ npm start
 | API يعمل والواجهة تفشل على localhost:5000 | البناء بدون `VITE_API_BASE=/api` |
 | خطأ اتصال DB | `DATABASE_URL` غير مربوط أو SSL |
 | `schema.sql not found` | Root Directory ليس جذر المستودع |
+| عملات/صناديق مكررة | تشغيل `seed` + `migrate` أكثر من مرة — نفّذ `npm run dedupe:financials` |
+| شجرة حسابات مكررة (نفس الرقم) | نفس السبب — `dedupe:financials` يدمج حسب الرمز + الاسم |
 
 ## أوامر مفيدة
 
 ```bash
 npm run patch:trial-db  # إصلاح سريع لجداول/أعمدة ناقصة
 npm run migrate:all     # schema + كل migrations
+npm run dedupe:financials  # إزالة عملات/صناديق مكررة (مرة بعد التكرار)
 npm run seed:trial      # منصة + عيادة تجريبية (idempotent)
 npm start               # تشغيل الـ API (+ SPA في الإنتاج)
 ```

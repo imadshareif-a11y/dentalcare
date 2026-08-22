@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useBanksCatalog } from '../hooks/useBanksCatalog';
 import CheckImageAttach from './CheckImageAttach';
+import FormattedDateInput from './FormattedDateInput';
 
 export default function CheckFields({ check, onChange, showAmount = false, currencies = [], allowImages = true }) {
   const { t, i18n } = useTranslation();
@@ -72,9 +73,11 @@ export default function CheckFields({ check, onChange, showAmount = false, curre
         required
         title={check.bankMatched ? t('check_bank_auto_filled') : undefined}
       />
-      <input
-        type="date" placeholder={t('check_due_date')}
-        value={check.dueDate || ''} onChange={(e) => update('dueDate', e.target.value)} required
+      <FormattedDateInput
+        value={check.dueDate || ''}
+        onChange={(iso) => update('dueDate', iso)}
+        required
+        placeholder={t('check_due_date')}
       />
       <input
         type="text" placeholder={t('check_drawer')}

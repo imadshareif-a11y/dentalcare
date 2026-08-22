@@ -48,6 +48,4 @@ SELECT
     TRUE
 FROM tenants t
 LEFT JOIN tenant_settings s ON s.tenant_id = t.id
-WHERE NOT EXISTS (
-    SELECT 1 FROM currencies c WHERE c.tenant_id = t.id
-);
+ON CONFLICT (tenant_id, code) DO NOTHING;

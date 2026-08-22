@@ -1,3 +1,5 @@
+const { ensureChartAccount } = require('../accounting/chartAccounts');
+
 const SERIES = {
   patients: { prefix: 'patients_prefix', width: 'patients_width', next: 'patients_next' },
   suppliers: { prefix: 'suppliers_prefix', width: 'suppliers_width', next: 'suppliers_next' },
@@ -54,19 +56,14 @@ async function nextAccountCode(client, tenantId, seriesKey) {
 }
 
 async function ensureBroughtForwardAccount(client, tenantId) {
-  const found = await client.query(
-    `SELECT id FROM chart_of_accounts WHERE tenant_id = $1 AND account_code = '3100'`,
-    [tenantId]
-  );
-  if (found.rowCount) return found.rows[0].id;
-  const inserted = await client.query(
-    `INSERT INTO chart_of_accounts
-       (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type)
-     VALUES ($1, '3100', 'رصيد مدور', 'رصيد مدور', 'Brought Forward', 'יתרה מועברת', 'EQUITY')
-     RETURNING id`,
-    [tenantId]
-  );
-  return inserted.rows[0].id;
+  return ensureChartAccount(client, tenantId, {
+    accountCode: '3100',
+    accountName: 'رصيد مدور',
+    accountNameAr: 'رصيد مدور',
+    accountNameEn: 'Brought Forward',
+    accountNameHe: 'יתרה מועברת',
+    accountType: 'EQUITY',
+  });
 }
 
 module.exports = { nextAccountCode, formatCode, ensureBroughtForwardAccount, SERIES };

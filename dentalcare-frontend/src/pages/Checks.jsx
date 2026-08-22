@@ -7,6 +7,7 @@ import PartyModal from '../components/PartyModal';
 import CheckImageViewer from '../components/CheckImageViewer';
 import { useSettings } from '../context/SettingsContext';
 import PrintHeader, { PrintButton } from '../components/PrintHeader';
+import FormattedDateInput from '../components/FormattedDateInput';
 
 const STATUS_LABEL_KEY = {
   PENDING: 'check_status_pending',
@@ -240,11 +241,11 @@ export default function Checks({ canEdit = true, accounts, onAccountsChanged }) 
         />
         <label>
           {t('check_filter_due_from')}
-          <input type="date" value={dueFrom} onChange={(e) => setDueFrom(e.target.value)} />
+          <FormattedDateInput value={dueFrom} onChange={setDueFrom} />
         </label>
         <label>
           {t('check_filter_due_to')}
-          <input type="date" value={dueTo} onChange={(e) => setDueTo(e.target.value)} />
+          <FormattedDateInput value={dueTo} onChange={setDueTo} />
         </label>
       </div>
 

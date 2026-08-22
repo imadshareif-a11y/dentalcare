@@ -1,5 +1,6 @@
 // components/PatientForm.jsx
 import { useEffect, useMemo, useState } from 'react';
+import FormattedDateInput from './FormattedDateInput';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import { ageFromBirthDate, todayIso } from '../lib/patientAge';
@@ -74,19 +75,17 @@ export default function PatientForm({ record, onSaved, onRegistered }) {
     <form onSubmit={handleSubmit} className="space-y-3">
       <input type="text" placeholder={t('patient_name')} value={name} onChange={(e) => setName(e.target.value)} required />
       <input type="text" placeholder={t('patient_phone')} value={phone} onChange={(e) => setPhone(e.target.value)} />
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input
-          type="date"
-          value={birthDate}
-          max={todayIso()}
-          onChange={(e) => setBirthDate(e.target.value)}
-          style={{ flex: 1, minWidth: 160 }}
-        />
-        <select value={gender} onChange={(e) => setGender(e.target.value)} style={{ flex: 1, minWidth: 120 }}>
-          <option value="">{t('patient_gender')}</option>
-          <option value="MALE">{t('patient_gender_male')}</option>
-          <option value="FEMALE">{t('patient_gender_female')}</option>
-        </select>
+      <div className="dc-form-row">
+        <div className="dc-form-field">
+          <FormattedDateInput value={birthDate} onChange={setBirthDate} max={todayIso()} />
+        </div>
+        <div className="dc-form-field">
+          <select value={gender} onChange={(e) => setGender(e.target.value)}>
+            <option value="">{t('patient_gender')}</option>
+            <option value="MALE">{t('patient_gender_male')}</option>
+            <option value="FEMALE">{t('patient_gender_female')}</option>
+          </select>
+        </div>
       </div>
       {computedAge != null && (
         <div className="dc-muted text-sm">{t('patient_age_auto', { age: computedAge })}</div>

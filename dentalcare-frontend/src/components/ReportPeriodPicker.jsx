@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
+import FormattedDateInput from './FormattedDateInput';
 
 const BASE_PRESETS = ['year', 'prev_year', 'month', 'today', 'yesterday', ...Array.from({ length: 12 }, (_, i) => `m${i + 1}`)];
 
@@ -36,11 +37,11 @@ export default function ReportPeriodPicker({
     <div className="dc-period-picker">
       {mode === 'range' ? (
         <>
-          <input type="date" value={fromDate} onChange={(e) => onFromDate(e.target.value)} />
-          <input type="date" value={toDate} onChange={(e) => onToDate(e.target.value)} />
+          <FormattedDateInput value={fromDate} onChange={onFromDate} />
+          <FormattedDateInput value={toDate} onChange={onToDate} />
         </>
       ) : (
-        <input type="date" value={asOfDate} onChange={(e) => onAsOfDate(e.target.value)} />
+        <FormattedDateInput value={asOfDate} onChange={onAsOfDate} />
       )}
       <select value={preset || 'custom'} onChange={(e) => onPreset(e.target.value)}>
         <option value="custom">{t('report_period_custom')}</option>
