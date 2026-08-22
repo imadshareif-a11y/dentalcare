@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 
+import { localizedEditValue, localizedPayload } from '../lib/localizedName';
+
 const EMPTY = {
   code: '',
   name: '',
-  nameEn: '',
-  nameHe: '',
   symbol: '',
   decimalPlaces: '2',
   rateToBase: '',
@@ -15,7 +15,7 @@ const EMPTY = {
 };
 
 export default function CurrencyForm({ record, baseCurrency, onSaved }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isEdit = Boolean(record?.id);
   const [form, setForm] = useState(EMPTY);
   const [submitting, setSubmitting] = useState(false);
@@ -29,9 +29,7 @@ export default function CurrencyForm({ record, baseCurrency, onSaved }) {
     if (record) {
       setForm({
         code: record.code || '',
-        name: record.name || '',
-        nameEn: record.name_en || '',
-        nameHe: record.name_he || '',
+        name: localizedEditValue(record, i18n.language),
         symbol: record.symbol || '',
         decimalPlaces: String(record.decimal_places ?? 2),
         rateToBase: record.is_base ? '1' : String(record.rate_to_base ?? ''),
@@ -42,7 +40,7 @@ export default function CurrencyForm({ record, baseCurrency, onSaved }) {
       setForm(EMPTY);
     }
     setError(null);
-  }, [record]);
+  }, [record, i18n.language]);
 
   function setField(key, value) {
     setForm((prev) => {
@@ -69,9 +67,7 @@ export default function CurrencyForm({ record, baseCurrency, onSaved }) {
     try {
       const payload = {
         code: form.code.trim().toUpperCase(),
-        name: form.name.trim(),
-        nameEn: form.nameEn.trim() || null,
-        nameHe: form.nameHe.trim() || null,
+        ...localizedPayload(form.name, i18n.language),
         symbol: form.symbol.trim(),
         decimalPlaces: Number(form.decimalPlaces),
         rateToBase: form.isBase ? 1 : rate,
@@ -125,25 +121,7 @@ export default function CurrencyForm({ record, baseCurrency, onSaved }) {
           required
         />
       </div>
-
-      <div className="dc-form-row">
-        <div className="dc-form-field">
-          <label className="dc-muted text-sm">{t('currency_name_en')}</label>
-          <input
-            type="text"
-            value={form.nameEn}
-            onChange={(e) => setField('nameEn', e.target.value)}
-          />
-        </div>
-        <div className="dc-form-field">
-          <label className="dc-muted text-sm">{t('currency_name_he')}</label>
-          <input
-            type="text"
-            value={form.nameHe}
-            onChange={(e) => setField('nameHe', e.target.value)}
-          />
-        </div>
-      </div>
+      <p className="dc-muted text-sm">{t('localized_name_hint')}</p>
 
       <div className="dc-form-field">
         <label className="dc-muted text-sm">{t('currency_decimal_places')}</label>

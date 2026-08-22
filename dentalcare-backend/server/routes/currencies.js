@@ -262,6 +262,12 @@ router.post(
 
     try {
       const row = await withTenantClient(req.user.tenantId, async (client) => {
+        const { namesFromBody } = require('../i18n/localizeNames');
+        const names = await namesFromBody(client, req.user.tenantId, req.body);
+        data.name = names.name;
+        data.nameEn = names.name_en;
+        data.nameHe = names.name_he;
+
         if (data.isBase) {
           await client.query(`UPDATE currencies SET is_base = FALSE WHERE is_base = TRUE`);
         } else {
@@ -348,6 +354,14 @@ router.patch(
           await setBaseCurrency(client, req.user.tenantId, req.params.id);
           data.rateToBase = 1;
           data.isActive = true;
+        }
+
+        if (data.name !== undefined) {
+          const { namesFromBody } = require('../i18n/localizeNames');
+          const names = await namesFromBody(client, req.user.tenantId, req.body);
+          data.name = names.name;
+          data.nameEn = names.name_en;
+          data.nameHe = names.name_he;
         }
 
         const fields = [];

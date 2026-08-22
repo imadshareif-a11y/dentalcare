@@ -4,7 +4,8 @@ import { api, ApiError, newIdempotencyKey } from '../api/client';
 import FormattedDateInput from './FormattedDateInput';
 import CurrencySelect from './CurrencySelect';
 import { useCurrencies } from '../hooks/useCurrencies';
-import { partyAccounts, formatPartyOption } from '../lib/partyAccounts';
+import PartyAccountSelect from './PartyAccountSelect';
+import { partyAccounts } from '../lib/partyAccounts';
 
 function todayIso() {
   const d = new Date();
@@ -318,21 +319,13 @@ export default function BankEntryForm({ accounts, onPosted }) {
           )}
 
           {(operation === 'INCOMING' || operation === 'OUTGOING') && (
-            <div className="dc-form-field">
-              <label>{t('bank_entry_counterpart')}</label>
-              <select
-                value={counterpartAccountId}
-                onChange={(e) => setCounterpartAccountId(e.target.value)}
-                required
-              >
-                <option value="">{t('voucher_choose_account')}</option>
-                {counterpartOptions.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.party_type ? formatPartyOption(a, t) : a.account_name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <PartyAccountSelect
+              accountList={counterpartOptions}
+              value={counterpartAccountId}
+              onChange={setCounterpartAccountId}
+              label={t('bank_entry_counterpart')}
+              required
+            />
           )}
         </>
       )}

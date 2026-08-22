@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
-import { partyAccounts, formatPartyOption } from '../lib/partyAccounts';
+import PartyAccountSelect from './PartyAccountSelect';
 import CurrencySelect from './CurrencySelect';
 import DocumentImageAttach from './DocumentImageAttach';
 import { useCurrencies } from '../hooks/useCurrencies';
@@ -9,7 +9,6 @@ import { useCurrencies } from '../hooks/useCurrencies';
 export default function PurchaseInvoiceForm({ accounts, onPosted }) {
   const { t } = useTranslation();
   const { currencies, baseCurrency } = useCurrencies();
-  const partyList = partyAccounts(accounts);
   const expenseAccounts = accounts.filter((a) => a.account_type === 'EXPENSE');
 
   const [supplierAccountId, setSupplierAccountId] = useState('');
@@ -82,15 +81,13 @@ export default function PurchaseInvoiceForm({ accounts, onPosted }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <h3>{t('purchase_invoice_title')}</h3>
-      <div>
-        <label>{t('party_account')}</label>
-        <select value={supplierAccountId} onChange={(e) => setSupplierAccountId(e.target.value)} required>
-          <option value="">{t('voucher_choose_account')}</option>
-          {partyList.map((a) => (
-            <option key={a.id} value={a.id}>{formatPartyOption(a, t)}</option>
-          ))}
-        </select>
-      </div>
+      <PartyAccountSelect
+        accounts={accounts}
+        value={supplierAccountId}
+        onChange={setSupplierAccountId}
+        label={t('party_account')}
+        required
+      />
       <div>
         <label>{t('purchase_expense_account')}</label>
         <select value={expenseAccountId} onChange={(e) => setExpenseAccountId(e.target.value)} required>

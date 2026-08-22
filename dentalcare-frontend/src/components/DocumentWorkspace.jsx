@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import { useSettings } from '../context/SettingsContext';
@@ -37,6 +37,7 @@ export default function DocumentWorkspace({
   const [fromDate, setFromDate] = useState(monthStartIso);
   const [toDate, setToDate] = useState(todayIso);
   const [rows, setRows] = useState([]);
+  const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [printDocs, setPrintDocs] = useState(null);
@@ -61,6 +62,23 @@ export default function DocumentWorkspace({
       setLoading(false);
     }
   }, [sourceType, fromDate, toDate, t]);
+
+  const filteredRows = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((row) => {
+      const hay = [
+        row.partyNames,
+        row.memo,
+        row.id,
+        row.createdByName,
+        row.amount,
+        date(row.date),
+        money(row.amount),
+      ].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }, [rows, searchText, date, money]);
 
   useEffect(() => {
     if (browseOpen) {
@@ -118,6 +136,7 @@ export default function DocumentWorkspace({
   function closeBrowse() {
     setBrowseOpen(false);
     setViewDoc(null);
+    setSearchText('');
   }
 
   const child = typeof children === 'function'
@@ -181,6 +200,15 @@ export default function DocumentWorkspace({
             <>
               <p className="dc-muted text-sm no-print">{t('doc_browse_readonly_hint')}</p>
               <div className="dc-doc-browse-filters no-print">
+                <label className="dc-doc-browse-search">
+                  <span>{t('doc_search')}</span>
+                  <input
+                    type="search"
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    placeholder={t('doc_search_placeholder')}
+                  />
+                </label>
                 <label>
                   <span>{t('doc_filter_from')}</span>
                   <FormattedDateInput value={fromDate} onChange={setFromDate} />
@@ -198,7 +226,10 @@ export default function DocumentWorkspace({
               {!loading && !viewLoading && rows.length === 0 && (
                 <div className="dc-muted">{t('doc_browse_empty')}</div>
               )}
-              {rows.length > 0 && (
+              {!loading && !viewLoading && rows.length > 0 && filteredRows.length === 0 && (
+                <div className="dc-muted">{t('doc_browse_no_results')}</div>
+              )}
+              {filteredRows.length > 0 && (
                 <div className="dc-doc-browse-table-wrap">
                   <table className="dc-doc-browse-table text-sm">
                     <thead>
@@ -212,7 +243,7 @@ export default function DocumentWorkspace({
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((row) => (
+                      {filteredRows.map((row) => (
                         <tr
                           key={row.id}
                           className="dc-doc-browse-row"

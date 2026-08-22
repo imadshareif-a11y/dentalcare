@@ -53,6 +53,7 @@ async function purgeTenant(client, tenantId) {
   await runOptional(client, `DELETE FROM banks WHERE tenant_id = $1`, [tenantId]);
 
   await runOptional(client, `DELETE FROM appointments WHERE tenant_id = $1`, [tenantId]);
+  await runOptional(client, `DELETE FROM rooms WHERE tenant_id = $1`, [tenantId]);
   await runOptional(client, `DELETE FROM whatsapp_messages WHERE tenant_id = $1`, [tenantId]);
   await runOptional(client, `DELETE FROM doctors WHERE tenant_id = $1`, [tenantId]);
   await runOptional(client, `DELETE FROM parties WHERE tenant_id = $1`, [tenantId]);

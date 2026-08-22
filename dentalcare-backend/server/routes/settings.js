@@ -5,7 +5,8 @@ const router = express.Router();
 const { requireAuth, requireRole, requireClinicContext } = require('../middleware/auth');
 const { withTenantClient, withSystemClient } = require('../db/pool');
 const { DATE_FORMATS, publicSettings } = require('../settings/defaults');
-const { normalizeProvider } = require('../settings/aiConfig');
+const { normalizeProvider, publicAiSettings } = require('../settings/aiConfig');
+const { ensureTenantSettingsSchema } = require('../db/ensureTenantSettings');
 const { pingAiConnection, resolveTestConfig } = require('../settings/visionClient');
 const { setBaseCurrency } = require('../accounting/currency');
 const { normalizeWaProvider, resolveWhatsappConfig } = require('../whatsapp/config');
@@ -53,12 +54,17 @@ const SETTINGS_RETURNING = `
   wa_auto_appointment, wa_auto_reminder, wa_auto_payment
 `;
 
+const AI_RETURNING = `
+  ai_enabled, ai_api_key, ai_base_url, ai_vision_model, ai_provider
+`;
+
 function mapSettings(row) {
   return publicSettings(row);
 }
 
 router.get('/settings', requireAuth, requireClinicContext, async (req, res) => {
   try {
+    await ensureTenantSettingsSchema();
     const data = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(SETTINGS_SELECT, [req.user.tenantId]);
       const base = await client.query(
@@ -207,6 +213,7 @@ router.patch('/settings/ai', requireAuth, requireClinicContext, requireRole(['OW
   } = req.body;
 
   try {
+    await ensureTenantSettingsSchema();
     const row = await withTenantClient(req.user.tenantId, async (client) => {
       await client.query(
         `INSERT INTO tenant_settings (tenant_id) VALUES ($1) ON CONFLICT (tenant_id) DO NOTHING`,
@@ -235,7 +242,7 @@ router.patch('/settings/ai', requireAuth, requireClinicContext, requireRole(['OW
            ai_vision_model = COALESCE(NULLIF($6, ''), ai_vision_model),
            updated_at = now()
          WHERE tenant_id = $1
-         RETURNING ${SETTINGS_RETURNING}`,
+         RETURNING ${AI_RETURNING}`,
         [
           req.user.tenantId,
           typeof aiEnabled === 'boolean' ? aiEnabled : null,
@@ -245,12 +252,21 @@ router.patch('/settings/ai', requireAuth, requireClinicContext, requireRole(['OW
           aiVisionModel == null ? null : String(aiVisionModel).trim().slice(0, 120),
         ]
       );
+      if (!result.rows[0]) {
+        throw Object.assign(new Error('تعذّر حفظ إعدادات العيادة'), { statusCode: 404 });
+      }
       return result.rows[0];
     });
 
-    res.json(mapSettings(row));
+    res.json(publicAiSettings(row));
   } catch (err) {
+    if (err.statusCode === 404) {
+      return res.status(404).json({ error: err.message });
+    }
     console.error('Updating AI settings failed:', err);
+    if (err.code === '42703') {
+      return res.status(503).json({ error: 'قاعدة البيانات تحتاج تحديث — أعد نشر السيرفر أو شغّل migrate:all' });
+    }
     res.status(500).json({ error: 'تعذّر حفظ إعدادات الذكاء الاصطناعي' });
   }
 });
@@ -606,6 +622,129 @@ router.delete('/treatments/:id', requireAuth, requireClinicContext, requireRole(
   } catch (err) {
     console.error('Deleting treatment failed:', err);
     res.status(500).json({ error: 'تعذّر حذف العلاج' });
+  }
+});
+
+router.get('/rooms', requireAuth, requireClinicContext, async (req, res) => {
+  try {
+    const rows = await withTenantClient(req.user.tenantId, async (client) => {
+      const result = await client.query(
+        `SELECT id, name, name_en, name_he, is_active, sort_order
+         FROM rooms
+         WHERE tenant_id = $1
+         ORDER BY sort_order ASC, name ASC`,
+        [req.user.tenantId]
+      );
+      return result.rows;
+    });
+    res.json(rows);
+  } catch (err) {
+    console.error('Listing rooms failed:', err);
+    res.status(500).json({ error: 'تعذّر جلب الغرف' });
+  }
+});
+
+router.post('/rooms', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
+  const { sortOrder } = req.body;
+  if (!req.body.name || !String(req.body.name).trim()) {
+    return res.status(400).json({ error: 'اسم الغرفة مطلوب' });
+  }
+  try {
+    const created = await withTenantClient(req.user.tenantId, async (client) => {
+      const { namesFromBody } = require('../i18n/localizeNames');
+      const names = await namesFromBody(client, req.user.tenantId, req.body);
+      const result = await client.query(
+        `INSERT INTO rooms (tenant_id, name, name_en, name_he, sort_order)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, name, name_en, name_he, is_active, sort_order`,
+        [
+          req.user.tenantId,
+          names.name,
+          names.name_en,
+          names.name_he,
+          Number(sortOrder) || 0,
+        ]
+      );
+      return result.rows[0];
+    });
+    res.status(201).json(created);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'يوجد غرفة بنفس الاسم' });
+    }
+    console.error('Creating room failed:', err);
+    res.status(500).json({ error: 'تعذّر إضافة الغرفة' });
+  }
+});
+
+router.patch('/rooms/:id', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
+  const { isActive, sortOrder } = req.body;
+  try {
+    const updated = await withTenantClient(req.user.tenantId, async (client) => {
+      const { namesFromBody } = require('../i18n/localizeNames');
+      const names = await namesFromBody(client, req.user.tenantId, req.body, { partial: true });
+
+      const fields = [];
+      const values = [req.params.id, req.user.tenantId];
+      const push = (col, val) => {
+        values.push(val);
+        fields.push(`${col} = $${values.length}`);
+      };
+
+      if (names) {
+        push('name', names.name);
+        push('name_en', names.name_en);
+        push('name_he', names.name_he);
+      }
+      if (typeof isActive === 'boolean') push('is_active', isActive);
+      if (sortOrder != null) push('sort_order', Number(sortOrder));
+
+      if (fields.length === 0) {
+        throw Object.assign(new Error('لا توجد حقول للتحديث'), { statusCode: 400 });
+      }
+
+      const result = await client.query(
+        `UPDATE rooms SET ${fields.join(', ')}
+         WHERE id = $1 AND tenant_id = $2
+         RETURNING id, name, name_en, name_he, is_active, sort_order`,
+        values
+      );
+      return result.rows[0] || null;
+    });
+    if (!updated) return res.status(404).json({ error: 'الغرفة غير موجودة' });
+    res.json(updated);
+  } catch (err) {
+    if (err.statusCode === 400) return res.status(400).json({ error: err.message });
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'يوجد غرفة بنفس الاسم' });
+    }
+    console.error('Updating room failed:', err);
+    res.status(500).json({ error: 'تعذّر تعديل الغرفة' });
+  }
+});
+
+router.delete('/rooms/:id', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
+  try {
+    const deleted = await withTenantClient(req.user.tenantId, async (client) => {
+      const inUse = await client.query(
+        `SELECT 1 FROM appointments WHERE room_id = $1 AND tenant_id = $2 LIMIT 1`,
+        [req.params.id, req.user.tenantId]
+      );
+      if (inUse.rowCount > 0) {
+        throw Object.assign(new Error('لا يمكن حذف غرفة مرتبطة بمواعيد'), { statusCode: 409 });
+      }
+      const result = await client.query(
+        `DELETE FROM rooms WHERE id = $1 AND tenant_id = $2 RETURNING id`,
+        [req.params.id, req.user.tenantId]
+      );
+      return result.rows[0] || null;
+    });
+    if (!deleted) return res.status(404).json({ error: 'الغرفة غير موجودة' });
+    res.json({ success: true });
+  } catch (err) {
+    if (err.statusCode === 409) return res.status(409).json({ error: err.message });
+    console.error('Deleting room failed:', err);
+    res.status(500).json({ error: 'تعذّر حذف الغرفة' });
   }
 });
 

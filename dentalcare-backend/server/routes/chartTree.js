@@ -120,8 +120,6 @@ router.post(
   requirePermission('accounts', 'edit'),
   async (req, res) => {
     const name = String(req.body.name || '').trim();
-    const nameEn = (req.body.nameEn || '').trim() || null;
-    const nameHe = (req.body.nameHe || '').trim() || null;
     const accountCode = String(req.body.accountCode || '').trim();
     let accountType = String(req.body.accountType || '').toUpperCase();
     const parentId = req.body.parentId || null;
@@ -170,13 +168,16 @@ router.post(
           order = Number(max.rows[0].m) + 10;
         }
 
+        const { namesFromBody } = require('../i18n/localizeNames');
+        const names = await namesFromBody(client, req.user.tenantId, req.body);
+
         const result = await client.query(
           `INSERT INTO chart_of_accounts
              (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he,
               account_type, parent_id, is_group, is_active, sort_order)
            VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, TRUE, $9)
            RETURNING id`,
-          [req.user.tenantId, accountCode, name, nameEn, nameHe, accountType, parentId, isGroup, order]
+          [req.user.tenantId, accountCode, names.name, names.name_en, names.name_he, accountType, parentId, isGroup, order]
         );
 
         // إذا أُضيف ابن تحت حساب غير تجميعي، حوّله لتجميعي تلقائيًا إن لم تكن له حركات
@@ -225,16 +226,14 @@ router.patch(
         };
 
         if (req.body.name !== undefined) {
-          const name = String(req.body.name || '').trim();
-          if (!name) throw Object.assign(new Error('اسم الحساب مطلوب'), { statusCode: 400 });
-          push('account_name', name);
-          push('account_name_ar', name);
-        }
-        if (req.body.nameEn !== undefined) {
-          push('account_name_en', (req.body.nameEn || '').trim() || null);
-        }
-        if (req.body.nameHe !== undefined) {
-          push('account_name_he', (req.body.nameHe || '').trim() || null);
+          const n = String(req.body.name || '').trim();
+          if (!n) throw Object.assign(new Error('اسم الحساب مطلوب'), { statusCode: 400 });
+          const { namesFromBody } = require('../i18n/localizeNames');
+          const names = await namesFromBody(client, req.user.tenantId, req.body);
+          push('account_name', names.name);
+          push('account_name_ar', names.name);
+          push('account_name_en', names.name_en);
+          push('account_name_he', names.name_he);
         }
         if (req.body.accountCode !== undefined) {
           const code = String(req.body.accountCode || '').trim();

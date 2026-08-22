@@ -7,9 +7,11 @@
 // بالكود بيرجع "كل شي" كـ default.
 // -----------------------------------------------------------
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
+import SearchableSelect from '../components/SearchableSelect';
+import { accountOptionLabel, accountSearchText } from '../lib/partyAccounts';
 import PrintHeader, { PrintButton } from '../components/PrintHeader';
 import { useSettings } from '../context/SettingsContext';
 import ReportPeriodPicker from '../components/ReportPeriodPicker';
@@ -20,6 +22,14 @@ export default function LedgerReport({ accounts }) {
   const { money, date } = useSettings();
   const { fromDate, toDate, preset, setFromDate, setToDate, setPreset } = useReportPeriod();
   const [accountId, setAccountId] = useState('');
+  const accountOptions = useMemo(
+    () => (accounts || []).map((a) => ({
+      value: a.id,
+      label: accountOptionLabel(a, t),
+      searchText: accountSearchText(a, t),
+    })),
+    [accounts, t]
+  );
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -45,12 +55,12 @@ export default function LedgerReport({ accounts }) {
   return (
     <div className="space-y-4">
       <div className="flex gap-2 no-print" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-          <option value="">{t('ledger_choose_account')}</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.account_name}</option>
-          ))}
-        </select>
+        <SearchableSelect
+          value={accountId}
+          onChange={setAccountId}
+          options={accountOptions}
+          placeholder={t('ledger_choose_account')}
+        />
         <ReportPeriodPicker
           fromDate={fromDate}
           toDate={toDate}

@@ -25,3 +25,18 @@ export function formatPartyOption(account, t) {
   if (!key || !t) return name;
   return `${name} — ${t(key)}`;
 }
+
+/** تسمية حساب في القوائم (ذمة أو غيرها). */
+export function accountOptionLabel(account, t) {
+  if (account?.party_type && t) return formatPartyOption(account, t);
+  return account?.account_name || '';
+}
+
+/** نص البحث لحساب — الاسم، الرمز، ونوع الذمة. */
+export function accountSearchText(account, t) {
+  const parts = [account?.account_name, account?.account_code];
+  const key = partyTypeLabelKey(account?.party_type);
+  if (key && t) parts.push(t(key));
+  if (account?.party_type) parts.push(account.party_type);
+  return parts.filter(Boolean).join(' ').toLowerCase();
+}

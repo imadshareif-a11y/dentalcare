@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 
-const EMPTY_BANK = { bankNumber: '', name: '', nameEn: '', nameHe: '', isActive: true };
+import { localizedEditValue, localizedPayload } from '../lib/localizedName';
+
+const EMPTY_BANK = { bankNumber: '', name: '', isActive: true };
 
 export function BankCatalogForm({ record, onSaved }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isEdit = Boolean(record?.id);
   const [form, setForm] = useState(EMPTY_BANK);
   const [submitting, setSubmitting] = useState(false);
@@ -15,16 +17,14 @@ export function BankCatalogForm({ record, onSaved }) {
     if (record) {
       setForm({
         bankNumber: record.bank_number || '',
-        name: record.name || '',
-        nameEn: record.name_en || '',
-        nameHe: record.name_he || '',
+        name: localizedEditValue(record, i18n.language),
         isActive: record.is_active !== false,
       });
     } else {
       setForm(EMPTY_BANK);
     }
     setError(null);
-  }, [record]);
+  }, [record, i18n.language]);
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -41,9 +41,7 @@ export function BankCatalogForm({ record, onSaved }) {
     try {
       const payload = {
         bankNumber: form.bankNumber.trim(),
-        name: form.name.trim(),
-        nameEn: form.nameEn.trim() || null,
-        nameHe: form.nameHe.trim() || null,
+        ...localizedPayload(form.name, i18n.language),
         isActive: form.isActive,
       };
       if (isEdit) await api.patch(`/banks/${record.id}`, payload);
@@ -78,16 +76,7 @@ export function BankCatalogForm({ record, onSaved }) {
           />
         </div>
       </div>
-      <div className="dc-form-row">
-        <div className="dc-form-field">
-          <label>{t('bank_name_en')}</label>
-          <input type="text" value={form.nameEn} onChange={(e) => setField('nameEn', e.target.value)} />
-        </div>
-        <div className="dc-form-field">
-          <label>{t('bank_name_he')}</label>
-          <input type="text" value={form.nameHe} onChange={(e) => setField('nameHe', e.target.value)} />
-        </div>
-      </div>
+      <p className="dc-muted text-sm">{t('localized_name_hint')}</p>
       {isEdit && (
         <label className="dc-check-row">
           <input
@@ -111,8 +100,6 @@ const EMPTY_ACCOUNT = {
   bankId: '',
   currencyId: '',
   name: '',
-  nameEn: '',
-  nameHe: '',
   accountNumber: '',
   isActive: true,
 };
@@ -124,7 +111,7 @@ export function BankAccountForm({
   defaultKind = 'CURRENT',
   onSaved,
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isEdit = Boolean(record?.id);
   const [form, setForm] = useState(EMPTY_ACCOUNT);
   const [submitting, setSubmitting] = useState(false);
@@ -136,9 +123,7 @@ export function BankAccountForm({
         accountKind: record.account_kind || 'CURRENT',
         bankId: record.bank_id || '',
         currencyId: record.currency_id || '',
-        name: record.name || '',
-        nameEn: record.name_en || '',
-        nameHe: record.name_he || '',
+        name: localizedEditValue(record, i18n.language),
         accountNumber: record.account_number || '',
         isActive: record.is_active !== false,
       });
@@ -146,7 +131,7 @@ export function BankAccountForm({
       setForm({ ...EMPTY_ACCOUNT, accountKind: defaultKind });
     }
     setError(null);
-  }, [record, defaultKind]);
+  }, [record, defaultKind, i18n.language]);
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -161,11 +146,10 @@ export function BankAccountForm({
     }
     setSubmitting(true);
     try {
+      const namePayload = localizedPayload(form.name, i18n.language);
       if (isEdit) {
         await api.patch(`/bank-accounts/${record.id}`, {
-          name: form.name.trim(),
-          nameEn: form.nameEn.trim() || null,
-          nameHe: form.nameHe.trim() || null,
+          ...namePayload,
           accountNumber: form.accountNumber.trim() || null,
           bankId: form.bankId || null,
           currencyId: form.currencyId || null,
@@ -174,9 +158,7 @@ export function BankAccountForm({
       } else {
         await api.post('/bank-accounts', {
           accountKind: form.accountKind,
-          name: form.name.trim(),
-          nameEn: form.nameEn.trim() || null,
-          nameHe: form.nameHe.trim() || null,
+          ...namePayload,
           accountNumber: form.accountNumber.trim() || null,
           bankId: form.bankId || null,
           currencyId: form.currencyId || null,
@@ -247,17 +229,7 @@ export function BankAccountForm({
           ))}
         </select>
       </div>
-
-      <div className="dc-form-row">
-        <div className="dc-form-field">
-          <label>{t('bank_name_en')}</label>
-          <input type="text" value={form.nameEn} onChange={(e) => setField('nameEn', e.target.value)} />
-        </div>
-        <div className="dc-form-field">
-          <label>{t('bank_name_he')}</label>
-          <input type="text" value={form.nameHe} onChange={(e) => setField('nameHe', e.target.value)} />
-        </div>
-      </div>
+      <p className="dc-muted text-sm">{t('localized_name_hint')}</p>
 
       {isEdit && (
         <label className="dc-check-row">

@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import PartyAccountSelect from '../components/PartyAccountSelect';
 import { partyAccounts } from '../lib/partyAccounts';
 import PartyModal from '../components/PartyModal';
 import CheckImageViewer from '../components/CheckImageViewer';
@@ -352,12 +353,13 @@ export default function Checks({ canEdit = true, accounts, onAccountsChanged }) 
                           <>
                             {endorsingId === c.id ? (
                               <>
-                                <select value={payeeAccountId} onChange={(e) => setPayeeAccountId(e.target.value)}>
-                                  <option value="">{t('check_endorse_choose_payee')}</option>
-                                  {payeeAccounts.map((a) => (
-                                    <option key={a.id} value={a.id}>{a.account_name}</option>
-                                  ))}
-                                </select>
+                                <PartyAccountSelect
+                                  accountList={payeeAccounts}
+                                  value={payeeAccountId}
+                                  onChange={setPayeeAccountId}
+                                  placeholder={t('check_endorse_choose_payee')}
+                                  compact
+                                />
                                 <button type="button" onClick={() => handleEndorse(c.id)} disabled={!payeeAccountId}>
                                   {t('check_endorse')}
                                 </button>

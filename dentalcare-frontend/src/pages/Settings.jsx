@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { DEFAULT_QUICK_ACTIONS, QUICK_ACTION_CATALOG, normalizeQuickActions } from '../lib/quickActions';
+import PartyModal from '../components/PartyModal';
+import { localizedDisplay, localizedEditValue, localizedPayload } from '../lib/localizedName';
 
 function codeSample(prefix, width, next) {
   const pad = Math.min(8, Math.max(1, Number(width) || 5));
@@ -12,7 +14,7 @@ function codeSample(prefix, width, next) {
 }
 
 export default function SettingsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user, refreshUser } = useAuth();
   const { settings, reload, isOwner, letterheadUrl } = useSettings();
   const { currencies, reload: reloadCurrencies } = useCurrencies();
@@ -20,6 +22,10 @@ export default function SettingsPage() {
   const [formatForm, setFormatForm] = useState(null);
   const [treatments, setTreatments] = useState([]);
   const [newTreatment, setNewTreatment] = useState({ name: '', price: '' });
+  const [rooms, setRooms] = useState([]);
+  const [newRoom, setNewRoom] = useState({ name: '' });
+  const [roomAddOpen, setRoomAddOpen] = useState(false);
+  const [roomAddBusy, setRoomAddBusy] = useState(false);
   const [importPatients, setImportPatients] = useState(null);
   const [importSuppliers, setImportSuppliers] = useState(null);
   const [error, setError] = useState(null);
@@ -83,6 +89,7 @@ export default function SettingsPage() {
         { id: 'backup', labelKey: 'settings_tab_backup', ownerOnly: true },
         { id: 'fiscal', labelKey: 'settings_tab_fiscal', ownerOnly: true },
         { id: 'treatments', labelKey: 'settings_tab_treatments', ownerOnly: true },
+        { id: 'rooms', labelKey: 'settings_tab_rooms', ownerOnly: true },
         { id: 'import', labelKey: 'settings_tab_import', ownerOnly: true },
       );
     }
@@ -155,6 +162,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!isOwner) return;
     api.get('/treatments').then(setTreatments).catch(() => setTreatments([]));
+    api.get('/rooms').then(setRooms).catch(() => setRooms([]));
   }, [isOwner]);
 
   useEffect(() => {
@@ -308,7 +316,8 @@ export default function SettingsPage() {
         aiEnabled: aiForm.aiEnabled,
         aiProvider: aiForm.aiProvider,
         aiBaseUrl: aiForm.aiBaseUrl.trim() || null,
-        aiVisionModel: aiForm.aiVisionModel.trim() || 'gpt-4o-mini',
+        aiVisionModel: aiForm.aiVisionModel.trim()
+          || (AI_PROVIDER_DEFAULTS[aiForm.aiProvider] || AI_PROVIDER_DEFAULTS.openai).model,
         ...(aiForm.clearAiApiKey
           ? { clearAiApiKey: true }
           : (aiForm.aiApiKey.trim() ? { aiApiKey: aiForm.aiApiKey.trim() } : {})),
@@ -450,6 +459,55 @@ export default function SettingsPage() {
     try {
       await api.delete(`/treatments/${id}`);
       setTreatments((prev) => prev.filter((x) => x.id !== id));
+    } catch (err) {
+      alert(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
+    }
+  }
+
+  function openRoomAddModal() {
+    setNewRoom({ name: '' });
+    setRoomAddOpen(true);
+  }
+
+  function closeRoomAddModal() {
+    setRoomAddOpen(false);
+    setNewRoom({ name: '' });
+  }
+
+  async function addRoom(e) {
+    e.preventDefault();
+    setRoomAddBusy(true);
+    try {
+      const created = await api.post('/rooms', {
+        ...localizedPayload(newRoom.name, i18n.language),
+        sortOrder: rooms.length + 1,
+      });
+      setRooms((prev) => [...prev, created]);
+      closeRoomAddModal();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
+    } finally {
+      setRoomAddBusy(false);
+    }
+  }
+
+  async function saveRoom(item) {
+    try {
+      const updated = await api.patch(`/rooms/${item.id}`, {
+        ...localizedPayload(item._editName ?? localizedEditValue(item, i18n.language), i18n.language),
+        isActive: item.is_active,
+      });
+      setRooms((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    } catch (err) {
+      alert(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
+    }
+  }
+
+  async function removeRoom(id) {
+    if (!confirm(t('settings_room_delete_confirm'))) return;
+    try {
+      await api.delete(`/rooms/${id}`);
+      setRooms((prev) => prev.filter((x) => x.id !== id));
     } catch (err) {
       alert(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
     }
@@ -1241,6 +1299,54 @@ export default function SettingsPage() {
         </section>
       )}
 
+      {activeTab === 'rooms' && isOwner && (
+        <section className="dc-settings-panel">
+          <div className="dc-party-head">
+            <div>
+              <h4>{t('settings_rooms_title')}</h4>
+              <p className="dc-muted text-sm">{t('settings_rooms_hint')}</p>
+            </div>
+            <button type="button" onClick={openRoomAddModal}>
+              <i className="fa-solid fa-plus" /> {t('settings_room_add')}
+            </button>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                <th>{t('settings_room_name')}</th>
+                <th>{t('settings_room_active')}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rooms.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <input
+                      value={item._editName ?? localizedEditValue(item, i18n.language)}
+                      onChange={(e) => setRooms((prev) => prev.map((x) => (
+                        x.id === item.id ? { ...x, _editName: e.target.value } : x
+                      )))}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={item.is_active !== false}
+                      onChange={(e) => setRooms((prev) => prev.map((x) => (x.id === item.id ? { ...x, is_active: e.target.checked } : x)))}
+                    />
+                  </td>
+                  <td>
+                    <button type="button" onClick={() => saveRoom(item)}>{t('platform_save')}</button>
+                    <button type="button" className="dc-danger" onClick={() => removeRoom(item.id)}>{t('platform_delete')}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
       {activeTab === 'import' && isOwner && (
         <section className="dc-settings-panel space-y-4">
           <h4>{t('settings_import_title')}</h4>
@@ -1310,6 +1416,33 @@ export default function SettingsPage() {
           </div>
         </section>
       )}
+
+      <PartyModal
+        open={roomAddOpen}
+        title={t('settings_room_add')}
+        onClose={closeRoomAddModal}
+      >
+        <form onSubmit={addRoom} className="space-y-3">
+          <p className="dc-muted text-sm">{t('localized_name_hint')}</p>
+          <div className="dc-form-field">
+            <label>{t('settings_room_name')}</label>
+            <input
+              required
+              autoFocus
+              value={newRoom.name}
+              onChange={(e) => setNewRoom({ name: e.target.value })}
+            />
+          </div>
+          <div className="dc-doc-view-actions">
+            <button type="submit" disabled={roomAddBusy}>
+              {roomAddBusy ? t('party_saving') : t('settings_room_add')}
+            </button>
+            <button type="button" className="dc-ghost-light" onClick={closeRoomAddModal} disabled={roomAddBusy}>
+              {t('btn_cancel')}
+            </button>
+          </div>
+        </form>
+      </PartyModal>
     </div>
   );
 }

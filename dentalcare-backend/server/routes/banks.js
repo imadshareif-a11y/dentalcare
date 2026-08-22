@@ -80,21 +80,22 @@ router.get('/banks', requireAuth, LIST_ACCESS, async (req, res) => {
 
 router.post('/banks', requireAuth, requirePermission('accounts', 'edit'), async (req, res) => {
   const bankNumber = String(req.body.bankNumber || '').trim();
-  const name = String(req.body.name || '').trim();
-  const nameEn = (req.body.nameEn || '').trim() || null;
-  const nameHe = (req.body.nameHe || '').trim() || null;
   const isActive = req.body.isActive === undefined ? true : Boolean(req.body.isActive);
 
   if (!bankNumber) return res.status(400).json({ error: 'رقم البنك مطلوب' });
-  if (!name) return res.status(400).json({ error: 'اسم البنك مطلوب' });
+  if (!req.body.name || !String(req.body.name).trim()) {
+    return res.status(400).json({ error: 'اسم البنك مطلوب' });
+  }
 
   try {
     const row = await withTenantClient(req.user.tenantId, async (client) => {
+      const { namesFromBody } = require('../i18n/localizeNames');
+      const names = await namesFromBody(client, req.user.tenantId, req.body);
       const result = await client.query(
         `INSERT INTO banks (tenant_id, bank_number, name, name_en, name_he, is_active)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
-        [req.user.tenantId, bankNumber, name, nameEn, nameHe, isActive]
+        [req.user.tenantId, bankNumber, names.name, names.name_en, names.name_he, isActive]
       );
       return result.rows[0];
     });
@@ -131,10 +132,12 @@ router.patch('/banks/:id', requireAuth, requirePermission('accounts', 'edit'), a
       if (req.body.name !== undefined) {
         const n = String(req.body.name || '').trim();
         if (!n) throw Object.assign(new Error('اسم البنك مطلوب'), { statusCode: 400 });
-        push('name', n);
+        const { namesFromBody } = require('../i18n/localizeNames');
+        const names = await namesFromBody(client, req.user.tenantId, req.body);
+        push('name', names.name);
+        push('name_en', names.name_en);
+        push('name_he', names.name_he);
       }
-      if (req.body.nameEn !== undefined) push('name_en', (req.body.nameEn || '').trim() || null);
-      if (req.body.nameHe !== undefined) push('name_he', (req.body.nameHe || '').trim() || null);
       if (req.body.isActive !== undefined) push('is_active', Boolean(req.body.isActive));
 
       if (fields.length) {
@@ -196,9 +199,6 @@ router.get('/bank-accounts', requireAuth, LIST_ACCESS, async (req, res) => {
 
 router.post('/bank-accounts', requireAuth, requirePermission('accounts', 'edit'), async (req, res) => {
   const accountKind = String(req.body.accountKind || '').toUpperCase();
-  const name = String(req.body.name || '').trim();
-  const nameEn = (req.body.nameEn || '').trim() || null;
-  const nameHe = (req.body.nameHe || '').trim() || null;
   const accountNumber = (req.body.accountNumber || '').trim() || null;
   const bankId = req.body.bankId || null;
   const currencyId = req.body.currencyId || null;
@@ -206,10 +206,14 @@ router.post('/bank-accounts', requireAuth, requirePermission('accounts', 'edit')
   if (!KIND_META[accountKind]) {
     return res.status(400).json({ error: 'نوع الحساب البنكي غير صالح' });
   }
-  if (!name) return res.status(400).json({ error: 'اسم الحساب مطلوب' });
+  if (!req.body.name || !String(req.body.name).trim()) {
+    return res.status(400).json({ error: 'اسم الحساب مطلوب' });
+  }
 
   try {
     const id = await withTenantClient(req.user.tenantId, async (client) => {
+      const { namesFromBody } = require('../i18n/localizeNames');
+      const names = await namesFromBody(client, req.user.tenantId, req.body);
       if (bankId) {
         const bank = await client.query(
           `SELECT id FROM banks WHERE id = $1 AND is_active = TRUE`,
@@ -222,9 +226,9 @@ router.post('/bank-accounts', requireAuth, requirePermission('accounts', 'edit')
       return createBankAccount(client, req.user.tenantId, {
         bankId,
         accountKind,
-        name,
-        nameEn,
-        nameHe,
+        name: names.name,
+        nameEn: names.name_en,
+        nameHe: names.name_he,
         accountNumber,
         currencyId,
       });
@@ -261,10 +265,12 @@ router.patch('/bank-accounts/:id', requireAuth, requirePermission('accounts', 'e
       if (req.body.name !== undefined) {
         const n = String(req.body.name || '').trim();
         if (!n) throw Object.assign(new Error('اسم الحساب مطلوب'), { statusCode: 400 });
-        push('name', n);
+        const { namesFromBody } = require('../i18n/localizeNames');
+        const names = await namesFromBody(client, req.user.tenantId, req.body);
+        push('name', names.name);
+        push('name_en', names.name_en);
+        push('name_he', names.name_he);
       }
-      if (req.body.nameEn !== undefined) push('name_en', (req.body.nameEn || '').trim() || null);
-      if (req.body.nameHe !== undefined) push('name_he', (req.body.nameHe || '').trim() || null);
       if (req.body.accountNumber !== undefined) {
         push('account_number', (req.body.accountNumber || '').trim() || null);
       }

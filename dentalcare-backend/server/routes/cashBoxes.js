@@ -99,9 +99,6 @@ router.post(
   async (req, res) => {
     const boxKind = String(req.body.boxKind || '').toUpperCase();
     const currencyId = req.body.currencyId;
-    const name = (req.body.name || '').trim();
-    const nameEn = (req.body.nameEn || '').trim() || null;
-    const nameHe = (req.body.nameHe || '').trim() || null;
 
     if (!KIND_META[boxKind]) {
       return res.status(400).json({ error: 'نوع الصندوق غير صالح' });
@@ -109,20 +106,22 @@ router.post(
     if (!currencyId) {
       return res.status(400).json({ error: 'يجب تحديد العملة' });
     }
-    if (!name) {
+    if (!req.body.name || !String(req.body.name).trim()) {
       return res.status(400).json({ error: 'اسم الصندوق مطلوب' });
     }
 
     try {
-      const id = await withTenantClient(req.user.tenantId, async (client) => (
-        createManualBox(client, req.user.tenantId, {
+      const id = await withTenantClient(req.user.tenantId, async (client) => {
+        const { namesFromBody } = require('../i18n/localizeNames');
+        const names = await namesFromBody(client, req.user.tenantId, req.body);
+        return createManualBox(client, req.user.tenantId, {
           currencyId,
           boxKind,
-          name,
-          nameEn,
-          nameHe,
-        })
-      ));
+          name: names.name,
+          nameEn: names.name_en,
+          nameHe: names.name_he,
+        });
+      });
       res.status(201).json({ success: true, id });
     } catch (err) {
       if (err.statusCode === 400) return res.status(400).json({ error: err.message });
@@ -140,17 +139,19 @@ router.patch(
   requireAuth,
   requirePermission('accounts', 'edit'),
   async (req, res) => {
-    const name = req.body.name !== undefined ? String(req.body.name || '').trim() : undefined;
-    const nameEn = req.body.nameEn !== undefined ? (String(req.body.nameEn || '').trim() || null) : undefined;
-    const nameHe = req.body.nameHe !== undefined ? (String(req.body.nameHe || '').trim() || null) : undefined;
     const isActive = req.body.isActive !== undefined ? Boolean(req.body.isActive) : undefined;
 
-    if (name !== undefined && !name) {
+    if (req.body.name !== undefined && !String(req.body.name || '').trim()) {
       return res.status(400).json({ error: 'اسم الصندوق مطلوب' });
     }
 
     try {
       await withTenantClient(req.user.tenantId, async (client) => {
+        let resolvedNames = null;
+        if (req.body.name !== undefined) {
+          const { namesFromBody } = require('../i18n/localizeNames');
+          resolvedNames = await namesFromBody(client, req.user.tenantId, req.body);
+        }
         const existing = await client.query(
           `SELECT id, account_id, is_system FROM cash_boxes WHERE id = $1`,
           [req.params.id]
@@ -166,9 +167,11 @@ router.patch(
           fields.push(`${col} = $${values.length}`);
         };
 
-        if (name !== undefined) push('name', name);
-        if (nameEn !== undefined) push('name_en', nameEn);
-        if (nameHe !== undefined) push('name_he', nameHe);
+        if (resolvedNames) {
+          push('name', resolvedNames.name);
+          push('name_en', resolvedNames.name_en);
+          push('name_he', resolvedNames.name_he);
+        }
         if (isActive !== undefined) push('is_active', isActive);
 
         if (fields.length === 0) return;

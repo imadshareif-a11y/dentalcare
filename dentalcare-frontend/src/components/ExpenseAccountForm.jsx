@@ -1,17 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import { localizedEditValue, localizedPayload } from '../lib/localizedName';
 
 const EMPTY = {
   name: '',
-  nameEn: '',
-  nameHe: '',
   accountCode: '',
   isActive: true,
 };
 
 export default function ExpenseAccountForm({ record, onSaved }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isEdit = Boolean(record?.id);
   const [form, setForm] = useState(EMPTY);
   const [submitting, setSubmitting] = useState(false);
@@ -20,9 +19,11 @@ export default function ExpenseAccountForm({ record, onSaved }) {
   useEffect(() => {
     if (record) {
       setForm({
-        name: record.account_name_ar || record.account_name || '',
-        nameEn: record.account_name_en || '',
-        nameHe: record.account_name_he || '',
+        name: localizedEditValue(record, i18n.language, {
+          ar: ['account_name_ar', 'account_name', 'name'],
+          en: ['account_name_en', 'name_en'],
+          he: ['account_name_he', 'name_he'],
+        }),
         accountCode: record.account_code || '',
         isActive: record.is_active !== false,
       });
@@ -30,7 +31,7 @@ export default function ExpenseAccountForm({ record, onSaved }) {
       setForm(EMPTY);
     }
     setError(null);
-  }, [record]);
+  }, [record, i18n.language]);
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -45,18 +46,15 @@ export default function ExpenseAccountForm({ record, onSaved }) {
     }
     setSubmitting(true);
     try {
+      const namePayload = localizedPayload(form.name, i18n.language);
       if (isEdit) {
         await api.patch(`/expense-accounts/${record.id}`, {
-          name: form.name.trim(),
-          nameEn: form.nameEn.trim() || null,
-          nameHe: form.nameHe.trim() || null,
+          ...namePayload,
           isActive: form.isActive,
         });
       } else {
         await api.post('/expense-accounts', {
-          name: form.name.trim(),
-          nameEn: form.nameEn.trim() || null,
-          nameHe: form.nameHe.trim() || null,
+          ...namePayload,
           accountCode: form.accountCode.trim() || null,
         });
       }
@@ -95,17 +93,7 @@ export default function ExpenseAccountForm({ record, onSaved }) {
           required
         />
       </div>
-
-      <div className="dc-form-row">
-        <div className="dc-form-field">
-          <label>{t('expense_account_name_en')}</label>
-          <input type="text" value={form.nameEn} onChange={(e) => setField('nameEn', e.target.value)} />
-        </div>
-        <div className="dc-form-field">
-          <label>{t('expense_account_name_he')}</label>
-          <input type="text" value={form.nameHe} onChange={(e) => setField('nameHe', e.target.value)} />
-        </div>
-      </div>
+      <p className="dc-muted text-sm">{t('localized_name_hint')}</p>
 
       {isEdit && (
         <label className="dc-check-row">

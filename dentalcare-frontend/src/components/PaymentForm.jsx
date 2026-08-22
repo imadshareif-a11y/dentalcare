@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import CheckFields from './CheckFields';
 import FormattedDateInput from './FormattedDateInput';
-import { partyAccounts, formatPartyOption } from '../lib/partyAccounts';
+import PartyAccountSelect from './PartyAccountSelect';
+import { partyAccounts } from '../lib/partyAccounts';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useCashBoxes } from '../hooks/useCashBoxes';
 
@@ -328,17 +329,13 @@ export default function PaymentForm({ accounts, onPosted }) {
       <h3>{t('payment_title')}</h3>
 
       <div className="dc-form-row">
-        <div className="dc-form-field">
-          <label>{t('party_account')}</label>
-          <select value={payeeAccountId} onChange={(e) => setPayeeAccountId(e.target.value)} required>
-            <option value="">{t('voucher_choose_account')}</option>
-            {payeeAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.party_type ? formatPartyOption(a, t) : a.account_name}
-              </option>
-            ))}
-          </select>
-        </div>
+        <PartyAccountSelect
+          accountList={payeeAccounts}
+          value={payeeAccountId}
+          onChange={setPayeeAccountId}
+          label={t('party_account')}
+          required
+        />
         <div className="dc-form-field">
           <label>{t('voucher_date')}</label>
           <FormattedDateInput value={docDate} onChange={setDocDate} required />

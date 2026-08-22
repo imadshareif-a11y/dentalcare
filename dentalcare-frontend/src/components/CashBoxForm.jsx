@@ -1,18 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import { localizedEditValue, localizedPayload } from '../lib/localizedName';
 
 const EMPTY = {
   boxKind: 'CASH',
   currencyId: '',
   name: '',
-  nameEn: '',
-  nameHe: '',
   isActive: true,
 };
 
 export default function CashBoxForm({ record, currencies, defaultKind = 'CASH', onSaved }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isEdit = Boolean(record?.id);
   const [form, setForm] = useState(EMPTY);
   const [submitting, setSubmitting] = useState(false);
@@ -23,16 +22,14 @@ export default function CashBoxForm({ record, currencies, defaultKind = 'CASH', 
       setForm({
         boxKind: record.box_kind || 'CASH',
         currencyId: record.currency_id || '',
-        name: record.name || '',
-        nameEn: record.name_en || '',
-        nameHe: record.name_he || '',
+        name: localizedEditValue(record, i18n.language),
         isActive: record.is_active !== false,
       });
     } else {
       setForm({ ...EMPTY, boxKind: defaultKind });
     }
     setError(null);
-  }, [record, defaultKind]);
+  }, [record, defaultKind, i18n.language]);
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -52,20 +49,17 @@ export default function CashBoxForm({ record, currencies, defaultKind = 'CASH', 
 
     setSubmitting(true);
     try {
+      const namePayload = localizedPayload(form.name, i18n.language);
       if (isEdit) {
         await api.patch(`/cash-boxes/${record.id}`, {
-          name: form.name.trim(),
-          nameEn: form.nameEn.trim() || null,
-          nameHe: form.nameHe.trim() || null,
+          ...namePayload,
           isActive: form.isActive,
         });
       } else {
         await api.post('/cash-boxes', {
           boxKind: form.boxKind,
           currencyId: form.currencyId,
-          name: form.name.trim(),
-          nameEn: form.nameEn.trim() || null,
-          nameHe: form.nameHe.trim() || null,
+          ...namePayload,
         });
       }
       onSaved?.();
@@ -129,25 +123,7 @@ export default function CashBoxForm({ record, currencies, defaultKind = 'CASH', 
           required
         />
       </div>
-
-      <div className="dc-form-row">
-        <div className="dc-form-field">
-          <label>{t('cash_box_name_en')}</label>
-          <input
-            type="text"
-            value={form.nameEn}
-            onChange={(e) => setField('nameEn', e.target.value)}
-          />
-        </div>
-        <div className="dc-form-field">
-          <label>{t('cash_box_name_he')}</label>
-          <input
-            type="text"
-            value={form.nameHe}
-            onChange={(e) => setField('nameHe', e.target.value)}
-          />
-        </div>
-      </div>
+      <p className="dc-muted text-sm">{t('localized_name_hint')}</p>
 
       {isEdit && (
         <label className="dc-check-row">

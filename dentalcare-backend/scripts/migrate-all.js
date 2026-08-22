@@ -20,6 +20,11 @@ const MIGRATION_FILES = [
   'sql/numbering_v1.sql',
   'sql/appointments_v1.sql',
   'sql/appointments_v2.sql',
+  'sql/appointments_v3.sql',
+  'sql/rooms_v1.sql',
+  'sql/appointments_v4.sql',
+  'sql/appointments_v5.sql',
+  'sql/appointments_v6.sql',
   'sql/purchase_docs_v1.sql',
   'sql/patients_v2_demographics.sql',
   'sql/patients_v3_birth_date.sql',
@@ -36,6 +41,7 @@ const MIGRATION_FILES = [
   'sql/user_preferences_v1.sql',
   'sql/clinical_session_notes_v1.sql',
   'sql/clinical_session_images_v1.sql',
+  'sql/tooth_chart_v1.sql',
   'sql/tenant_ai_settings_v1.sql',
   'sql/tenant_ai_provider_v1.sql',
   'sql/tenant_whatsapp_v1.sql',
@@ -198,6 +204,10 @@ async function main() {
   }
 
   await ensureEssentials();
+
+  const { ensureTenantSettingsSchema } = require('../server/db/ensureTenantSettings');
+  await ensureTenantSettingsSchema();
+
   await pool.end();
   console.log('migrate:all completed.');
 }

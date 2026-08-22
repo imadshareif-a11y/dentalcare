@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import { localizedEditValue, localizedPayload } from '../lib/localizedName';
+
+const CHART_NAME_KEYS = {
+  ar: ['account_name_ar', 'account_name', 'name'],
+  en: ['account_name_en', 'name_en'],
+  he: ['account_name_he', 'name_he'],
+};
 
 const EMPTY = {
   name: '',
-  nameEn: '',
-  nameHe: '',
   accountCode: '',
   accountType: 'ASSET',
   parentId: null,
@@ -22,7 +27,7 @@ export default function ChartAccountForm({
   onSaved,
   onCancel,
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isEdit = Boolean(record?.id);
   const [form, setForm] = useState(EMPTY);
   const [submitting, setSubmitting] = useState(false);
@@ -31,9 +36,7 @@ export default function ChartAccountForm({
   useEffect(() => {
     if (record) {
       setForm({
-        name: record.account_name_ar || record.account_name || '',
-        nameEn: record.account_name_en || '',
-        nameHe: record.account_name_he || '',
+        name: localizedEditValue(record, i18n.language, CHART_NAME_KEYS),
         accountCode: record.account_code || '',
         accountType: record.account_type || 'ASSET',
         parentId: record.parent_id || null,
@@ -49,7 +52,7 @@ export default function ChartAccountForm({
       });
     }
     setError(null);
-  }, [record, parentHint, defaultType]);
+  }, [record, parentHint, defaultType, i18n.language]);
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -69,11 +72,10 @@ export default function ChartAccountForm({
 
     setSubmitting(true);
     try {
+      const namePayload = localizedPayload(form.name, i18n.language);
       if (isEdit) {
         await api.patch(`/chart-tree/${record.id}`, {
-          name: form.name.trim(),
-          nameEn: form.nameEn.trim() || null,
-          nameHe: form.nameHe.trim() || null,
+          ...namePayload,
           accountCode: form.accountCode.trim(),
           isGroup: form.isGroup,
           isActive: form.isActive,
@@ -82,9 +84,7 @@ export default function ChartAccountForm({
         });
       } else {
         await api.post('/chart-tree', {
-          name: form.name.trim(),
-          nameEn: form.nameEn.trim() || null,
-          nameHe: form.nameHe.trim() || null,
+          ...namePayload,
           accountCode: form.accountCode.trim(),
           accountType: form.accountType,
           parentId: form.parentId,
@@ -144,17 +144,7 @@ export default function ChartAccountForm({
           required
         />
       </div>
-
-      <div className="dc-form-row">
-        <div className="dc-form-field">
-          <label>{t('chart_name_en')}</label>
-          <input type="text" value={form.nameEn} onChange={(e) => setField('nameEn', e.target.value)} />
-        </div>
-        <div className="dc-form-field">
-          <label>{t('chart_name_he')}</label>
-          <input type="text" value={form.nameHe} onChange={(e) => setField('nameHe', e.target.value)} />
-        </div>
-      </div>
+      <p className="dc-muted text-sm">{t('localized_name_hint')}</p>
 
       <label className="dc-check-row">
         <input

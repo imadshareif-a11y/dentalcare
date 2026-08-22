@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import CheckFields from './CheckFields';
 import FormattedDateInput from './FormattedDateInput';
-import { partyAccounts, formatPartyOption } from '../lib/partyAccounts';
+import PartyAccountSelect from './PartyAccountSelect';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useCashBoxes } from '../hooks/useCashBoxes';
 import { useSettings } from '../context/SettingsContext';
@@ -22,7 +22,6 @@ export default function ReceiptForm({ accounts, onPosted }) {
   const { settings } = useSettings();
   const { currencies, baseCurrency } = useCurrencies();
   const { cashBoxes, baseCashBox } = useCashBoxes();
-  const partyList = partyAccounts(accounts);
   const waEnabled = Boolean(settings?.waEnabled);
   const waAutoPayment = Boolean(settings?.waAutoPayment);
   const foreignCashBoxes = useMemo(
@@ -213,15 +212,13 @@ export default function ReceiptForm({ accounts, onPosted }) {
       <h3>{t('receipt_title')}</h3>
 
       <div className="dc-form-row">
-        <div className="dc-form-field">
-          <label>{t('party_account')}</label>
-          <select value={patientAccountId} onChange={(e) => setPatientAccountId(e.target.value)} required>
-            <option value="">{t('voucher_choose_account')}</option>
-            {partyList.map((a) => (
-              <option key={a.id} value={a.id}>{formatPartyOption(a, t)}</option>
-            ))}
-          </select>
-        </div>
+        <PartyAccountSelect
+          accounts={accounts}
+          value={patientAccountId}
+          onChange={setPatientAccountId}
+          label={t('party_account')}
+          required
+        />
         <div className="dc-form-field">
           <label>{t('voucher_date')}</label>
           <FormattedDateInput value={docDate} onChange={setDocDate} required />

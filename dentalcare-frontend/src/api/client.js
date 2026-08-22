@@ -58,7 +58,10 @@ async function request(path, { method = 'GET', body, params } = {}) {
   }
 
   if (!res.ok) {
-    throw new ApiError(data?.error || 'حدث خطأ غير متوقع', res.status, data);
+    const fallback = typeof data?.error === 'string' && data.error.trim()
+      ? data.error
+      : (res.status === 404 ? 'المسار غير موجود — أعد تشغيل السيرفر أو حدّث النظام' : 'حدث خطأ غير متوقع');
+    throw new ApiError(fallback, res.status, data);
   }
 
   return data;
@@ -84,7 +87,10 @@ async function uploadForm(path, formData) {
     // empty
   }
   if (!res.ok) {
-    throw new ApiError(data?.error || 'حدث خطأ غير متوقع', res.status, data);
+    const fallback = typeof data?.error === 'string' && data.error.trim()
+      ? data.error
+      : (res.status === 404 ? 'المسار غير موجود — أعد تشغيل السيرفر أو حدّث النظام' : 'حدث خطأ غير متوقع');
+    throw new ApiError(fallback, res.status, data);
   }
   return data;
 }

@@ -84,9 +84,18 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 const { ensureCheckbooksSchema } = require('./db/ensureCheckbooks');
+const { ensureRoomsSchema } = require('./db/ensureRooms');
+const { ensureTenantSettingsSchema } = require('./db/ensureTenantSettings');
+const { ensureAppointmentsSchema } = require('./db/ensureAppointments');
+const { ensureToothChartSchema } = require('./db/ensureToothChart');
 
-ensureCheckbooksSchema()
-  .catch((err) => console.error('checkbooks ensure failed:', err.message))
+Promise.all([
+  ensureCheckbooksSchema().catch((err) => console.error('checkbooks ensure failed:', err.message)),
+  ensureRoomsSchema().catch((err) => console.error('rooms ensure failed:', err.message)),
+  ensureTenantSettingsSchema().catch((err) => console.error('tenant_settings ensure failed:', err.message)),
+  ensureAppointmentsSchema().catch((err) => console.error('appointments ensure failed:', err.message)),
+  ensureToothChartSchema().catch((err) => console.error('tooth_chart ensure failed:', err.message)),
+])
   .finally(() => {
     app.listen(PORT, () => console.log(`🚀 DentalCare API running on port ${PORT}`));
   });

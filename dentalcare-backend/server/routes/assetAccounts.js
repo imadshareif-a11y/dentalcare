@@ -84,8 +84,6 @@ router.post(
   requirePermission('accounts', 'edit'),
   async (req, res) => {
     const name = String(req.body.name || '').trim();
-    const nameEn = (req.body.nameEn || '').trim() || null;
-    const nameHe = (req.body.nameHe || '').trim() || null;
     const accountCode = (req.body.accountCode || '').trim() || null;
 
     if (!name) {
@@ -94,6 +92,8 @@ router.post(
 
     try {
       const row = await withTenantClient(req.user.tenantId, async (client) => {
+        const { namesFromBody } = require('../i18n/localizeNames');
+        const names = await namesFromBody(client, req.user.tenantId, req.body);
         let code = accountCode;
         if (code) {
           if (!/^\d{3,10}$/.test(code)) {
@@ -115,7 +115,7 @@ router.post(
              (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type, is_active)
            VALUES ($1, $2, $3, $3, $4, $5, 'ASSET', TRUE)
            RETURNING id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type, is_active`,
-          [req.user.tenantId, code, name, nameEn, nameHe]
+          [req.user.tenantId, code, names.name, names.name_en, names.name_he]
         );
         return result.rows[0];
       });
@@ -156,16 +156,14 @@ router.patch(
         };
 
         if (req.body.name !== undefined) {
-          const name = String(req.body.name || '').trim();
-          if (!name) throw Object.assign(new Error('اسم حساب الأصل مطلوب'), { statusCode: 400 });
-          push('account_name', name);
-          push('account_name_ar', name);
-        }
-        if (req.body.nameEn !== undefined) {
-          push('account_name_en', (req.body.nameEn || '').trim() || null);
-        }
-        if (req.body.nameHe !== undefined) {
-          push('account_name_he', (req.body.nameHe || '').trim() || null);
+          const n = String(req.body.name || '').trim();
+          if (!n) throw Object.assign(new Error('اسم حساب الأصل مطلوب'), { statusCode: 400 });
+          const { namesFromBody } = require('../i18n/localizeNames');
+          const names = await namesFromBody(client, req.user.tenantId, req.body);
+          push('account_name', names.name);
+          push('account_name_ar', names.name);
+          push('account_name_en', names.name_en);
+          push('account_name_he', names.name_he);
         }
         if (req.body.isActive !== undefined) {
           push('is_active', Boolean(req.body.isActive));

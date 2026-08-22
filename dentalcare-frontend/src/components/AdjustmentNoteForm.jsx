@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
-import { partyAccounts, formatPartyOption } from '../lib/partyAccounts';
+import PartyAccountSelect from './PartyAccountSelect';
 import CurrencySelect from './CurrencySelect';
 import { useCurrencies } from '../hooks/useCurrencies';
 
@@ -23,7 +23,6 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
   const { t } = useTranslation();
   const { currencies, baseCurrency } = useCurrencies();
   const isCredit = type === 'credit';
-  const partyList = partyAccounts(accounts);
   const discountAccounts = useMemo(
     () => discountAccountsForNote(accounts, isCredit),
     [accounts, isCredit]
@@ -92,15 +91,13 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
     <form onSubmit={handleSubmit} className="space-y-3">
       <h3>{isCredit ? t('credit_note_title') : t('debit_note_title')}</h3>
       <p className="dc-muted text-sm">{isCredit ? t('credit_note_hint') : t('debit_note_hint')}</p>
-      <div>
-        <label>{t('party_account')}</label>
-        <select value={partyAccountId} onChange={(e) => setPartyAccountId(e.target.value)} required>
-          <option value="">{t('voucher_choose_account')}</option>
-          {partyList.map((a) => (
-            <option key={a.id} value={a.id}>{formatPartyOption(a, t)}</option>
-          ))}
-        </select>
-      </div>
+      <PartyAccountSelect
+        accounts={accounts}
+        value={partyAccountId}
+        onChange={setPartyAccountId}
+        label={t('party_account')}
+        required
+      />
       <div>
         <label>{isCredit ? t('note_discount_allowed') : t('note_discount_earned')}</label>
         <select value={discountAccountId} onChange={(e) => setDiscountAccountId(e.target.value)} required>

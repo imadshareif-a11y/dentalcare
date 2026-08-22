@@ -7,6 +7,16 @@ const { withTenantClient } = require('../db/pool');
 const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
 const { resolveAiConfig } = require('../settings/aiConfig');
 const { callVisionApi } = require('../settings/visionClient');
+const { ensureToothChartSchema } = require('../db/ensureToothChart');
+const {
+  assertPatient,
+  loadToothChart,
+  setToothCurrent,
+  loadTreatmentPlan,
+  saveTreatmentPlan,
+  applySessionTreatmentsToChart,
+  loadPlanReport,
+} = require('../clinical/toothChartService');
 
 const imageUpload = multer({
   storage: multer.memoryStorage(),
@@ -40,6 +50,116 @@ async function loadTenantAiRow(tenantId) {
     return result.rows[0] || null;
   });
 }
+
+router.get(
+  '/clinical/tooth-chart/:patientId',
+  requireAuth,
+  requirePermission('clinical', 'view'),
+  async (req, res) => {
+    try {
+      await ensureToothChartSchema();
+      const data = await withTenantClient(req.user.tenantId, async (client) => {
+        await assertPatient(client, req.params.patientId);
+        return loadToothChart(client, req.user.tenantId, req.params.patientId);
+      });
+      res.json(data);
+    } catch (err) {
+      if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+      console.error('Loading tooth chart failed:', err);
+      res.status(500).json({ error: 'تعذّر جلب مخطط الأسنان' });
+    }
+  }
+);
+
+router.put(
+  '/clinical/tooth-chart/:patientId/:tooth',
+  requireAuth,
+  requirePermission('clinical', 'edit'),
+  async (req, res) => {
+    try {
+      await ensureToothChartSchema();
+      const result = await withTenantClient(req.user.tenantId, async (client) => {
+        await assertPatient(client, req.params.patientId);
+        await setToothCurrent(
+          client,
+          req.user.tenantId,
+          req.params.patientId,
+          req.params.tooth,
+          req.body.conditionCode,
+          req.body.notes
+        );
+        return loadToothChart(client, req.user.tenantId, req.params.patientId);
+      });
+      res.json(result);
+    } catch (err) {
+      if (err.statusCode === 400 || err.statusCode === 404) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
+      console.error('Updating tooth chart failed:', err);
+      res.status(500).json({ error: 'تعذّر تحديث حالة السن' });
+    }
+  }
+);
+
+router.get(
+  '/clinical/treatment-plan/:patientId',
+  requireAuth,
+  requirePermission('clinical', 'view'),
+  async (req, res) => {
+    try {
+      await ensureToothChartSchema();
+      const data = await withTenantClient(req.user.tenantId, async (client) => {
+        await assertPatient(client, req.params.patientId);
+        return loadTreatmentPlan(client, req.user.tenantId, req.params.patientId);
+      });
+      res.json(data);
+    } catch (err) {
+      if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+      console.error('Loading treatment plan failed:', err);
+      res.status(500).json({ error: 'تعذّر جلب خطة العلاج' });
+    }
+  }
+);
+
+router.put(
+  '/clinical/treatment-plan/:patientId',
+  requireAuth,
+  requirePermission('clinical', 'edit'),
+  async (req, res) => {
+    try {
+      await ensureToothChartSchema();
+      const data = await withTenantClient(req.user.tenantId, async (client) => {
+        await assertPatient(client, req.params.patientId);
+        return saveTreatmentPlan(client, req.user.tenantId, req.params.patientId, req.body);
+      });
+      res.json(data);
+    } catch (err) {
+      if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+      console.error('Saving treatment plan failed:', err);
+      res.status(500).json({ error: 'تعذّر حفظ خطة العلاج' });
+    }
+  }
+);
+
+router.get(
+  '/clinical/plan-report/:patientId',
+  requireAuth,
+  requirePermission('clinical', 'view'),
+  async (req, res) => {
+    try {
+      await ensureToothChartSchema();
+      const data = await withTenantClient(req.user.tenantId, async (client) => {
+        await assertPatient(client, req.params.patientId);
+        return loadPlanReport(client, req.user.tenantId, req.params.patientId);
+      });
+      res.json(data);
+    } catch (err) {
+      if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+      console.error('Loading plan report failed:', err);
+      res.status(500).json({ error: 'تعذّر جلب تقرير الخطة' });
+    }
+  }
+);
 
 router.post(
   '/clinical/commit-session',
@@ -149,6 +269,13 @@ router.post(
               [newId, req.user.tenantId, item.tooth || null, item.name, Number(item.cost)]
             );
           }
+          await ensureToothChartSchema();
+          await applySessionTreatmentsToChart(
+            client,
+            req.user.tenantId,
+            patientId,
+            treatments
+          );
           return newId;
         });
       } else {
