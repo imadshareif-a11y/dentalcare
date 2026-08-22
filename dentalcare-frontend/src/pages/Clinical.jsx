@@ -604,20 +604,43 @@ export default function Clinical({
   }
 
   function openApptModal(slot = '', { roomId: roomOverride } = {}) {
-    const roomId = roomOverride || scheduleRoomId;
-    if (!scheduleDoctorId) {
+    let doctorId = scheduleDoctorId;
+    let roomId = roomOverride || scheduleRoomId;
+
+    // إن لم يُختر بعد — اختر الأول المتاح حتى لا يبدو الزر «ميّتاً»
+    if (!doctorId && doctors.length > 0) {
+      doctorId = doctors[0].id;
+      setScheduleDoctorId(doctorId);
+    }
+    if (!roomId && activeRooms.length > 0) {
+      roomId = activeRooms[0].id;
+      setScheduleRoomId(roomId);
+    } else if (roomOverride) {
+      setScheduleRoomId(roomOverride);
+      roomId = roomOverride;
+    }
+
+    if (!doctorId) {
       setError(t('clinical_schedule_doctor_required'));
-      if (roomOverride) setScheduleRoomId(roomOverride);
+      setApptModalOpen(true);
+      setModalRange({ start: '', end: '' });
+      setModalPatientId(selectedPatientId || '');
+      setModalNotes('');
+      setModalPlanItemId('');
       return;
     }
     if (!roomId) {
-      setError(t('clinical_schedule_room_required'));
+      setError(t('clinical_schedule_no_rooms'));
+      setApptModalOpen(true);
+      setModalRange({ start: '', end: '' });
+      setModalPatientId(selectedPatientId || '');
+      setModalNotes('');
+      setModalPlanItemId('');
       return;
     }
-    if (roomOverride) setScheduleRoomId(roomOverride);
 
     const startSlot = slot
-      || firstAvailableSlot(appointments, scheduleDoctorId, roomId, slots)
+      || firstAvailableSlot(appointments, doctorId, roomId, slots)
       || slots[0]
       || '';
 
@@ -1492,6 +1515,32 @@ export default function Clinical({
               </p>
             )}
             <form onSubmit={saveAppointment} className="space-y-3">
+              <div className="dc-form-row dc-schedule-filters">
+                <div className="dc-form-field">
+                  <label className="dc-muted text-sm">{t('clinical_schedule_doctor')}</label>
+                  <select
+                    value={scheduleDoctorId}
+                    onChange={(e) => setScheduleDoctorId(e.target.value)}
+                  >
+                    <option value="">{t('clinical_select_doctor')}</option>
+                    {doctors.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="dc-form-field">
+                  <label className="dc-muted text-sm">{t('clinical_schedule_room')}</label>
+                  <select
+                    value={scheduleRoomId}
+                    onChange={(e) => setScheduleRoomId(e.target.value)}
+                  >
+                    <option value="">{t('clinical_select_room')}</option>
+                    {activeRooms.map((r) => (
+                      <option key={r.id} value={r.id}>{localizedDisplay(r, i18n.language, ROOM_NAME_KEYS)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
               <label className="dc-muted text-sm">{t('clinical_appointment_date')}</label>
               <FormattedDateInput
                 value={apptDate}
