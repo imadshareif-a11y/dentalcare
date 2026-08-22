@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
+import { dedupeByCode } from '../lib/dedupeList';
 import PartyModal from '../components/PartyModal';
 import CurrencyForm from '../components/CurrencyForm';
 
@@ -16,7 +17,7 @@ export default function Currencies({ canEdit = true }) {
     setLoading(true);
     try {
       const data = await api.get('/currencies');
-      setRows(data);
+      setRows(dedupeByCode(Array.isArray(data) ? data : [], 'code', 'id'));
       setError(null);
     } catch (err) {
       setError(err.body?.error || t('error_generic'));

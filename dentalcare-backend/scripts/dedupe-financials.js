@@ -137,8 +137,6 @@ async function ensureUniqueIndexes() {
 }
 
 async function main() {
-  await ensureUniqueIndexes();
-
   const tenants = await pool.query('SELECT id, name, slug FROM tenants ORDER BY created_at ASC');
   let totalCurrencies = 0;
   let totalBoxes = 0;
@@ -148,13 +146,19 @@ async function main() {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      await client.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenant.id]);
+      const before = await client.query(
+        `SELECT COUNT(*)::int AS total,
+                COUNT(DISTINCT trim(account_code))::int AS distinct_codes
+         FROM chart_of_accounts WHERE tenant_id = $1`,
+        [tenant.id]
+      );
       const report = await dedupeTenant(client, tenant.id);
       await client.query('COMMIT');
-      if (report.accountsRemoved || report.currenciesRemoved || report.boxesRemoved || report.basesFixed) {
-        console.log(
-          `${tenant.name} (${tenant.slug || tenant.id}): -${report.accountsRemoved} accounts, -${report.currenciesRemoved} currencies, -${report.boxesRemoved} boxes, bases fixed ${report.basesFixed}`
-        );
-      }
+      const b = before.rows[0];
+      console.log(
+        `${tenant.name} (${tenant.slug || tenant.id}): ${b.total} accounts (${b.distinct_codes} codes) → -${report.accountsRemoved} accounts, -${report.currenciesRemoved} currencies, -${report.boxesRemoved} boxes`
+      );
       totalAccounts += report.accountsRemoved;
       totalCurrencies += report.currenciesRemoved;
       totalBoxes += report.boxesRemoved;
@@ -167,6 +171,8 @@ async function main() {
   }
 
   console.log(`Done. Removed ${totalAccounts} duplicate accounts, ${totalCurrencies} duplicate currencies, ${totalBoxes} duplicate boxes.`);
+  console.log('Applying unique indexes...');
+  await ensureUniqueIndexes();
   await pool.end();
 }
 

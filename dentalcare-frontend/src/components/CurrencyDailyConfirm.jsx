@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import { markRatesConfirmedToday } from '../lib/currencyDailyConfirm';
+import { dedupeByCode } from '../lib/dedupeList';
 
 export default function CurrencyDailyConfirm({ user, onConfirmed }) {
   const { t, i18n } = useTranslation();
@@ -24,7 +25,8 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
       try {
         const list = await api.get('/currencies');
         if (cancelled) return;
-        const active = Array.isArray(list) ? list.filter((c) => c.is_active !== false) : [];
+        const active = dedupeByCode(Array.isArray(list) ? list : [], 'code', 'id')
+          .filter((c) => c.is_active !== false);
         setRows(active);
 
         const next = {};

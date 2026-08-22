@@ -5,6 +5,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
+const { dedupeChartRows } = require('../accounting/listDedupe');
 
 const LIST_ACCESS = requireAnyPermission([
   ['accounts', 'view'],
@@ -66,7 +67,9 @@ async function loadAccount(client, id) {
               SELECT 1 FROM journal_entry_lines l WHERE l.account_id = a.id LIMIT 1
             ) AS has_movements
      FROM chart_of_accounts a
-     LEFT JOIN parties p ON p.account_id = a.id
+     LEFT JOIN LATERAL (
+       SELECT party_type FROM parties p WHERE p.account_id = a.id LIMIT 1
+     ) p ON TRUE
      WHERE a.id = $1`,
     [id]
   );
@@ -95,11 +98,13 @@ router.get(
                     SELECT 1 FROM journal_entry_lines l WHERE l.account_id = a.id LIMIT 1
                   ) AS has_movements
            FROM chart_of_accounts a
-           LEFT JOIN parties p ON p.account_id = a.id
+           LEFT JOIN LATERAL (
+             SELECT party_type FROM parties p WHERE p.account_id = a.id LIMIT 1
+           ) p ON TRUE
            ${includeInactive ? '' : 'WHERE a.is_active = TRUE'}
            ORDER BY a.account_type ASC, a.sort_order ASC, a.account_code ASC`
         );
-        return result.rows.map(mapRow);
+        return dedupeChartRows(result.rows.map(mapRow));
       });
       res.json(rows);
     } catch (err) {

@@ -104,6 +104,8 @@ async function bootstrapClinic(client, {
   );
   const tenantId = tenantResult.rows[0].id;
 
+  await client.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
+
   await client.query(
     `INSERT INTO users (tenant_id, name, username, password_hash, role, permissions)
      VALUES ($1, $2, $3, $4, 'OWNER', $5)`,

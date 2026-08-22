@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from './context/AuthContext';
 import { api } from './api/client';
+import { dedupeChartAccounts } from './lib/dedupeList';
 import Login from './pages/Login';
 import VoucherForm from './components/VoucherForm';
 import BankEntryForm from './components/BankEntryForm';
@@ -217,7 +218,9 @@ export default function App() {
 
   const loadAccounts = useCallback(() => {
     if (!user || user.role === 'SUPER_ADMIN') return;
-    api.get('/accounts').then(setAccounts).catch((err) => {
+    api.get('/accounts').then((rows) => {
+      setAccounts(dedupeChartAccounts(Array.isArray(rows) ? rows : []));
+    }).catch((err) => {
       console.error('فشل جلب الحسابات:', err);
     });
   }, [user]);

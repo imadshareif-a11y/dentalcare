@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
+import { dedupeByCode } from '../lib/dedupeList';
 
 export function useCurrencies() {
   const [currencies, setCurrencies] = useState([]);
@@ -9,7 +10,8 @@ export function useCurrencies() {
     setLoading(true);
     try {
       const rows = await api.get('/currencies');
-      setCurrencies(Array.isArray(rows) ? rows.filter((c) => c.is_active !== false) : []);
+      const list = dedupeByCode(Array.isArray(rows) ? rows : [], 'code', 'id');
+      setCurrencies(list.filter((c) => c.is_active !== false));
     } catch {
       setCurrencies([]);
     } finally {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import { dedupeChartAccounts } from '../lib/dedupeList';
 import PartyModal from '../components/PartyModal';
 import ChartAccountForm from '../components/ChartAccountForm';
 
@@ -182,7 +183,7 @@ export default function ChartOfAccounts({ canEdit = true, onAccountsChanged }) {
     setLoading(true);
     try {
       const data = await api.get('/chart-tree', { includeInactive: '1' });
-      setRows(Array.isArray(data) ? data : []);
+      setRows(dedupeChartAccounts(Array.isArray(data) ? data : []));
       setError(null);
     } catch (err) {
       setError(err.body?.error || t('error_generic'));

@@ -8,6 +8,7 @@ const {
   ensureBoxesForAllCurrencies,
   createManualBox,
 } = require('../accounting/cashBoxes');
+const { dedupeById } = require('../accounting/listDedupe');
 
 const LIST_ACCESS = requireAnyPermission([
   ['accounts', 'view'],
@@ -80,7 +81,7 @@ router.get(
            ORDER BY cb.box_kind ASC, c.is_base DESC, c.code ASC, a.account_code ASC`,
           params
         );
-        return result.rows.map(mapRow);
+        return dedupeById(result.rows.map(mapRow), 'id');
       });
 
       res.json(rows);

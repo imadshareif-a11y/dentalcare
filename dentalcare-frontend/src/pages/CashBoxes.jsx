@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
+import { dedupeById, dedupeByCode } from '../lib/dedupeList';
 import PartyModal from '../components/PartyModal';
 import CashBoxForm from '../components/CashBoxForm';
 
@@ -89,8 +90,8 @@ export default function CashBoxes({ canEdit = true, onAccountsChanged }) {
         api.get('/cash-boxes', { includeInactive: '1' }),
         api.get('/currencies'),
       ]);
-      setRows(Array.isArray(boxes) ? boxes : []);
-      setCurrencies(Array.isArray(curs) ? curs.filter((c) => c.is_active !== false) : []);
+      setRows(dedupeById(Array.isArray(boxes) ? boxes : []));
+      setCurrencies(dedupeByCode(Array.isArray(curs) ? curs : [], 'code', 'id').filter((c) => c.is_active !== false));
       setError(null);
     } catch (err) {
       setError(err.body?.error || t('error_generic'));

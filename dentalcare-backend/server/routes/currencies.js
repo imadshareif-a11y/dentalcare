@@ -4,6 +4,7 @@ const router = express.Router();
 const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { setBaseCurrency } = require('../accounting/currency');
+const { dedupeById } = require('../accounting/listDedupe');
 const { getMarketRatesToBase } = require('../accounting/marketRates');
 const { ensureSystemBoxesForCurrency } = require('../accounting/cashBoxes');
 
@@ -96,7 +97,7 @@ router.get(
            FROM currencies
            ORDER BY is_base DESC, code ASC`
         );
-        return result.rows;
+        return dedupeById(result.rows, 'id');
       });
       res.json(rows);
     } catch (err) {
