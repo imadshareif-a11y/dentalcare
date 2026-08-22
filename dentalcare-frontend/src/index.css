@@ -25,7 +25,54 @@
   --dc-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
   --dc-radius: 16px;
   --dc-font: "Alexandria", "Tajawal", sans-serif;
-  --dc-mono: "JetBrains Mono", ui-monospace, monospace;
+  /* أرقام النظام — نفس مظهر حقول التاريخ (sans واضح، ليس monospace) */
+  --dc-nums: "Segoe UI", "Alexandria", "Tajawal", system-ui, sans-serif;
+  --dc-mono: var(--dc-nums);
+}
+
+/* ترميز الأرقام من إعداد العيادة — لا يتبع لوحة مفاتيح/لغة الجهاز */
+html[data-number-digits="western"] {
+  -webkit-locale: "en";
+}
+
+html[data-number-digits="eastern"] {
+  -webkit-locale: "ar";
+}
+
+html[data-number-digits="western"] input[type="number"],
+html[data-number-digits="western"] input[type="tel"],
+html[data-number-digits="western"] input[inputmode="decimal"],
+html[data-number-digits="western"] input[inputmode="numeric"],
+html[data-number-digits="western"] .dc-money,
+html[data-number-digits="western"] .dc-price-tag,
+html[data-number-digits="western"] .dc-mono,
+html[data-number-digits="western"] .dc-num,
+html[data-number-digits="western"] .dc-date-text,
+html[data-number-digits="western"] .dc-schedule-cell-time,
+html[data-number-digits="western"] .dc-schedule-time,
+html[data-number-digits="western"] .dc-tooth-badge,
+html[data-number-digits="western"] .dc-currency-tag {
+  -webkit-locale: "en";
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1, "locl" 0;
+  font-family: var(--dc-nums);
+}
+
+html[data-number-digits="western"] input[type="number"],
+html[data-number-digits="western"] input[type="tel"],
+html[data-number-digits="western"] input[inputmode="decimal"],
+html[data-number-digits="western"] input[inputmode="numeric"] {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+html[data-number-digits="eastern"] input[type="number"],
+html[data-number-digits="eastern"] input[type="tel"],
+html[data-number-digits="eastern"] .dc-money,
+html[data-number-digits="eastern"] .dc-price-tag,
+html[data-number-digits="eastern"] .dc-num {
+  -webkit-locale: "ar";
+  font-family: "Tajawal", "Alexandria", sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -325,6 +372,58 @@ tr:last-child td { border-bottom: none; }
   place-items: center;
   font-weight: 800;
   border: 2px solid #38bdf8;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.dc-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.dc-account-avatar-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin: 12px 0 8px;
+  max-width: 560px;
+}
+
+.dc-account-avatar-preview {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid #bae6fd;
+  background: linear-gradient(135deg, #0284c7, #0d9488);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.dc-account-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.dc-account-avatar-fallback {
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.dc-account-avatar-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+  flex: 1;
 }
 
 .dc-nav-pills {
@@ -530,6 +629,10 @@ label.dc-check-row input {
   min-width: 0;
 }
 
+.dc-money-input {
+  width: 100%;
+}
+
 .dc-input-tag {
   white-space: nowrap;
   font-size: 12px;
@@ -539,6 +642,12 @@ label.dc-check-row input {
   border: 1px solid #99f6e4;
   border-radius: 999px;
   padding: 6px 10px;
+}
+
+.dc-currency-tag {
+  min-width: 2.25rem;
+  text-align: center;
+  font-family: var(--dc-nums);
 }
 
 .dc-foreign-cash-row > * {
@@ -874,12 +983,54 @@ label.dc-check-row input {
 
 .dc-cart-line {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(186, 230, 253, 0.7);
+}
+
+.dc-cart-line-main {
+  display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 6px;
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(186, 230, 253, 0.7);
+}
+
+.dc-cart-line-cost {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dc-cart-cost-input {
+  max-width: 8.5rem;
+}
+
+.dc-cart-complete-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #475569;
+  cursor: pointer;
+}
+
+.dc-cart-complete-toggle input {
+  margin: 0;
+}
+
+.dc-plan-status-badge {
+  display: inline-block;
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  white-space: nowrap;
 }
 
 .dc-cart-line:last-of-type {
@@ -1845,17 +1996,34 @@ label.dc-check-row input {
 
 .dc-fdi-tooth.is-treated:not(.is-active) .dc-fdi-num { color: #047857; }
 
-.dc-fdi-tooth.is-cond-caries { color: #b45309; }
-.dc-fdi-tooth.is-cond-caries .dc-fdi-num { color: #92400e; }
+.dc-fdi-tooth.is-cond-caries,
+.dc-fdi-tooth.is-cond-filling,
+.dc-fdi-tooth.is-cond-crown,
+.dc-fdi-tooth.is-cond-root-canal,
+.dc-fdi-tooth.is-cond-missing,
+.dc-fdi-tooth.is-cond-fracture,
+.dc-fdi-tooth.is-cond-extraction,
+.dc-fdi-tooth.is-cond-implant,
+.dc-fdi-tooth.is-cond-veneer,
+.dc-fdi-tooth.is-cond-bridge,
+.dc-fdi-tooth[class*="is-cond-"] {
+  color: var(--cond-color, inherit);
+}
+.dc-fdi-tooth[class*="is-cond-"] .dc-fdi-num {
+  color: var(--cond-color, inherit);
+}
 
-.dc-fdi-tooth.is-cond-filling { color: #0284c7; }
-.dc-fdi-tooth.is-cond-filling .dc-fdi-num { color: #0369a1; }
+.dc-fdi-tooth.is-cond-caries { color: var(--cond-color, #b45309); }
+.dc-fdi-tooth.is-cond-caries .dc-fdi-num { color: var(--cond-color, #92400e); }
 
-.dc-fdi-tooth.is-cond-crown { color: #ca8a04; }
-.dc-fdi-tooth.is-cond-crown .dc-fdi-num { color: #a16207; }
+.dc-fdi-tooth.is-cond-filling { color: var(--cond-color, #0284c7); }
+.dc-fdi-tooth.is-cond-filling .dc-fdi-num { color: var(--cond-color, #0369a1); }
 
-.dc-fdi-tooth.is-cond-root-canal { color: #7c3aed; }
-.dc-fdi-tooth.is-cond-root-canal .dc-fdi-num { color: #6d28d9; }
+.dc-fdi-tooth.is-cond-crown { color: var(--cond-color, #ca8a04); }
+.dc-fdi-tooth.is-cond-crown .dc-fdi-num { color: var(--cond-color, #a16207); }
+
+.dc-fdi-tooth.is-cond-root-canal { color: var(--cond-color, #7c3aed); }
+.dc-fdi-tooth.is-cond-root-canal .dc-fdi-num { color: var(--cond-color, #6d28d9); }
 
 .dc-fdi-tooth.is-cond-missing,
 .dc-fdi-tooth.is-missing {
@@ -1863,11 +2031,11 @@ label.dc-check-row input {
   text-decoration: line-through;
 }
 
-.dc-fdi-tooth.is-cond-fracture { color: #dc2626; }
+.dc-fdi-tooth.is-cond-fracture { color: var(--cond-color, #dc2626); }
 
-.dc-fdi-tooth.is-cond-extraction { color: #64748b; }
+.dc-fdi-tooth.is-cond-extraction { color: var(--cond-color, #64748b); }
 
-.dc-fdi-tooth.is-cond-implant { color: #0d9488; }
+.dc-fdi-tooth.is-cond-implant { color: var(--cond-color, #0d9488); }
 
 .dc-fdi-tooth.is-planned:not(.is-active) {
   box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.55);
@@ -1958,6 +2126,53 @@ label.dc-check-row input {
   font-size: 12px;
 }
 
+.dc-tooth-plan-item-main {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dc-tooth-plan-doctor-select,
+.dc-tooth-plan-doctor-name {
+  flex: 0 1 8.5rem;
+  min-width: 6.5rem;
+  max-width: 10rem;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.dc-tooth-plan-doctor-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dc-muted);
+  border: 1px solid transparent;
+}
+
+.dc-tooth-plan-treatment {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dc-tooth-plan-cost {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.dc-tooth-plan-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .dc-tooth-plan-catalog {
   display: flex;
   flex-wrap: wrap;
@@ -1965,8 +2180,59 @@ label.dc-check-row input {
   margin-bottom: 8px;
 }
 
-.dc-tooth-plan-add .dc-form-row {
-  align-items: flex-end;
+.dc-tooth-plan-add .dc-form-row,
+.dc-tooth-plan-add-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.dc-tooth-plan-add-row > select {
+  flex: 0 1 7.5rem;
+  min-width: 6.5rem;
+  max-width: 9rem;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.dc-tooth-plan-add-row > input[type="text"] {
+  flex: 1 1 6rem;
+  min-width: 5rem;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.dc-tooth-plan-add-row .dc-money-input,
+.dc-tooth-plan-add-row .dc-input-with-tag {
+  flex: 0 1 6.5rem;
+  min-width: 5.5rem;
+  max-width: 8rem;
+  width: auto;
+  gap: 4px;
+}
+
+.dc-tooth-plan-add-row .dc-money-input input,
+.dc-tooth-plan-add-row .dc-input-with-tag input,
+.dc-tooth-plan-add-row .dc-tooth-plan-cost-input {
+  padding: 6px 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.dc-tooth-plan-add-row .dc-input-tag,
+.dc-tooth-plan-add-row .dc-currency-tag {
+  padding: 4px 6px;
+  font-size: 11px;
+  min-width: auto;
+}
+
+.dc-tooth-plan-add-row > button {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .dc-tooth-panel-save-plan {
@@ -2128,6 +2394,20 @@ label.dc-check-row input {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.dc-session-appt-link {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dc-session-appt-link select {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  padding: 8px 10px;
+  background: #fff;
 }
 
 .dc-session-notes textarea {
@@ -2386,11 +2666,22 @@ label.dc-check-row input {
   display: flex;
   align-items: center;
   width: 100%;
+  min-width: 11.5rem;
+  /* التواريخ دائماً LTR حتى لا يغطي زر التقويم اليوم في واجهة RTL */
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .dc-date-field > input[type="text"] {
   width: 100%;
+  min-width: 0;
   padding-inline-end: 2.75rem;
+  direction: ltr;
+  text-align: left;
+  font-family: var(--dc-nums);
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  letter-spacing: 0.02em;
 }
 
 .dc-date-calendar-btn {
@@ -2457,6 +2748,11 @@ label.dc-check-row input {
   width: 100%;
 }
 
+.dc-schedule-filters .dc-date-field {
+  min-width: 12rem;
+  max-width: 18rem;
+}
+
 .dc-schedule-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2519,7 +2815,8 @@ label.dc-check-row input {
 }
 
 .dc-schedule-cell-time {
-  font-family: var(--dc-mono);
+  font-family: var(--dc-nums);
+  font-variant-numeric: lining-nums tabular-nums;
   font-weight: 700;
   font-size: 13px;
   color: #0369a1;
@@ -2610,7 +2907,8 @@ label.dc-check-row input {
 .dc-schedule-row.is-active { background: #e0f2fe; }
 
 .dc-schedule-time {
-  font-family: var(--dc-mono);
+  font-family: var(--dc-nums);
+  font-variant-numeric: lining-nums tabular-nums;
   font-weight: 700;
   font-size: 12px;
   color: #0369a1;
@@ -2869,6 +3167,62 @@ label.dc-check-row input {
 .dc-settings-panel {
   display: grid;
   gap: 12px;
+}
+
+.dc-settings-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dc-catalog-subhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.dc-catalog-subhead > p {
+  margin: 0;
+  flex: 1;
+  min-width: 12rem;
+}
+
+.dc-condition-color-swatch {
+  display: inline-block;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 4px;
+  border: 1px solid var(--dc-line);
+  vertical-align: middle;
+}
+
+.dc-check-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.dc-treatment-condition-select {
+  min-width: 9rem;
+  max-width: 14rem;
+}
+
+.dc-treatment-condition-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 8px;
+}
+
+.dc-treatment-condition-grid .dc-ghost-light.is-selected {
+  background: var(--brand-50);
+  border-color: var(--brand-500);
+  color: var(--brand-800);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px var(--brand-200);
 }
 
 .dc-settings-form {

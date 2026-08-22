@@ -30,6 +30,24 @@ export function conditionLabelKey(code) {
   return LABEL_KEYS[code] || code;
 }
 
+/** اسم الحالة للعرض من كائن API أو رمز ثابت */
+export function conditionLabel(condOrCode, t, lang = 'ar') {
+  if (condOrCode && typeof condOrCode === 'object') {
+    const langKey = String(lang || 'ar').slice(0, 2);
+    if (langKey === 'en' && condOrCode.name_en) return condOrCode.name_en;
+    if (langKey === 'he' && condOrCode.name_he) return condOrCode.name_he;
+    if (condOrCode.name) return condOrCode.name;
+    return conditionLabel(condOrCode.code, t, lang);
+  }
+  const code = String(condOrCode || '');
+  const key = conditionLabelKey(code);
+  if (key !== code && t) {
+    const translated = t(key);
+    if (translated && translated !== key) return translated;
+  }
+  return code;
+}
+
 export function inferConditionFromName(name) {
   const n = String(name || '').toLowerCase();
   if (/تاج|crown/.test(n)) return 'CROWN';
@@ -48,4 +66,13 @@ export function inferConditionFromName(name) {
 export function conditionCssClass(code) {
   if (!code || code === 'HEALTHY') return '';
   return `is-cond-${String(code).toLowerCase().replace(/_/g, '-')}`;
+}
+
+export function conditionColorStyle(condOrCode, colorMap) {
+  const code = typeof condOrCode === 'object' ? condOrCode?.code : condOrCode;
+  const color = typeof condOrCode === 'object'
+    ? condOrCode?.color
+    : colorMap?.[code];
+  if (!color) return undefined;
+  return { color, '--cond-color': color };
 }

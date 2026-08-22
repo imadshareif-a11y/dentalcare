@@ -6,12 +6,35 @@
 // -----------------------------------------------------------
 
 const express = require('express');
+const multer = require('multer');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { withSystemClient } = require('../db/pool');
 const { clinicAccessDeniedReason } = require('../tenants/access');
 const { requireAuth } = require('../middleware/auth');
+const { ensureUsersAvatarSchema } = require('../db/ensureUsersAvatar');
+
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+});
+
+const AVATAR_MIME = ['image/png', 'image/jpeg', 'image/webp'];
+
+function publicUser(row, extras = {}) {
+  return {
+    id: row.id,
+    name: row.name,
+    username: row.username,
+    role: row.role,
+    locale: row.locale,
+    permissions: row.permissions || {},
+    preferences: row.preferences || {},
+    hasAvatar: Boolean(row.has_avatar),
+    ...extras,
+  };
+}
 
 router.post('/auth/login', async (req, res) => {
   const { username, password } = req.body;
@@ -21,10 +44,12 @@ router.post('/auth/login', async (req, res) => {
   }
 
   try {
+    await ensureUsersAvatarSchema();
     const candidates = await withSystemClient(async (client) => {
       const result = await client.query(
         `SELECT u.id, u.tenant_id, u.name, u.username, u.password_hash, u.role, u.locale, u.permissions,
                 COALESCE(u.preferences, '{}'::jsonb) AS preferences,
+                (u.avatar_bytes IS NOT NULL) AS has_avatar,
                 t.status AS tenant_status, t.active_from, t.active_until
          FROM users u
          LEFT JOIN tenants t ON t.id = u.tenant_id
@@ -66,11 +91,7 @@ router.post('/auth/login', async (req, res) => {
 
     res.json({
       token,
-      user: {
-        id: user.id, name: user.name, username: user.username, role: user.role,
-        locale: user.locale, permissions: user.permissions || {},
-        preferences: user.preferences || {},
-      },
+      user: publicUser(user),
     });
   } catch (err) {
     console.error('Login failed:', err);
@@ -81,11 +102,12 @@ router.post('/auth/login', async (req, res) => {
 // يحدّث صلاحيات الجلسة من قاعدة البيانات (بعد تعديل المدير أو migration)
 router.get('/auth/me', requireAuth, async (req, res) => {
   try {
-    const { withSystemClient } = require('../db/pool');
+    await ensureUsersAvatarSchema();
     const row = await withSystemClient(async (client) => {
       const result = await client.query(
         `SELECT u.id, u.name, u.username, u.role, u.locale, u.permissions, u.is_active,
                 COALESCE(u.preferences, '{}'::jsonb) AS preferences,
+                (u.avatar_bytes IS NOT NULL) AS has_avatar,
                 t.status AS tenant_status, t.active_from, t.active_until
          FROM users u
          LEFT JOIN tenants t ON t.id = u.tenant_id
@@ -108,17 +130,10 @@ router.get('/auth/me', requireAuth, async (req, res) => {
       if (denied) return res.status(403).json({ error: denied });
     }
 
-    res.json({
-      id: row.id,
-      name: row.name,
-      username: row.username,
-      role: row.role,
-      locale: row.locale,
-      permissions: row.permissions || {},
-      preferences: row.preferences || {},
+    res.json(publicUser(row, {
       supportMode: Boolean(req.user.supportMode),
       clinicName: req.user.clinicName || null,
-    });
+    }));
   } catch (err) {
     console.error('auth/me failed:', err);
     res.status(500).json({ error: 'تعذّر جلب بيانات الجلسة' });
@@ -133,7 +148,6 @@ const ALLOWED_QUICK = new Set([
 
 router.patch('/auth/preferences', requireAuth, async (req, res) => {
   try {
-    const { withSystemClient } = require('../db/pool');
     const quickActions = Array.isArray(req.body.quickActions)
       ? [...new Set(req.body.quickActions.map(String).filter((id) => ALLOWED_QUICK.has(id)))]
       : null;
@@ -164,6 +178,74 @@ router.patch('/auth/preferences', requireAuth, async (req, res) => {
     if (err.statusCode === 404) return res.status(404).json({ error: err.message });
     console.error('Updating preferences failed:', err);
     res.status(500).json({ error: 'تعذّر حفظ التفضيلات' });
+  }
+});
+
+router.get('/auth/avatar', requireAuth, async (req, res) => {
+  try {
+    await ensureUsersAvatarSchema();
+    const file = await withSystemClient(async (client) => {
+      const result = await client.query(
+        `SELECT avatar_mime, avatar_bytes FROM users WHERE id = $1 AND is_active = TRUE`,
+        [req.user.userId]
+      );
+      return result.rows[0] || null;
+    });
+    if (!file?.avatar_bytes) return res.status(404).json({ error: 'لا توجد صورة حساب' });
+    res.setHeader('Content-Type', file.avatar_mime || 'image/jpeg');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(file.avatar_bytes);
+  } catch (err) {
+    console.error('Fetching avatar failed:', err);
+    res.status(500).json({ error: 'تعذّر جلب صورة الحساب' });
+  }
+});
+
+router.post('/auth/avatar', requireAuth, avatarUpload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'يجب اختيار صورة' });
+  if (!AVATAR_MIME.includes(req.file.mimetype)) {
+    return res.status(400).json({ error: 'الصورة يجب أن تكون PNG أو JPG أو WEBP' });
+  }
+  try {
+    await ensureUsersAvatarSchema();
+    await withSystemClient(async (client) => {
+      const result = await client.query(
+        `UPDATE users
+         SET avatar_mime = $2, avatar_bytes = $3
+         WHERE id = $1 AND is_active = TRUE`,
+        [req.user.userId, req.file.mimetype, req.file.buffer]
+      );
+      if (result.rowCount === 0) {
+        throw Object.assign(new Error('الحساب غير موجود'), { statusCode: 404 });
+      }
+    });
+    res.json({ success: true, mime: req.file.mimetype, hasAvatar: true });
+  } catch (err) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+    console.error('Uploading avatar failed:', err);
+    res.status(500).json({ error: 'تعذّر رفع صورة الحساب' });
+  }
+});
+
+router.delete('/auth/avatar', requireAuth, async (req, res) => {
+  try {
+    await ensureUsersAvatarSchema();
+    await withSystemClient(async (client) => {
+      const result = await client.query(
+        `UPDATE users
+         SET avatar_mime = NULL, avatar_bytes = NULL
+         WHERE id = $1 AND is_active = TRUE`,
+        [req.user.userId]
+      );
+      if (result.rowCount === 0) {
+        throw Object.assign(new Error('الحساب غير موجود'), { statusCode: 404 });
+      }
+    });
+    res.json({ success: true, hasAvatar: false });
+  } catch (err) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+    console.error('Deleting avatar failed:', err);
+    res.status(500).json({ error: 'تعذّر حذف صورة الحساب' });
   }
 });
 

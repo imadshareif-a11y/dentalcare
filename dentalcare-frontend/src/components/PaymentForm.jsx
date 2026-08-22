@@ -4,9 +4,11 @@ import { api, ApiError, newIdempotencyKey } from '../api/client';
 import CheckFields from './CheckFields';
 import FormattedDateInput from './FormattedDateInput';
 import PartyAccountSelect from './PartyAccountSelect';
+import ClinicNumberInput from './ClinicNumberInput';
 import { partyAccounts } from '../lib/partyAccounts';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useCashBoxes } from '../hooks/useCashBoxes';
+import { useSettings } from '../context/SettingsContext';
 
 function todayIso() {
   const d = new Date();
@@ -19,6 +21,7 @@ function emptyForeignPayment() {
 
 export default function PaymentForm({ accounts, onPosted }) {
   const { t } = useTranslation();
+  const { money, currencySymbol } = useSettings();
   const { currencies, baseCurrency } = useCurrencies();
   const { cashBoxes, baseCashBox } = useCashBoxes();
   const payeeAccounts = useMemo(() => {
@@ -345,16 +348,16 @@ export default function PaymentForm({ accounts, onPosted }) {
       <div className="dc-form-row dc-cash-shekel-row">
         <div className="dc-form-field" style={{ flex: 1 }}>
           <label>{t('voucher_cash_amount')}</label>
-          <div className="dc-input-with-tag">
-            <input
-              type="number" min="0" step="0.01"
-              value={shekelAmount} onChange={(e) => setShekelAmount(e.target.value)}
-              placeholder={t('voucher_cash_amount_optional')}
-            />
-            <span className="dc-input-tag">
-              {baseCashBox?.name || t('voucher_shekel_cash_box')}
-            </span>
-          </div>
+          <ClinicNumberInput
+            showCurrency
+            currencySymbol={baseCurrency?.symbol || currencySymbol}
+            extraTag={baseCashBox?.name || t('voucher_shekel_cash_box')}
+            min="0"
+            step="0.01"
+            value={shekelAmount}
+            onChange={setShekelAmount}
+            placeholder={t('voucher_cash_amount_optional')}
+          />
         </div>
       </div>
 
@@ -392,9 +395,18 @@ export default function PaymentForm({ accounts, onPosted }) {
                     </option>
                   ))}
                 </select>
-                <input
-                  type="number" min="0" step="0.01" placeholder={t('amount')}
-                  value={p.amount} onChange={(e) => updateForeignRow(i, { amount: e.target.value })}
+                <ClinicNumberInput
+                  showCurrency
+                  currencySymbol={
+                    foreignCashBoxes.find((b) => b.currency_id === p.currencyId)?.currency_symbol
+                    || currencies.find((c) => c.id === p.currencyId)?.symbol
+                    || currencySymbol
+                  }
+                  min="0"
+                  step="0.01"
+                  placeholder={t('amount')}
+                  value={p.amount}
+                  onChange={(amount) => updateForeignRow(i, { amount })}
                   required
                 />
                 <select
@@ -436,7 +448,7 @@ export default function PaymentForm({ accounts, onPosted }) {
             </div>
           ))}
           <button type="button" onClick={addCheckRow}>{t('check_add')}</button>
-          <div>{t('checks_total')}: {checksTotal.toFixed(2)}</div>
+          <div>{t('checks_total')}: {money(checksTotal)}</div>
         </div>
       )}
 
@@ -499,7 +511,7 @@ export default function PaymentForm({ accounts, onPosted }) {
                     <td>{c.bank_name}</td>
                     <td>{c.drawer_name || '—'}</td>
                     <td>{c.due_date}</td>
-                    <td>{Number(c.amount).toFixed(2)}</td>
+                    <td className="dc-money">{money(c.amount)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -507,7 +519,7 @@ export default function PaymentForm({ accounts, onPosted }) {
           )}
 
           {selectedCheckIds.size > 0 && (
-            <div>{t('check_selected_count', { count: selectedCheckIds.size, total: selectedTotal.toFixed(2) })}</div>
+            <div>{t('check_selected_count', { count: selectedCheckIds.size, total: money(selectedTotal) })}</div>
           )}
         </div>
       )}
@@ -519,7 +531,7 @@ export default function PaymentForm({ accounts, onPosted }) {
 
       {documentTotal > 0 && (
         <div className="dc-muted text-sm">
-          {t('voucher_document_total')}: {documentTotal.toFixed(2)}
+          {t('voucher_document_total')}: {money(documentTotal)}
         </div>
       )}
 

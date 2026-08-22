@@ -6,22 +6,50 @@ import { useSettings } from '../context/SettingsContext';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { DEFAULT_QUICK_ACTIONS, QUICK_ACTION_CATALOG, normalizeQuickActions } from '../lib/quickActions';
 import PartyModal from '../components/PartyModal';
+import Doctors from './Doctors';
 import { localizedDisplay, localizedEditValue, localizedPayload } from '../lib/localizedName';
+import { TOOTH_CONDITIONS, conditionLabel, inferConditionFromName } from '../lib/toothConditions';
+import ClinicNumberInput from '../components/ClinicNumberInput';
+
+function suggestConditionCode(nameEn, name) {
+  const fromEn = String(nameEn || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+  if (fromEn && /^[A-Z]/.test(fromEn)) return fromEn.slice(0, 32);
+  const fromName = String(name || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+  if (fromName && /^[A-Z]/.test(fromName)) return fromName.slice(0, 32);
+  return `CUSTOM_${Date.now().toString(36).toUpperCase()}`.slice(0, 32);
+}
 
 function codeSample(prefix, width, next) {
   const pad = Math.min(8, Math.max(1, Number(width) || 5));
   return `${prefix || ''}${String(Number(next) || 1).padStart(pad, '0')}`;
 }
 
-export default function SettingsPage() {
+export default function SettingsPage({ onAccountsChanged }) {
   const { t, i18n } = useTranslation();
-  const { user, refreshUser } = useAuth();
-  const { settings, reload, isOwner, letterheadUrl } = useSettings();
+  const { user, refreshUser, avatarUrl, bumpAvatar } = useAuth();
+  const { settings, reload, isOwner, letterheadUrl, money } = useSettings();
   const { currencies, reload: reloadCurrencies } = useCurrencies();
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [formatForm, setFormatForm] = useState(null);
   const [treatments, setTreatments] = useState([]);
-  const [newTreatment, setNewTreatment] = useState({ name: '', price: '' });
+  const [toothConditions, setToothConditions] = useState([]);
+  const [treatmentForm, setTreatmentForm] = useState({ name: '', price: '', conditionCode: '' });
+  const [treatmentModalOpen, setTreatmentModalOpen] = useState(false);
+  const [treatmentModalBusy, setTreatmentModalBusy] = useState(false);
+  const [editingTreatmentId, setEditingTreatmentId] = useState(null);
+  const [conditionForm, setConditionForm] = useState({
+    name: '', name_en: '', name_he: '', code: '', color: '#0284c7', is_active: true,
+  });
+  const [conditionModalOpen, setConditionModalOpen] = useState(false);
+  const [conditionModalBusy, setConditionModalBusy] = useState(false);
+  const [editingConditionId, setEditingConditionId] = useState(null);
+  const [catalogSubTab, setCatalogSubTab] = useState('conditions');
   const [rooms, setRooms] = useState([]);
   const [newRoom, setNewRoom] = useState({ name: '' });
   const [roomAddOpen, setRoomAddOpen] = useState(false);
@@ -88,13 +116,21 @@ export default function SettingsPage() {
         { id: 'whatsapp', labelKey: 'settings_tab_whatsapp', ownerOnly: true },
         { id: 'backup', labelKey: 'settings_tab_backup', ownerOnly: true },
         { id: 'fiscal', labelKey: 'settings_tab_fiscal', ownerOnly: true },
-        { id: 'treatments', labelKey: 'settings_tab_treatments', ownerOnly: true },
+        { id: 'clinical-catalog', labelKey: 'settings_tab_clinical_catalog', ownerOnly: true },
         { id: 'rooms', labelKey: 'settings_tab_rooms', ownerOnly: true },
+        { id: 'doctors', labelKey: 'settings_tab_doctors', ownerOnly: true },
         { id: 'import', labelKey: 'settings_tab_import', ownerOnly: true },
       );
     }
     return list;
   }, [isOwner]);
+
+  useEffect(() => {
+    if (activeTab === 'treatments') {
+      setActiveTab('clinical-catalog');
+      setCatalogSubTab('treatments');
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     setQuickActions(normalizeQuickActions(user?.preferences?.quickActions));
@@ -113,6 +149,8 @@ export default function SettingsPage() {
       decimalPlaces: settings.decimalPlaces,
       thousandsSeparator: settings.thousandsSeparator,
       decimalSeparator: settings.decimalSeparator,
+      numberDigits: settings.numberDigits || 'western',
+      timeFormat: settings.timeFormat || '12h',
       printHeaderText: settings.printHeaderText,
       patientsPrefix: settings.patientsPrefix || 'C',
       patientsWidth: settings.patientsWidth || 5,
@@ -164,6 +202,29 @@ export default function SettingsPage() {
     api.get('/treatments').then(setTreatments).catch(() => setTreatments([]));
     api.get('/rooms').then(setRooms).catch(() => setRooms([]));
   }, [isOwner]);
+
+  useEffect(() => {
+    if (!isOwner || activeTab !== 'clinical-catalog') return;
+    api.get('/tooth-conditions')
+      .then(setToothConditions)
+      .catch(() => setToothConditions([]));
+  }, [isOwner, activeTab]);
+
+  const conditionOptions = useMemo(() => {
+    const rows = (toothConditions || []).filter((c) => c.is_active !== false && c.code !== 'HEALTHY');
+    if (rows.length) return rows;
+    return TOOTH_CONDITIONS.filter((c) => c.code !== 'HEALTHY');
+  }, [toothConditions]);
+
+  function conditionDisplayName(codeOrRow) {
+    if (!codeOrRow) return t('settings_treatment_condition_none');
+    if (typeof codeOrRow === 'object') {
+      return conditionLabel(codeOrRow, t, i18n.language);
+    }
+    const found = toothConditions.find((c) => c.code === codeOrRow);
+    if (found) return conditionLabel(found, t, i18n.language);
+    return conditionLabel(codeOrRow, t, i18n.language);
+  }
 
   useEffect(() => {
     if (!isOwner || (activeTab !== 'fiscal' && activeTab !== 'backup')) return;
@@ -236,6 +297,33 @@ export default function SettingsPage() {
       await api.patch('/auth/password', passwordForm);
       setPasswordForm({ currentPassword: '', newPassword: '' });
       alert(t('settings_password_success'));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
+    }
+  }
+
+  async function uploadAvatar(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    try {
+      await api.upload('/auth/avatar', file);
+      await refreshUser();
+      bumpAvatar();
+      alert(t('settings_avatar_uploaded'));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
+    }
+    e.target.value = '';
+  }
+
+  async function removeAvatar() {
+    if (!confirm(t('settings_avatar_remove_confirm'))) return;
+    setError(null);
+    try {
+      await api.delete('/auth/avatar');
+      await refreshUser();
+      bumpAvatar();
     } catch (err) {
       setError(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
     }
@@ -426,31 +514,55 @@ export default function SettingsPage() {
     }
   }
 
-  async function addTreatment(e) {
-    e.preventDefault();
-    try {
-      const created = await api.post('/treatments', {
-        name: newTreatment.name,
-        price: Number(newTreatment.price),
-        sortOrder: treatments.length + 1,
-      });
-      setTreatments((prev) => [...prev, created]);
-      setNewTreatment({ name: '', price: '' });
-    } catch (err) {
-      alert(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
-    }
+  function openTreatmentAddModal() {
+    setEditingTreatmentId(null);
+    setTreatmentForm({ name: '', price: '', conditionCode: '' });
+    setTreatmentModalOpen(true);
   }
 
-  async function saveTreatment(item) {
+  function openTreatmentEditModal(item) {
+    setEditingTreatmentId(item.id);
+    setTreatmentForm({
+      name: item.name || '',
+      price: item.price != null ? String(item.price) : '',
+      conditionCode: item.condition_code || '',
+    });
+    setTreatmentModalOpen(true);
+  }
+
+  function closeTreatmentModal() {
+    setTreatmentModalOpen(false);
+    setEditingTreatmentId(null);
+    setTreatmentForm({ name: '', price: '', conditionCode: '' });
+  }
+
+  async function submitTreatment(e) {
+    e.preventDefault();
+    setTreatmentModalBusy(true);
     try {
-      const updated = await api.patch(`/treatments/${item.id}`, {
-        name: item.name,
-        price: Number(item.price),
-        isActive: item.is_active,
-      });
-      setTreatments((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      if (editingTreatmentId) {
+        const updated = await api.patch(`/treatments/${editingTreatmentId}`, {
+          name: treatmentForm.name,
+          price: Number(treatmentForm.price),
+          conditionCode: treatmentForm.conditionCode || null,
+        });
+        setTreatments((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      } else {
+        const created = await api.post('/treatments', {
+          name: treatmentForm.name,
+          price: Number(treatmentForm.price),
+          sortOrder: treatments.length + 1,
+          conditionCode: treatmentForm.conditionCode
+            || inferConditionFromName(treatmentForm.name)
+            || undefined,
+        });
+        setTreatments((prev) => [...prev, created]);
+      }
+      closeTreatmentModal();
     } catch (err) {
       alert(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
+    } finally {
+      setTreatmentModalBusy(false);
     }
   }
 
@@ -459,6 +571,78 @@ export default function SettingsPage() {
     try {
       await api.delete(`/treatments/${id}`);
       setTreatments((prev) => prev.filter((x) => x.id !== id));
+    } catch (err) {
+      alert(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
+    }
+  }
+
+  function openConditionAddModal() {
+    setEditingConditionId(null);
+    setConditionForm({ name: '', name_en: '', name_he: '', code: '', color: '#0284c7', is_active: true });
+    setConditionModalOpen(true);
+  }
+
+  function openConditionEditModal(item) {
+    setEditingConditionId(item.id);
+    setConditionForm({
+      name: item.name || '',
+      name_en: item.name_en || '',
+      name_he: item.name_he || '',
+      code: item.code || '',
+      color: item.color || '#0284c7',
+      is_active: item.is_active !== false,
+      is_system: Boolean(item.is_system),
+    });
+    setConditionModalOpen(true);
+  }
+
+  function closeConditionModal() {
+    setConditionModalOpen(false);
+    setEditingConditionId(null);
+    setConditionForm({ name: '', name_en: '', name_he: '', code: '', color: '#0284c7', is_active: true });
+  }
+
+  async function submitToothCondition(e) {
+    e.preventDefault();
+    setConditionModalBusy(true);
+    try {
+      if (editingConditionId) {
+        const updated = await api.patch(`/tooth-conditions/${editingConditionId}`, {
+          name: conditionForm.name,
+          name_en: conditionForm.name_en || null,
+          name_he: conditionForm.name_he || null,
+          color: conditionForm.color || null,
+          isActive: conditionForm.is_active !== false,
+        });
+        setToothConditions((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      } else {
+        const created = await api.post('/tooth-conditions', {
+          name: conditionForm.name,
+          name_en: conditionForm.name_en || undefined,
+          name_he: conditionForm.name_he || undefined,
+          code: conditionForm.code || suggestConditionCode(conditionForm.name_en, conditionForm.name),
+          color: conditionForm.color || '#0284c7',
+          sortOrder: toothConditions.length * 10 + 200,
+        });
+        setToothConditions((prev) => [...prev, created].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
+      }
+      closeConditionModal();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
+    } finally {
+      setConditionModalBusy(false);
+    }
+  }
+
+  async function removeToothCondition(item) {
+    if (item.is_system) {
+      alert(t('settings_condition_system_no_delete'));
+      return;
+    }
+    if (!confirm(t('settings_condition_delete_confirm'))) return;
+    try {
+      await api.delete(`/tooth-conditions/${item.id}`);
+      setToothConditions((prev) => prev.filter((x) => x.id !== item.id));
     } catch (err) {
       alert(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
     }
@@ -611,7 +795,46 @@ export default function SettingsPage() {
 
       {activeTab === 'account' && (
         <section className="dc-settings-panel">
-          <h4>{t('settings_password_title')}</h4>
+          <h4>{t('settings_avatar_title')}</h4>
+          <p className="dc-muted text-sm">{t('settings_avatar_hint')}</p>
+          <div className="dc-account-avatar-block">
+            <div className="dc-account-avatar-preview" aria-hidden="true">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="" className="dc-account-avatar-img" />
+              ) : (
+                <span className="dc-account-avatar-fallback">
+                  {(user?.name || user?.username || '?').slice(0, 1)}
+                </span>
+              )}
+            </div>
+            <div className="dc-account-avatar-meta">
+              <strong>{user?.name}</strong>
+              <span className="dc-muted">@{user?.username}</span>
+            </div>
+            <div className="dc-letterhead-file-actions">
+              <label className="dc-letterhead-upload">
+                <i className="fa-solid fa-camera" />
+                <span>
+                  {user?.hasAvatar
+                    ? t('settings_avatar_replace')
+                    : t('settings_avatar_upload')}
+                </span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="dc-sr-only"
+                  onChange={uploadAvatar}
+                />
+              </label>
+              {user?.hasAvatar && (
+                <button type="button" className="dc-danger" onClick={removeAvatar}>
+                  {t('settings_avatar_remove')}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <h4 style={{ marginTop: 28 }}>{t('settings_password_title')}</h4>
           <form onSubmit={changePassword} className="dc-settings-form">
             <input
               type="password"
@@ -666,6 +889,28 @@ export default function SettingsPage() {
           <h4>{t('settings_format_title')}</h4>
           <p className="dc-muted text-sm">{t('settings_format_hint')}</p>
           <form onSubmit={saveFormat} className="dc-settings-form">
+            <label>
+              {t('settings_number_digits')}
+              <select
+                value={formatForm.numberDigits || 'western'}
+                onChange={(e) => setFormatForm((p) => ({ ...p, numberDigits: e.target.value }))}
+              >
+                <option value="western">{t('settings_number_digits_western')}</option>
+                <option value="eastern">{t('settings_number_digits_eastern')}</option>
+              </select>
+            </label>
+            <p className="dc-muted text-sm">{t('settings_number_digits_hint')}</p>
+            <label>
+              {t('settings_time_format')}
+              <select
+                value={formatForm.timeFormat || '12h'}
+                onChange={(e) => setFormatForm((p) => ({ ...p, timeFormat: e.target.value }))}
+              >
+                <option value="12h">{t('settings_time_format_12h')}</option>
+                <option value="24h">{t('settings_time_format_24h')}</option>
+              </select>
+            </label>
+            <p className="dc-muted text-sm">{t('settings_time_format_hint')}</p>
             <label>
               {t('settings_date_format')}
               <select
@@ -727,6 +972,17 @@ export default function SettingsPage() {
           <h4>{t('settings_numbering_title')}</h4>
           <p className="dc-muted text-sm">{t('settings_numbering_hint')}</p>
           <form onSubmit={saveFormat} className="dc-settings-form" style={{ maxWidth: 560 }}>
+            <label>
+              {t('settings_number_digits')}
+              <select
+                value={formatForm.numberDigits || 'western'}
+                onChange={(e) => setFormatForm((p) => ({ ...p, numberDigits: e.target.value }))}
+              >
+                <option value="western">{t('settings_number_digits_western')}</option>
+                <option value="eastern">{t('settings_number_digits_eastern')}</option>
+              </select>
+            </label>
+            <p className="dc-muted text-sm">{t('settings_number_digits_hint')}</p>
             {numberingBlock(t('settings_numbering_patients'), 'patientsPrefix', 'patientsWidth', 'patientsNext')}
             {numberingBlock(t('settings_numbering_suppliers'), 'suppliersPrefix', 'suppliersWidth', 'suppliersNext')}
             {numberingBlock(t('settings_numbering_doctors'), 'doctorsPrefix', 'doctorsWidth', 'doctorsNext')}
@@ -1247,61 +1503,119 @@ export default function SettingsPage() {
         </section>
       )}
 
-      {activeTab === 'treatments' && isOwner && (
+      {activeTab === 'clinical-catalog' && isOwner && (
         <section className="dc-settings-panel">
-          <h4>{t('settings_treatments_title')}</h4>
-          <form onSubmit={addTreatment} className="dc-form-row" style={{ marginBottom: 12 }}>
-            <input
-              required
-              placeholder={t('clinical_treatment_name')}
-              value={newTreatment.name}
-              onChange={(e) => setNewTreatment((p) => ({ ...p, name: e.target.value }))}
-            />
-            <input
-              required
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder={t('clinical_treatment_cost')}
-              value={newTreatment.price}
-              onChange={(e) => setNewTreatment((p) => ({ ...p, price: e.target.value }))}
-            />
-            <button type="submit">{t('settings_treatment_add')}</button>
-          </form>
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <th>{t('clinical_treatment_name')}</th>
-                <th>{t('clinical_treatment_cost')}</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {treatments.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    <input
-                      value={item.name}
-                      onChange={(e) => setTreatments((prev) => prev.map((x) => (x.id === item.id ? { ...x, name: e.target.value } : x)))}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={item.price}
-                      onChange={(e) => setTreatments((prev) => prev.map((x) => (x.id === item.id ? { ...x, price: e.target.value } : x)))}
-                    />
-                  </td>
-                  <td>
-                    <button type="button" onClick={() => saveTreatment(item)}>{t('platform_save')}</button>
-                    <button type="button" className="dc-danger" onClick={() => removeTreatment(item.id)}>{t('platform_delete')}</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="dc-party-head">
+            <div>
+              <h4>{t('settings_tab_clinical_catalog')}</h4>
+              <p className="dc-muted text-sm">{t('settings_clinical_catalog_hint')}</p>
+            </div>
+          </div>
+
+          <nav className="dc-subnav dc-settings-subtabs" style={{ padding: 0, marginBottom: 8 }}>
+            <button
+              type="button"
+              className={`dc-chip${catalogSubTab === 'conditions' ? ' is-active' : ''}`}
+              onClick={() => setCatalogSubTab('conditions')}
+            >
+              {t('settings_subtab_conditions')}
+            </button>
+            <button
+              type="button"
+              className={`dc-chip${catalogSubTab === 'treatments' ? ' is-active' : ''}`}
+              onClick={() => setCatalogSubTab('treatments')}
+            >
+              {t('settings_subtab_treatments')}
+            </button>
+          </nav>
+
+          {catalogSubTab === 'conditions' && (
+            <>
+              <div className="dc-catalog-subhead">
+                <p className="dc-muted text-sm">{t('settings_conditions_hint')}</p>
+                <button type="button" onClick={openConditionAddModal}>
+                  <i className="fa-solid fa-plus" /> {t('settings_condition_add')}
+                </button>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th>{t('settings_condition_name')}</th>
+                    <th>{t('settings_condition_code')}</th>
+                    <th>{t('settings_condition_color')}</th>
+                    <th>{t('settings_condition_active')}</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {toothConditions.map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        <strong>{item.name}</strong>
+                        {item.is_system ? (
+                          <span className="dc-muted text-sm"> · {t('settings_condition_system')}</span>
+                        ) : null}
+                      </td>
+                      <td><code className="dc-num">{item.code}</code></td>
+                      <td>
+                        <span
+                          className="dc-condition-color-swatch"
+                          style={{ background: item.color || '#0284c7' }}
+                          title={item.color || ''}
+                        />
+                      </td>
+                      <td>{item.is_active !== false ? t('settings_condition_active') : t('settings_condition_inactive')}</td>
+                      <td>
+                        <button type="button" onClick={() => openConditionEditModal(item)}>{t('party_edit')}</button>
+                        {!item.is_system && (
+                          <button type="button" className="dc-danger" onClick={() => removeToothCondition(item)}>
+                            {t('platform_delete')}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {toothConditions.length === 0 && (
+                    <tr><td colSpan={5} className="dc-muted">{t('settings_conditions_empty')}</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {catalogSubTab === 'treatments' && (
+            <>
+              <div className="dc-catalog-subhead">
+                <p className="dc-muted text-sm">{t('settings_treatments_hint')}</p>
+                <button type="button" onClick={openTreatmentAddModal}>
+                  <i className="fa-solid fa-plus" /> {t('settings_treatment_add')}
+                </button>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th>{t('clinical_treatment_name')}</th>
+                    <th>{t('clinical_treatment_cost')}</th>
+                    <th>{t('settings_treatment_condition')}</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {treatments.map((item) => (
+                    <tr key={item.id}>
+                      <td><strong>{item.name}</strong></td>
+                      <td className="dc-money">{money(item.price)}</td>
+                      <td>{item.condition_code ? conditionDisplayName(item.condition_code) : t('settings_treatment_condition_none')}</td>
+                      <td>
+                        <button type="button" onClick={() => openTreatmentEditModal(item)}>{t('party_edit')}</button>
+                        <button type="button" className="dc-danger" onClick={() => removeTreatment(item.id)}>{t('platform_delete')}</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </section>
       )}
 
@@ -1350,6 +1664,16 @@ export default function SettingsPage() {
               ))}
             </tbody>
           </table>
+        </section>
+      )}
+
+      {activeTab === 'doctors' && isOwner && (
+        <section className="dc-settings-panel space-y-3">
+          <div>
+            <h4>{t('settings_doctors_title')}</h4>
+            <p className="dc-muted text-sm">{t('settings_doctors_hint')}</p>
+          </div>
+          <Doctors canEdit={isOwner} onAccountsChanged={onAccountsChanged} />
         </section>
       )}
 
@@ -1422,6 +1746,169 @@ export default function SettingsPage() {
           </div>
         </section>
       )}
+
+      <PartyModal
+        open={conditionModalOpen}
+        title={editingConditionId ? t('settings_condition_edit') : t('settings_condition_add')}
+        onClose={() => {
+          if (!conditionModalBusy) closeConditionModal();
+        }}
+      >
+        <form onSubmit={submitToothCondition} className="space-y-3">
+          <div className="dc-form-field">
+            <label>{t('settings_condition_name')}</label>
+            <input
+              required
+              autoFocus
+              value={conditionForm.name}
+              onChange={(e) => setConditionForm((p) => ({ ...p, name: e.target.value }))}
+              disabled={conditionModalBusy}
+            />
+          </div>
+          {!editingConditionId && (
+            <>
+              <div className="dc-form-field">
+                <label>{t('settings_condition_name_en')}</label>
+                <input
+                  value={conditionForm.name_en}
+                  onChange={(e) => {
+                    const name_en = e.target.value;
+                    setConditionForm((p) => ({
+                      ...p,
+                      name_en,
+                      code: p.code || suggestConditionCode(name_en, p.name),
+                    }));
+                  }}
+                  disabled={conditionModalBusy}
+                  placeholder="e.g. Whitening"
+                />
+              </div>
+              <div className="dc-form-field">
+                <label>{t('settings_condition_code')}</label>
+                <input
+                  className="dc-num"
+                  value={conditionForm.code}
+                  onChange={(e) => setConditionForm((p) => ({
+                    ...p,
+                    code: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''),
+                  }))}
+                  disabled={conditionModalBusy}
+                  placeholder={t('settings_condition_code_hint')}
+                />
+              </div>
+            </>
+          )}
+          {editingConditionId && (
+            <div className="dc-form-field">
+              <label>{t('settings_condition_code')}</label>
+              <input className="dc-num" value={conditionForm.code} disabled readOnly />
+            </div>
+          )}
+          <div className="dc-form-field">
+            <label>{t('settings_condition_color')}</label>
+            <input
+              type="color"
+              value={conditionForm.color || '#0284c7'}
+              onChange={(e) => setConditionForm((p) => ({ ...p, color: e.target.value }))}
+              disabled={conditionModalBusy}
+            />
+          </div>
+          {editingConditionId && (
+            <label className="dc-check-inline">
+              <input
+                type="checkbox"
+                checked={conditionForm.is_active !== false}
+                onChange={(e) => setConditionForm((p) => ({ ...p, is_active: e.target.checked }))}
+                disabled={conditionModalBusy}
+              />
+              <span>{t('settings_condition_active')}</span>
+            </label>
+          )}
+          <div className="dc-doc-view-actions">
+            <button type="submit" disabled={conditionModalBusy}>
+              {conditionModalBusy
+                ? t('party_saving')
+                : (editingConditionId ? t('platform_save') : t('settings_condition_add'))}
+            </button>
+            <button
+              type="button"
+              className="dc-ghost-light"
+              onClick={closeConditionModal}
+              disabled={conditionModalBusy}
+            >
+              {t('btn_cancel')}
+            </button>
+          </div>
+        </form>
+      </PartyModal>
+
+      <PartyModal
+        open={treatmentModalOpen}
+        title={editingTreatmentId ? t('settings_treatment_edit') : t('settings_treatment_add')}
+        onClose={() => {
+          if (!treatmentModalBusy) closeTreatmentModal();
+        }}
+      >
+        <form onSubmit={submitTreatment} className="space-y-3">
+          <div className="dc-form-field">
+            <label>{t('clinical_treatment_name')}</label>
+            <input
+              required
+              autoFocus
+              value={treatmentForm.name}
+              onChange={(e) => setTreatmentForm((p) => ({ ...p, name: e.target.value }))}
+              disabled={treatmentModalBusy}
+            />
+          </div>
+          <div className="dc-form-field">
+            <label>{t('clinical_treatment_cost')}</label>
+            <ClinicNumberInput
+              required
+              showCurrency
+              min="0"
+              step="0.01"
+              value={treatmentForm.price}
+              onChange={(price) => setTreatmentForm((p) => ({ ...p, price }))}
+              disabled={treatmentModalBusy}
+            />
+          </div>
+          <div className="dc-form-field">
+            <label>{t('settings_treatment_condition')}</label>
+            <select
+              className="dc-treatment-condition-select"
+              value={treatmentForm.conditionCode || ''}
+              onChange={(e) => setTreatmentForm((p) => ({ ...p, conditionCode: e.target.value }))}
+              disabled={treatmentModalBusy}
+            >
+              <option value="">
+                {editingTreatmentId
+                  ? t('settings_treatment_condition_none')
+                  : t('settings_treatment_condition_auto')}
+              </option>
+              {conditionOptions.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {conditionDisplayName(c)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="dc-doc-view-actions">
+            <button type="submit" disabled={treatmentModalBusy}>
+              {treatmentModalBusy
+                ? t('party_saving')
+                : (editingTreatmentId ? t('platform_save') : t('settings_treatment_add'))}
+            </button>
+            <button
+              type="button"
+              className="dc-ghost-light"
+              onClick={closeTreatmentModal}
+              disabled={treatmentModalBusy}
+            >
+              {t('btn_cancel')}
+            </button>
+          </div>
+        </form>
+      </PartyModal>
 
       <PartyModal
         open={roomAddOpen}

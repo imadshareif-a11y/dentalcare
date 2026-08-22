@@ -68,7 +68,7 @@ export default function Expenses() {
               {report.expenses.map((row, i) => (
                 <tr key={i}>
                   <td>{row.name}</td>
-                  <td>{money(row.amount)}</td>
+                  <td className="dc-money">{money(row.amount)}</td>
                 </tr>
               ))}
             </tbody>

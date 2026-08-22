@@ -8,12 +8,15 @@ const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine
 const { resolveAiConfig } = require('../settings/aiConfig');
 const { callVisionApi } = require('../settings/visionClient');
 const { ensureToothChartSchema } = require('../db/ensureToothChart');
+const { ensureClinicalSessionsAppointment } = require('../db/ensureClinicalSessionsAppointment');
 const {
   assertPatient,
   loadToothChart,
   setToothCurrent,
   loadTreatmentPlan,
   saveTreatmentPlan,
+  updatePlanItemDoctor,
+  completePlanItemAndChart,
   applySessionTreatmentsToChart,
   loadPlanReport,
 } = require('../clinical/toothChartService');
@@ -135,8 +138,62 @@ router.put(
       res.json(data);
     } catch (err) {
       if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+      if (err.statusCode === 400) return res.status(400).json({ error: err.message });
       console.error('Saving treatment plan failed:', err);
       res.status(500).json({ error: 'تعذّر حفظ خطة العلاج' });
+    }
+  }
+);
+
+router.patch(
+  '/clinical/treatment-plan/:patientId/items/:itemId',
+  requireAuth,
+  requirePermission('clinical', 'edit'),
+  async (req, res) => {
+    try {
+      await ensureToothChartSchema();
+      const data = await withTenantClient(req.user.tenantId, async (client) => {
+        await assertPatient(client, req.params.patientId);
+        return updatePlanItemDoctor(
+          client,
+          req.user.tenantId,
+          req.params.patientId,
+          req.params.itemId,
+          req.body?.doctorId || req.body?.doctor_id || null
+        );
+      });
+      res.json(data);
+    } catch (err) {
+      if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+      if (err.statusCode === 400) return res.status(400).json({ error: err.message });
+      console.error('Updating plan item doctor failed:', err);
+      res.status(500).json({ error: 'تعذّر حفظ طبيب بند الخطة' });
+    }
+  }
+);
+
+router.post(
+  '/clinical/treatment-plan/:patientId/items/:itemId/complete',
+  requireAuth,
+  requirePermission('clinical', 'edit'),
+  async (req, res) => {
+    try {
+      await ensureToothChartSchema();
+      const data = await withTenantClient(req.user.tenantId, async (client) => {
+        await assertPatient(client, req.params.patientId);
+        return completePlanItemAndChart(
+          client,
+          req.user.tenantId,
+          req.params.patientId,
+          req.params.itemId
+        );
+      });
+      res.json(data);
+    } catch (err) {
+      if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+      if (err.statusCode === 400) return res.status(400).json({ error: err.message });
+      console.error('Completing plan item failed:', err);
+      res.status(500).json({ error: 'تعذّر إكمال بند الخطة' });
     }
   }
 );
@@ -166,14 +223,37 @@ router.post(
   requireAuth,
   requirePermission('clinical', 'edit'),
   async (req, res) => {
-    const { patientId, revenueAccountId, treatments, doctorId, notes, idempotencyKey } = req.body;
+    const { patientId, revenueAccountId, treatments, doctorId, notes, idempotencyKey, appointmentId } = req.body;
     const sessionNotes = typeof notes === 'string' ? notes.trim() : '';
+    const linkAppointmentId = typeof appointmentId === 'string' && appointmentId.trim()
+      ? appointmentId.trim()
+      : null;
 
     if (!patientId || !revenueAccountId || !Array.isArray(treatments) || treatments.length === 0) {
       return res.status(400).json({ error: 'بيانات الجلسة غير مكتملة' });
     }
 
     try {
+      if (linkAppointmentId) {
+        await ensureClinicalSessionsAppointment();
+        await withTenantClient(req.user.tenantId, async (client) => {
+          const appt = await client.query(
+            `SELECT id, patient_id, status FROM appointments WHERE id = $1`,
+            [linkAppointmentId]
+          );
+          if (appt.rowCount === 0) {
+            throw Object.assign(new Error('الموعد غير موجود'), { statusCode: 400 });
+          }
+          const row = appt.rows[0];
+          if (String(row.patient_id) !== String(patientId)) {
+            throw Object.assign(new Error('الموعد لا يخص هذا المريض'), { statusCode: 400 });
+          }
+          if (row.status !== 'SCHEDULED') {
+            throw Object.assign(new Error('يمكن ربط الجلسة بموعد مجدول فقط'), { statusCode: 400 });
+          }
+        });
+      }
+
       const patientAccountId = await withTenantClient(req.user.tenantId, async (client) => {
         const result = await client.query(
           `SELECT account_id FROM parties WHERE id = $1 AND party_type = 'PATIENT'`,
@@ -248,9 +328,11 @@ router.post(
       let sessionId = null;
       if (!posted.deduplicated) {
         sessionId = await withTenantClient(req.user.tenantId, async (client) => {
+          await ensureClinicalSessionsAppointment();
+          await ensureToothChartSchema();
           const session = await client.query(
-            `INSERT INTO clinical_sessions (tenant_id, patient_id, doctor_id, journal_entry_id, total, notes)
-             VALUES ($1, $2, $3, $4, $5, $6)
+            `INSERT INTO clinical_sessions (tenant_id, patient_id, doctor_id, journal_entry_id, total, notes, appointment_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING id`,
             [
               req.user.tenantId,
@@ -259,15 +341,37 @@ router.post(
               posted.journalEntryId,
               sessionTotal,
               sessionNotes || null,
+              linkAppointmentId,
             ]
           );
           const newId = session.rows[0].id;
           for (const item of treatments) {
             await client.query(
-              `INSERT INTO clinical_session_items (session_id, tenant_id, tooth, name, cost)
-               VALUES ($1, $2, $3, $4, $5)`,
-              [newId, req.user.tenantId, item.tooth || null, item.name, Number(item.cost)]
+              `INSERT INTO clinical_session_items (session_id, tenant_id, tooth, name, cost, plan_item_id)
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [
+                newId,
+                req.user.tenantId,
+                item.tooth || null,
+                item.name,
+                Number(item.cost),
+                item.planItemId || item.plan_item_id || null,
+              ]
             );
+          }
+          if (linkAppointmentId) {
+            const done = await client.query(
+              `UPDATE appointments
+               SET status = 'DONE'
+               WHERE id = $1 AND patient_id = $2 AND status = 'SCHEDULED'`,
+              [linkAppointmentId, patientId]
+            );
+            if (done.rowCount === 0) {
+              throw Object.assign(
+                new Error('تعذّر تحديث الموعد — ربما تغيّرت حالته'),
+                { statusCode: 400 }
+              );
+            }
           }
           await ensureToothChartSchema();
           await applySessionTreatmentsToChart(
@@ -293,8 +397,12 @@ router.post(
         journalEntryId: posted.journalEntryId,
         sessionId,
         sessionTotal,
+        appointmentId: linkAppointmentId || undefined,
       });
     } catch (err) {
+      if (err.statusCode === 400) {
+        return res.status(400).json({ error: err.message });
+      }
       if (err instanceof UnbalancedEntryError || err?.name === 'ClosedFiscalYearError') {
         return res.status(err.statusCode || 400).json({ error: err.message });
       }

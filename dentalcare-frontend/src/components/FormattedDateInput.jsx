@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSettings } from '../context/SettingsContext';
-import { formatDate, parseDateInput } from '../utils/format';
+import { formatDate, parseDateInput, toWesternDigits } from '../utils/format';
 
 /**
  * Date field that displays/parses according to clinic settings.dateFormat.
@@ -23,6 +23,7 @@ export default function FormattedDateInput({
   const { settings } = useSettings();
   const pickerRef = useRef(null);
   const fmt = settings.dateFormat || 'DD/MM/YYYY';
+  const digitsMode = settings.numberDigits === 'eastern' ? 'eastern' : 'western';
   const [text, setText] = useState(() => (value ? formatDate(value, settings) : ''));
 
   useEffect(() => {
@@ -38,11 +39,11 @@ export default function FormattedDateInput({
     setText(raw);
     const iso = parseDateInput(raw, settings);
     if (iso) emit(iso);
-    else if (!raw.trim()) emit('');
+    else if (!toWesternDigits(raw).trim()) emit('');
   }
 
   function handleBlur() {
-    if (!text.trim()) {
+    if (!toWesternDigits(text).trim()) {
       setText('');
       emit('');
       return;
@@ -79,13 +80,15 @@ export default function FormattedDateInput({
   }
 
   return (
-    <div className={`dc-date-field ${className}`.trim()}>
+    <div className={`dc-date-field ${className}`.trim()} dir="ltr">
       <input
         id={id}
         name={name}
         type="text"
+        className="dc-date-text dc-num"
         inputMode="numeric"
         autoComplete="off"
+        lang={digitsMode === 'western' ? 'en' : 'ar'}
         placeholder={placeholder || fmt}
         value={text}
         onChange={handleTextChange}

@@ -1,6 +1,6 @@
 // context/AuthContext.jsx
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { api } from '../api/client';
+import { api, apiHref, getToken } from '../api/client';
 import { changeLocale } from '../i18n';
 
 const AuthContext = createContext(null);
@@ -14,6 +14,8 @@ export function AuthProvider({ children }) {
     const stored = localStorage.getItem('auth_user');
     return stored ? JSON.parse(stored) : null;
   });
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [avatarKey, setAvatarKey] = useState(0);
 
   const applyUser = useCallback((next) => {
     persistUser(next);
@@ -21,11 +23,38 @@ export function AuthProvider({ children }) {
     if (next?.locale) changeLocale(next.locale);
   }, []);
 
+  const clearAvatarUrl = useCallback(() => {
+    setAvatarUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }, []);
+
+  const reloadAvatar = useCallback(async (hasAvatar = user?.hasAvatar) => {
+    clearAvatarUrl();
+    if (!hasAvatar) return null;
+    const token = getToken();
+    if (!token) return null;
+    try {
+      const res = await fetch(apiHref('/auth/avatar'), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setAvatarUrl(url);
+      return url;
+    } catch {
+      return null;
+    }
+  }, [clearAvatarUrl, user?.hasAvatar]);
+
   const login = useCallback(async (username, password) => {
     const data = await api.post('/auth/login', { username, password });
     localStorage.setItem('auth_token', data.token);
     localStorage.removeItem('last_clinic_slug');
     applyUser(data.user);
+    setAvatarKey((k) => k + 1);
   }, [applyUser]);
 
   const logout = useCallback(() => {
@@ -33,8 +62,9 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('auth_user');
     localStorage.removeItem('platform_admin_token');
     localStorage.removeItem('platform_admin_user');
+    clearAvatarUrl();
     setUser(null);
-  }, []);
+  }, [clearAvatarUrl]);
 
   const enterSupportSession = useCallback((data) => {
     const currentToken = localStorage.getItem('auth_token');
@@ -43,6 +73,7 @@ export function AuthProvider({ children }) {
     if (currentUser) localStorage.setItem('platform_admin_user', currentUser);
     localStorage.setItem('auth_token', data.token);
     applyUser(data.user);
+    setAvatarKey((k) => k + 1);
   }, [applyUser]);
 
   const exitSupportSession = useCallback(() => {
@@ -57,6 +88,7 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('platform_admin_user');
     try {
       applyUser(JSON.parse(adminUserRaw));
+      setAvatarKey((k) => k + 1);
     } catch {
       logout();
     }
@@ -80,9 +112,49 @@ export function AuthProvider({ children }) {
     return undefined;
   }, [refreshUser]);
 
+  useEffect(() => {
+    if (!user?.hasAvatar) {
+      clearAvatarUrl();
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const token = getToken();
+      if (!token) return;
+      try {
+        const res = await fetch(apiHref('/auth/avatar'), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok || cancelled) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        setAvatarUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+      } catch {
+        // keep initials fallback
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, user?.hasAvatar, avatarKey, clearAvatarUrl]);
+
+  const bumpAvatar = useCallback(() => {
+    setAvatarKey((k) => k + 1);
+  }, []);
+
   return (
     <AuthContext.Provider value={{
-      user, login, logout, refreshUser, enterSupportSession, exitSupportSession,
+      user,
+      avatarUrl,
+      login,
+      logout,
+      refreshUser,
+      reloadAvatar,
+      bumpAvatar,
+      enterSupportSession,
+      exitSupportSession,
     }}>
       {children}
     </AuthContext.Provider>

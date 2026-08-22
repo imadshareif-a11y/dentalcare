@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import FormattedDateInput from './FormattedDateInput';
 import { localizedDisplay } from '../lib/localizedName';
+import { useSettings } from '../context/SettingsContext';
 
 const ROOM_NAME_KEYS = {
   ar: ['name', 'room_name'],
@@ -32,13 +33,6 @@ function slotsInRange(start, end, allSlots) {
   });
 }
 
-function formatSlotRange(start, end) {
-  const endVal = end ?? start;
-  if (!start) return '';
-  if (start === endVal) return start;
-  return `${start}–${endVal}`;
-}
-
 function blockStyle(start, end, slots) {
   const rangeSlots = slotsInRange(start, end, slots);
   const startIdx = slots.indexOf(rangeSlots[0]);
@@ -53,7 +47,7 @@ function blockStyle(start, end, slots) {
 function slotFromTrackClick(event, trackEl, slots) {
   if (!trackEl || slots.length === 0) return null;
   const rect = trackEl.getBoundingClientRect();
-  const ratio = (event.clientX - rect.left) / rect.width;
+  const ratio = (event.clientX - rect.left) / Math.max(1, rect.width);
   const idx = Math.min(slots.length - 1, Math.max(0, Math.floor(ratio * slots.length)));
   return slots[idx];
 }
@@ -68,10 +62,10 @@ function roomBlocks(appointments, roomId, slots) {
       return {
         id: a.id,
         appt: a,
+        status: a.status,
         start: a.slot,
         end,
         style,
-        status: a.status,
       };
     })
     .filter(Boolean)
@@ -92,6 +86,7 @@ export default function RoomTimelineModal({
   onBookSlot,
 }) {
   const { t, i18n } = useTranslation();
+  const { time, timeRange } = useSettings();
   const trackRefs = useRef({});
 
   const hourMarks = useMemo(() => {
@@ -140,7 +135,7 @@ export default function RoomTimelineModal({
               <div className="dc-room-timeline-axis-label" aria-hidden="true" />
               <div className="dc-room-timeline-axis-hours">
                 {hourMarks.map((mark) => (
-                  <span key={mark} className="dc-room-timeline-hour">{mark}</span>
+                  <span key={mark} className="dc-room-timeline-hour">{time(mark)}</span>
                 ))}
               </div>
             </div>
@@ -178,7 +173,7 @@ export default function RoomTimelineModal({
                         title={t('clinical_room_timeline_block_title', {
                           patient: block.appt.patient_name,
                           doctor: block.appt.doctor_name || '—',
-                          range: formatSlotRange(block.start, block.end),
+                          range: timeRange(block.start, block.end),
                         })}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -186,7 +181,7 @@ export default function RoomTimelineModal({
                         }}
                       >
                         <span className="dc-room-timeline-block-time">
-                          {formatSlotRange(block.start, block.end)}
+                          {timeRange(block.start, block.end)}
                         </span>
                         <span className="dc-room-timeline-block-patient">{block.appt.patient_name}</span>
                         <span className="dc-room-timeline-block-doctor">{block.appt.doctor_name || '—'}</span>

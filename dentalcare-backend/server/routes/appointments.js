@@ -60,7 +60,7 @@ async function assertRoom(client, tenantId, roomId) {
   }
 }
 
-async function assertNoOverlap(client, { day, doctorId, roomId, slot, endSlot }) {
+async function assertNoOverlap(client, { day, doctorId, roomId, slot, endSlot, excludeId = null }) {
   const existing = await client.query(
     `SELECT id, slot, end_slot, doctor_id, room_id
      FROM appointments
@@ -68,6 +68,7 @@ async function assertNoOverlap(client, { day, doctorId, roomId, slot, endSlot })
     [day]
   );
   for (const row of existing.rows) {
+    if (excludeId && String(row.id) === String(excludeId)) continue;
     const exEnd = row.end_slot || row.slot;
     if (row.doctor_id === doctorId && rangesOverlap(slot, endSlot, row.slot, exEnd)) {
       throw Object.assign(new Error('يتعارض الموعد مع حجز آخر لنفس الطبيب'), { statusCode: 409 });
@@ -107,7 +108,7 @@ router.get(
 
         const sql = withPlan
           ? `SELECT a.id, a.patient_id, a.doctor_id, a.room_id, a.starts_at, a.notes, a.status,
-                  a.appointment_date, a.slot, COALESCE(a.end_slot, a.slot) AS end_slot,
+                  a.appointment_date::text AS appointment_date, a.slot, COALESCE(a.end_slot, a.slot) AS end_slot,
                   a.plan_item_id,
                   p.name AS patient_name, d.name AS doctor_name,
                   r.name AS room_name, r.name_en AS room_name_en, r.name_he AS room_name_he,
@@ -126,12 +127,12 @@ router.get(
                WHERE tp.tenant_id = a.tenant_id
                  AND tp.patient_id = a.patient_id
                  AND tp.status = 'ACTIVE'
-                 AND tpi2.status = 'PLANNED'
+                 AND tpi2.status IN ('PLANNED', 'IN_PROGRESS')
              ) pending ON TRUE
              WHERE a.appointment_date = $1::date${extraFilter}
              ORDER BY a.slot ASC, d.name ASC NULLS LAST, r.name ASC NULLS LAST`
           : `SELECT a.id, a.patient_id, a.doctor_id, a.room_id, a.starts_at, a.notes, a.status,
-                  a.appointment_date, a.slot, COALESCE(a.end_slot, a.slot) AS end_slot,
+                  a.appointment_date::text AS appointment_date, a.slot, COALESCE(a.end_slot, a.slot) AS end_slot,
                   NULL::uuid AS plan_item_id,
                   p.name AS patient_name, d.name AS doctor_name,
                   r.name AS room_name, r.name_en AS room_name_en, r.name_he AS room_name_he,
@@ -191,7 +192,7 @@ router.post(
             `SELECT tpi.id
              FROM treatment_plan_items tpi
              JOIN treatment_plans tp ON tp.id = tpi.plan_id
-             WHERE tpi.id = $1 AND tp.tenant_id = $2 AND tp.patient_id = $3 AND tpi.status = 'PLANNED'`,
+             WHERE tpi.id = $1 AND tp.tenant_id = $2 AND tp.patient_id = $3 AND tpi.status IN ('PLANNED', 'IN_PROGRESS')`,
             [planItemId, req.user.tenantId, patientId]
           );
           if (planCheck.rowCount === 0) {
@@ -251,21 +252,169 @@ router.patch(
   requireAuth,
   requireAnyPermission([['appointments', 'edit'], ['clinical', 'edit']]),
   async (req, res) => {
-    const { status } = req.body;
-    if (!['SCHEDULED', 'DONE', 'CANCELLED'].includes(status)) {
+    const {
+      status,
+      patientId,
+      doctorId,
+      roomId,
+      notes,
+      planItemId,
+    } = req.body;
+    const hasStatus = Object.prototype.hasOwnProperty.call(req.body, 'status');
+    const hasDate = Object.prototype.hasOwnProperty.call(req.body, 'date');
+    const hasSlot = Object.prototype.hasOwnProperty.call(req.body, 'slot')
+      || Object.prototype.hasOwnProperty.call(req.body, 'endSlot');
+    const hasPatient = Object.prototype.hasOwnProperty.call(req.body, 'patientId');
+    const hasDoctor = Object.prototype.hasOwnProperty.call(req.body, 'doctorId');
+    const hasRoom = Object.prototype.hasOwnProperty.call(req.body, 'roomId');
+    const hasNotes = Object.prototype.hasOwnProperty.call(req.body, 'notes');
+    const hasPlanItem = Object.prototype.hasOwnProperty.call(req.body, 'planItemId');
+    const wantsReschedule = hasDate || hasSlot || hasPatient || hasDoctor || hasRoom || hasNotes || hasPlanItem;
+
+    if (!hasStatus && !wantsReschedule) {
+      return res.status(400).json({ error: 'لا توجد بيانات لتحديث الموعد' });
+    }
+    if (hasStatus && !['SCHEDULED', 'DONE', 'CANCELLED'].includes(status)) {
       return res.status(400).json({ error: 'حالة الموعد غير صالحة' });
     }
+
     try {
+      await ensureAppointmentsSchema();
       await withTenantClient(req.user.tenantId, async (client) => {
+        const current = await client.query(
+          `SELECT id, patient_id, doctor_id, room_id, notes, status,
+                  appointment_date::text AS appointment_date, slot,
+                  COALESCE(end_slot, slot) AS end_slot, plan_item_id
+           FROM appointments WHERE id = $1`,
+          [req.params.id]
+        );
+        if (current.rowCount === 0) {
+          throw Object.assign(new Error('الموعد غير موجود'), { statusCode: 404 });
+        }
+        const row = current.rows[0];
+
+        if (wantsReschedule && row.status !== 'SCHEDULED' && !hasStatus) {
+          throw Object.assign(new Error('يمكن تعديل المواعيد المجدولة فقط'), { statusCode: 400 });
+        }
+
+        const nextPatientId = hasPatient ? patientId : row.patient_id;
+        const nextDoctorId = hasDoctor ? doctorId : row.doctor_id;
+        const nextRoomId = hasRoom ? roomId : row.room_id;
+        const nextDay = hasDate ? String(req.body.date || '').slice(0, 10) : row.appointment_date;
+        const nextNotes = hasNotes ? (notes || null) : row.notes;
+        let nextStatus = hasStatus ? status : row.status;
+
+        let nextSlot = row.slot;
+        let nextEndSlot = row.end_slot || row.slot;
+        if (hasSlot || hasDate || hasDoctor || hasRoom) {
+          const range = normalizeRange(
+            hasSlot || hasDate ? (req.body.slot || row.slot) : row.slot,
+            hasSlot || hasDate ? (req.body.endSlot || req.body.slot || row.end_slot || row.slot) : (row.end_slot || row.slot)
+          );
+          if (!range) {
+            throw Object.assign(new Error('وقت الموعد غير صالح'), { statusCode: 400 });
+          }
+          nextSlot = range.slot;
+          nextEndSlot = range.endSlot;
+        }
+
+        if (!nextPatientId || !nextDoctorId || !nextRoomId || !DATE_RE.test(nextDay)) {
+          throw Object.assign(new Error('المريض والطبيب والغرفة والتاريخ مطلوبة'), { statusCode: 400 });
+        }
+
+        if (wantsReschedule) {
+          await assertDoctor(client, nextDoctorId);
+          await assertRoom(client, req.user.tenantId, nextRoomId);
+          if (nextStatus !== 'CANCELLED') {
+            await assertNoOverlap(client, {
+              day: nextDay,
+              doctorId: nextDoctorId,
+              roomId: nextRoomId,
+              slot: nextSlot,
+              endSlot: nextEndSlot,
+              excludeId: req.params.id,
+            });
+          }
+
+          let linkedPlanItemId = row.plan_item_id;
+          if (hasPlanItem) {
+            if (!planItemId) {
+              linkedPlanItemId = null;
+            } else {
+              const hasPlan = await client.query(
+                `SELECT to_regclass('public.treatment_plan_items') AS t`
+              );
+              if (!hasPlan.rows[0]?.t) {
+                throw Object.assign(new Error('خطة العلاج غير متاحة بعد — أعد المحاولة بدون ربط بند'), {
+                  statusCode: 400,
+                });
+              }
+              const planCheck = await client.query(
+                `SELECT tpi.id
+                 FROM treatment_plan_items tpi
+                 JOIN treatment_plans tp ON tp.id = tpi.plan_id
+                 WHERE tpi.id = $1 AND tp.tenant_id = $2 AND tp.patient_id = $3 AND tpi.status IN ('PLANNED', 'IN_PROGRESS')`,
+                [planItemId, req.user.tenantId, nextPatientId]
+              );
+              if (planCheck.rowCount === 0) {
+                throw Object.assign(new Error('بند خطة العلاج غير صالح'), { statusCode: 400 });
+              }
+              linkedPlanItemId = planItemId;
+            }
+          }
+
+          const updated = await client.query(
+            `UPDATE appointments SET
+               patient_id = $2,
+               doctor_id = $3,
+               room_id = $4,
+               notes = $5,
+               appointment_date = $6::date,
+               slot = $7,
+               end_slot = $8,
+               starts_at = ($6::date + $9::time),
+               plan_item_id = $10,
+               status = $11
+             WHERE id = $1`,
+            [
+              req.params.id,
+              nextPatientId,
+              nextDoctorId,
+              nextRoomId,
+              nextNotes,
+              nextDay,
+              nextSlot,
+              nextEndSlot,
+              nextSlot,
+              linkedPlanItemId,
+              nextStatus,
+            ]
+          );
+          if (updated.rowCount === 0) {
+            throw Object.assign(new Error('الموعد غير موجود'), { statusCode: 404 });
+          }
+          return;
+        }
+
         const result = await client.query(
           `UPDATE appointments SET status = $2 WHERE id = $1`,
-          [req.params.id, status]
+          [req.params.id, nextStatus]
         );
-        if (result.rowCount === 0) throw Object.assign(new Error('الموعد غير موجود'), { statusCode: 404 });
+        if (result.rowCount === 0) {
+          throw Object.assign(new Error('الموعد غير موجود'), { statusCode: 404 });
+        }
       });
       res.json({ success: true });
     } catch (err) {
-      if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+      if (err.statusCode === 400 || err.statusCode === 404 || err.statusCode === 409) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
+      if (err.code === '23505') {
+        const msg = String(err.detail || '').includes('room_id')
+          ? 'يتعارض الموعد مع حجز آخر في نفس الغرفة'
+          : 'يتعارض الموعد مع حجز آخر لنفس الطبيب';
+        return res.status(409).json({ error: msg });
+      }
       console.error('Updating appointment failed:', err);
       res.status(500).json({ error: 'تعذّر تحديث الموعد' });
     }

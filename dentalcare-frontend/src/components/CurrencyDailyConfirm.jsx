@@ -5,17 +5,9 @@ import { getLastRatesConfirmInfo, markRatesConfirmedToday } from '../lib/currenc
 import { dedupeByCode } from '../lib/dedupeList';
 import { useSettings } from '../context/SettingsContext';
 
-function formatDateTime(value, lang) {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  const locale = lang === 'he' ? 'he-IL' : lang === 'en' ? 'en-GB' : 'ar-EG';
-  return d.toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' });
-}
-
 export default function CurrencyDailyConfirm({ user, onConfirmed }) {
   const { t, i18n } = useTranslation();
-  const { date } = useSettings();
+  const { date, dateTime } = useSettings();
   const [rows, setRows] = useState([]);
   const [rates, setRates] = useState({});
   const [marketMeta, setMarketMeta] = useState(null);
@@ -157,10 +149,10 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
   }
 
   const lastClinicLabel = clinicConfirmedAt
-    ? formatDateTime(clinicConfirmedAt, i18n.language)
+    ? dateTime(clinicConfirmedAt)
     : null;
   const lastLocalLabel = lastLocalConfirm?.at
-    ? formatDateTime(lastLocalConfirm.at, i18n.language)
+    ? dateTime(lastLocalConfirm.at)
     : (lastLocalConfirm?.date ? date(lastLocalConfirm.date) : null);
 
   return (
@@ -201,7 +193,7 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
             {t('currency_daily_market_source', {
               provider: marketMeta.provider,
               updatedAt: marketMeta.updatedAt
-                ? formatDateTime(marketMeta.updatedAt, i18n.language)
+                ? dateTime(marketMeta.updatedAt)
                 : '—',
             })}
             {' · '}

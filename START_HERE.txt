@@ -1,0 +1,25 @@
+# DentalCare — جاهز للنقل إلى الجهاز الثاني
+# المسار: D:\dentel care
+
+هذا المجلد = clone كامل من GitHub + npm ci + .env جاهز.
+
+## نقله للجهاز الثاني
+1. انسخ المجلد كاملاً إلى: D:\dentel care  (نفس المسار مفضّل)
+2. ثبّت على الجهاز الثاني: Node.js 18+ و PostgreSQL
+3. إن اختلفت كلمة مرور Postgres هناك، عدّل: dentalcare-backend\.env
+4. أنشئ القاعدة إن لزم: CREATE DATABASE dentalcare;
+5. شغّل مرة:
+   cd "D:\dentel care\dentalcare-backend"
+   npm run migrate:all
+   npm run seed:trial
+6. أو شغّل: powershell -ExecutionPolicy Bypass -File "D:\dentel care\RUN.ps1"
+7. افتح: http://localhost:5173
+
+## بديل بدون نسخ المجلد
+git clone https://github.com/imadshareif-a11y/dentalcare.git "D:\dentel care"
+
+## Railway (نفس الحسابات)
+https://dentalcare-production-e6a9.up.railway.app/
+
+## تحذير
+لا ترفع ملف dentalcare-backend\.env إلى GitHub (فيه أسرار).

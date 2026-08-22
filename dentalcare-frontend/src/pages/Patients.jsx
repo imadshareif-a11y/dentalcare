@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import PatientForm from '../components/PatientForm';
 import PartyModal from '../components/PartyModal';
+import { useSettings } from '../context/SettingsContext';
 
 export default function Patients({ canEdit = true, onAccountsChanged, onOpenClinical }) {
   const { t } = useTranslation();
+  const { money } = useSettings();
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -99,7 +101,7 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
                     p.name
                   )}
                 </td>
-                <td className="dc-money">{p.phone || '—'}</td>
+                <td>{p.phone || '—'}</td>
                 <td>{p.birth_date || '—'}</td>
                 <td>{p.age != null ? p.age : '—'}</td>
                 <td>
@@ -110,7 +112,7 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
                 <td>{p.address || '—'}</td>
                 <td>{p.medical_notes || '—'}</td>
                 <td className={`dc-money ${Number(p.balance) > 0 ? 'is-debt' : 'is-ok'}`}>
-                  {Number(p.balance).toFixed(2)}
+                  {money(p.balance)}
                 </td>
                 <td>
                   {Number(p.balance) > 0

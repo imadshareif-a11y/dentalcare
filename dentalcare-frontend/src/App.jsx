@@ -200,13 +200,13 @@ function buildTabs({
     { key: 'users', label: t('nav_users'), visible: canEdit('users'),
       render: () => <Users /> },
     { key: 'settings', label: t('nav_settings'), visible: true,
-      render: () => <SettingsPage /> },
+      render: () => <SettingsPage onAccountsChanged={loadAccounts} /> },
   ];
 }
 
 export default function App() {
   const { t } = useTranslation();
-  const { user, logout, refreshUser, exitSupportSession } = useAuth();
+  const { user, logout, refreshUser, exitSupportSession, avatarUrl } = useAuth();
   const [accounts, setAccounts] = useState([]);
   const [section, setSection] = useState('clinical');
   const [accGroup, setAccGroup] = useState('favorites');
@@ -458,7 +458,13 @@ export default function App() {
             </button>
           )}
           <LanguageSwitcher />
-          <div className="dc-avatar" title={user.username}>{initials(user.name)}</div>
+          <div className="dc-avatar" title={user.username}>
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="" className="dc-avatar-img" />
+            ) : (
+              initials(user.name)
+            )}
+          </div>
           <button type="button" className="dc-ghost" onClick={logout}>
             <i className="fa-solid fa-right-from-bracket" /> {t('logout')}
           </button>

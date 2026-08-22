@@ -15,6 +15,8 @@ const DEFAULT_TREATMENTS = [
 ];
 
 const DATE_FORMATS = ['DD/MM/YYYY', 'YYYY-MM-DD', 'DD-MM-YYYY', 'MM/DD/YYYY'];
+const NUMBER_DIGITS = ['western', 'eastern'];
+const TIME_FORMATS = ['12h', '24h'];
 
 function publicSettings(row) {
   const numbering = {
@@ -39,6 +41,8 @@ function publicSettings(row) {
       decimalPlaces: 2,
       thousandsSeparator: ',',
       decimalSeparator: '.',
+      numberDigits: 'western',
+      timeFormat: '12h',
       printHeaderText: '',
       hasLetterhead: false,
       ...publicAiSettings(null),
@@ -50,12 +54,16 @@ function publicSettings(row) {
       employeesSample: sample('E', 5, 1),
     };
   }
+  const digits = NUMBER_DIGITS.includes(row.number_digits) ? row.number_digits : 'western';
+  const timeFmt = TIME_FORMATS.includes(row.time_format) ? row.time_format : '12h';
   return {
     dateFormat: row.date_format,
-    currencySymbol: row.currency_symbol,
+    currencySymbol: (row.currency_symbol && String(row.currency_symbol).trim()) || '₪',
     decimalPlaces: Number(row.decimal_places),
     thousandsSeparator: row.thousands_separator,
     decimalSeparator: row.decimal_separator,
+    numberDigits: digits,
+    timeFormat: timeFmt,
     printHeaderText: row.print_header_text || '',
     hasLetterhead: Boolean(row.has_letterhead || row.letterhead_bytes),
     letterheadMime: row.letterhead_mime || null,
@@ -136,4 +144,4 @@ async function seedClinicExtras(client, tenantId) {
   });
 }
 
-module.exports = { DEFAULT_TREATMENTS, DATE_FORMATS, publicSettings, seedClinicExtras };
+module.exports = { DEFAULT_TREATMENTS, DATE_FORMATS, NUMBER_DIGITS, TIME_FORMATS, publicSettings, seedClinicExtras };

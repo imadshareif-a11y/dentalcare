@@ -1,13 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { TOOTH_CONDITIONS, conditionLabelKey, inferConditionFromName } from '../lib/toothConditions';
+import { TOOTH_CONDITIONS, conditionLabel, inferConditionFromName } from '../lib/toothConditions';
+import ClinicNumberInput from './ClinicNumberInput';
 
 export default function ToothPanel({
   tooth,
   toothState,
   planItemsForTooth,
   toothHistory,
+  conditions,
   catalog,
+  doctors = [],
+  defaultDoctorId = '',
   money,
   date,
   canEdit,
@@ -15,17 +19,28 @@ export default function ToothPanel({
   onSaveCurrent,
   onAddPlanned,
   onRemovePlanned,
+  onUpdatePlanned,
+  onBookPlanItem,
+  onCompletePlanned,
   onSavePlan,
   planNotes,
   onPlanNotesChange,
   allPlanItems,
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const conditionList = (conditions && conditions.length) ? conditions : TOOTH_CONDITIONS;
   const [currentCode, setCurrentCode] = useState(toothState?.current || 'HEALTHY');
   const [currentNotes, setCurrentNotes] = useState(toothState?.currentNotes || '');
   const [draftName, setDraftName] = useState('');
   const [draftCost, setDraftCost] = useState('');
-  const [draftCondition, setDraftCondition] = useState('FILLING');
+  const [draftCatalogId, setDraftCatalogId] = useState('');
+  const [draftCondition, setDraftCondition] = useState('');
+  const [draftDoctorId, setDraftDoctorId] = useState(defaultDoctorId || '');
+  const [addError, setAddError] = useState(null);
+
+  useEffect(() => {
+    setDraftDoctorId((prev) => prev || defaultDoctorId || '');
+  }, [defaultDoctorId]);
 
   if (!tooth) return null;
 
@@ -34,22 +49,36 @@ export default function ToothPanel({
   function handleCatalogPick(item) {
     setDraftName(item.name);
     setDraftCost(String(item.price));
-    const code = item.condition_code || inferConditionFromName(item.name);
-    if (code) setDraftCondition(code);
+    setDraftCatalogId(item.id || '');
+    setDraftCondition(item.condition_code || inferConditionFromName(item.name) || '');
   }
 
   function handleAddPlanned() {
     const name = draftName.trim();
     const cost = Number(draftCost);
     if (!name) return;
+    if (!draftDoctorId) {
+      setAddError(t('clinical_plan_doctor_required'));
+      return;
+    }
+    const doctor = doctors.find((d) => d.id === draftDoctorId);
+    const conditionCode = draftCondition
+      || inferConditionFromName(name)
+      || 'FILLING';
+    setAddError(null);
     onAddPlanned({
       tooth: String(tooth),
-      conditionCode: draftCondition,
+      conditionCode,
       name,
       cost: Number.isFinite(cost) ? cost : 0,
+      catalogId: draftCatalogId || undefined,
+      doctorId: draftDoctorId,
+      doctorName: doctor?.name || null,
     });
     setDraftName('');
     setDraftCost('');
+    setDraftCatalogId('');
+    setDraftCondition('');
   }
 
   return (
@@ -64,9 +93,14 @@ export default function ToothPanel({
             onChange={(e) => setCurrentCode(e.target.value)}
             disabled={!canEdit || saving}
           >
-            {TOOTH_CONDITIONS.map((c) => (
-              <option key={c.code} value={c.code}>{t(conditionLabelKey(c.code))}</option>
-            ))}
+            {conditionList.map((c) => {
+              const code = c.code || c;
+              return (
+                <option key={code} value={code}>
+                  {conditionLabel(c, t, i18n.language)}
+                </option>
+              );
+            })}
           </select>
           {canEdit && (
             <button
@@ -94,15 +128,72 @@ export default function ToothPanel({
         <ul className="dc-tooth-plan-list">
           {planned.map((item) => (
             <li key={item.id || `${item.name}-${item.sortOrder}`} className="dc-tooth-plan-item">
-              <span>
-                <strong>{t(conditionLabelKey(item.conditionCode))}</strong>
-                {' — '}
-                {item.name}
-                <span className="dc-money"> ({money(item.cost)})</span>
+              <span className="dc-tooth-plan-item-main">
+                {canEdit && onUpdatePlanned ? (
+                  <select
+                    className="dc-tooth-plan-doctor-select"
+                    value={item.doctorId ? String(item.doctorId) : ''}
+                    onChange={(e) => {
+                      const doctorId = e.target.value || '';
+                      const doctor = doctors.find((d) => String(d.id) === String(doctorId));
+                      onUpdatePlanned(item.id, {
+                        doctorId: doctorId || null,
+                        doctorName: doctor?.name || null,
+                      });
+                    }}
+                    disabled={saving || item.status === 'COMPLETED'}
+                    aria-label={t('clinical_select_doctor')}
+                  >
+                    <option value="">{t('clinical_select_doctor')}</option>
+                    {doctors.map((d) => (
+                      <option key={d.id} value={String(d.id)}>{d.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="dc-tooth-plan-doctor-name">
+                    {item.doctorName || t('clinical_select_doctor')}
+                  </span>
+                )}
+                <strong className="dc-tooth-plan-treatment">{item.name}</strong>
+                {item.status === 'IN_PROGRESS' && (
+                  <span className="dc-plan-status-badge">{t('clinical_plan_status_in_progress')}</span>
+                )}
+                <span className="dc-money dc-tooth-plan-cost">
+                  {Number(item.billedAmount) > 0
+                    ? t('clinical_plan_remaining_of', {
+                      remaining: money(item.remainingCost ?? item.cost),
+                      total: money(item.cost),
+                    })
+                    : money(item.cost)}
+                </span>
               </span>
-              {canEdit && item.id && (
-                <button type="button" className="dc-danger" onClick={() => onRemovePlanned(item.id)}>×</button>
-              )}
+              <span className="dc-tooth-plan-item-actions">
+                {canEdit && onBookPlanItem && (item.status === 'PLANNED' || item.status === 'IN_PROGRESS') && (
+                  <button
+                    type="button"
+                    className="dc-ghost"
+                    title={t('clinical_plan_book_appointment')}
+                    onClick={() => onBookPlanItem(item)}
+                  >
+                    <i className="fa-solid fa-calendar-plus" />
+                  </button>
+                )}
+                {canEdit && onCompletePlanned && (item.status === 'PLANNED' || item.status === 'IN_PROGRESS')
+                  && item.id && !String(item.id).startsWith('draft-') && (
+                  <button
+                    type="button"
+                    className="dc-ghost"
+                    title={t('clinical_plan_mark_complete')}
+                    onClick={() => onCompletePlanned(item)}
+                    disabled={saving}
+                  >
+                    <i className="fa-solid fa-check" />
+                  </button>
+                )}
+                {canEdit && item.id && (
+                  <button type="button" className="dc-danger" onClick={() => onRemovePlanned(item.id)}>×</button>
+                )}
+              </span>
             </li>
           ))}
         </ul>
@@ -110,35 +201,51 @@ export default function ToothPanel({
           <div className="dc-tooth-plan-add">
             {catalog.length > 0 && (
               <div className="dc-tooth-plan-catalog">
-                {catalog.slice(0, 6).map((item) => (
+                {catalog.map((item) => (
                   <button key={item.id} type="button" className="dc-ghost-light" onClick={() => handleCatalogPick(item)}>
                     {item.name}
                   </button>
                 ))}
               </div>
             )}
-            <div className="dc-form-row">
-              <select value={draftCondition} onChange={(e) => setDraftCondition(e.target.value)}>
-                {TOOTH_CONDITIONS.filter((c) => c.code !== 'HEALTHY').map((c) => (
-                  <option key={c.code} value={c.code}>{t(conditionLabelKey(c.code))}</option>
+            <div className="dc-form-row dc-tooth-plan-add-row">
+              <select
+                value={draftDoctorId}
+                onChange={(e) => {
+                  setDraftDoctorId(e.target.value);
+                  setAddError(null);
+                }}
+                required
+                aria-label={t('clinical_select_doctor')}
+              >
+                <option value="">{t('clinical_select_doctor')}</option>
+                {doctors.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
                 ))}
               </select>
               <input
                 type="text"
                 placeholder={t('clinical_treatment_name')}
                 value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
+                onChange={(e) => {
+                  setDraftName(e.target.value);
+                  setDraftCatalogId('');
+                  setDraftCondition('');
+                }}
               />
-              <input
-                type="number"
+              <ClinicNumberInput
+                showCurrency
+                className="dc-tooth-plan-cost-input"
                 min="0"
                 step="0.01"
                 placeholder={t('clinical_treatment_cost')}
                 value={draftCost}
-                onChange={(e) => setDraftCost(e.target.value)}
+                onChange={setDraftCost}
               />
               <button type="button" onClick={handleAddPlanned}>{t('tooth_panel_add_planned')}</button>
             </div>
+            {addError && <p className="dc-error text-sm">{addError}</p>}
+            <p className="dc-muted text-sm">{t('tooth_panel_planned_hint')}</p>
           </div>
         )}
       </section>

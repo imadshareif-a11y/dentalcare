@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import DoctorForm from '../components/DoctorForm';
 import PartyModal from '../components/PartyModal';
+import { useSettings } from '../context/SettingsContext';
 
 const COMPENSATION_LABEL_KEY = {
   SALARY: 'doctor_compensation_salary',
@@ -13,6 +14,7 @@ const COMPENSATION_LABEL_KEY = {
 
 export default function Doctors({ canEdit = true, onAccountsChanged }) {
   const { t } = useTranslation();
+  const { money } = useSettings();
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -89,9 +91,9 @@ export default function Doctors({ canEdit = true, onAccountsChanged }) {
                 <td>
                   {t(COMPENSATION_LABEL_KEY[d.compensation_type])}
                   {d.compensation_type === 'PERCENTAGE' && ` (${d.percentage_rate}%)`}
-                  {d.compensation_type === 'SALARY' && ` (${Number(d.monthly_salary).toFixed(2)})`}
+                  {d.compensation_type === 'SALARY' && ` (${money(d.monthly_salary)})`}
                 </td>
-                <td>{Number(d.balance).toFixed(2)}</td>
+                <td className="dc-money">{money(d.balance)}</td>
                 {canEdit && (
                   <td>
                     <button type="button" className="dc-icon-btn dc-icon-btn-sm" onClick={() => openEdit(d)} title={t('party_edit')}>

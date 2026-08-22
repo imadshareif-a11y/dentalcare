@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import SupplierForm from '../components/SupplierForm';
 import PartyModal from '../components/PartyModal';
+import { useSettings } from '../context/SettingsContext';
 
 export default function Suppliers({ canEdit = true, onAccountsChanged }) {
   const { t } = useTranslation();
+  const { money } = useSettings();
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -78,7 +80,7 @@ export default function Suppliers({ canEdit = true, onAccountsChanged }) {
               <tr key={s.id}>
                 <td>{s.name}</td>
                 <td>{s.phone || '—'}</td>
-                <td>{Number(s.balance).toFixed(2)}</td>
+                <td className="dc-money">{money(s.balance)}</td>
                 {canEdit && (
                   <td>
                     <button type="button" className="dc-icon-btn dc-icon-btn-sm" onClick={() => openEdit(s)} title={t('party_edit')}>

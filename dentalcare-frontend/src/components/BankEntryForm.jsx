@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import FormattedDateInput from './FormattedDateInput';
 import CurrencySelect from './CurrencySelect';
+import ClinicNumberInput from './ClinicNumberInput';
 import { useCurrencies } from '../hooks/useCurrencies';
+import { useSettings } from '../context/SettingsContext';
 import PartyAccountSelect from './PartyAccountSelect';
 import { partyAccounts } from '../lib/partyAccounts';
 
@@ -14,6 +16,7 @@ function todayIso() {
 
 export default function BankEntryForm({ accounts, onPosted }) {
   const { t, i18n } = useTranslation();
+  const { money } = useSettings();
   const { currencies, baseCurrency } = useCurrencies();
 
   const [bankAccounts, setBankAccounts] = useState([]);
@@ -254,7 +257,7 @@ export default function BankEntryForm({ accounts, onPosted }) {
                       onChange={() => toggleCheck(c.id)}
                     />
                     <span>
-                      {c.check_number} — {c.bank_name} — {Number(c.amount).toFixed(2)}
+                      {c.check_number} — {c.bank_name} — {money(c.amount)}
                       {c.due_date ? ` (${c.due_date})` : ''}
                       {c.cash_box_name ? ` · ${c.cash_box_name}` : ''}
                     </span>
@@ -263,7 +266,7 @@ export default function BankEntryForm({ accounts, onPosted }) {
               </div>
             )}
             {selectedCheckIds.length > 0 && (
-              <p className="text-sm">{t('bank_entry_deposit_total')}: {depositTotal.toFixed(2)}</p>
+              <p className="text-sm">{t('bank_entry_deposit_total')}: {money(depositTotal)}</p>
             )}
           </div>
         </>
@@ -275,12 +278,13 @@ export default function BankEntryForm({ accounts, onPosted }) {
             </div>
             <div className="dc-form-field">
               <label>{t('amount')}</label>
-              <input
-                type="number"
+              <ClinicNumberInput
+                showCurrency
+                currencySymbol={currencies.find((c) => c.id === currencyId)?.symbol || baseCurrency?.symbol}
                 min="0"
                 step="0.01"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={setAmount}
                 required
               />
             </div>

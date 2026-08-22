@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const router = express.Router();
 const { requireAuth, requireRole, requireClinicContext } = require('../middleware/auth');
 const { withTenantClient, withSystemClient } = require('../db/pool');
-const { DATE_FORMATS, publicSettings } = require('../settings/defaults');
+const { DATE_FORMATS, NUMBER_DIGITS, TIME_FORMATS, publicSettings } = require('../settings/defaults');
 const { normalizeProvider, publicAiSettings } = require('../settings/aiConfig');
 const { ensureTenantSettingsSchema } = require('../db/ensureTenantSettings');
 const { pingAiConnection, resolveTestConfig } = require('../settings/visionClient');
@@ -12,6 +12,14 @@ const { setBaseCurrency } = require('../accounting/currency');
 const { normalizeWaProvider, resolveWhatsappConfig } = require('../whatsapp/config');
 const { testWhatsappConnection } = require('../whatsapp/client');
 const { normalizeDefaultCountry } = require('../whatsapp/phone');
+const { normalizeConditionCode, inferConditionFromTreatmentName } = require('../lib/toothConditions');
+const {
+  ensureToothConditionsSchema,
+  listToothConditions,
+  createToothCondition,
+  updateToothCondition,
+  deleteToothCondition,
+} = require('../db/ensureToothConditions');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -27,6 +35,8 @@ const SETTINGS_SELECT = `
   SELECT date_format, currency_symbol, decimal_places, thousands_separator,
          decimal_separator, print_header_text, letterhead_mime,
          (letterhead_bytes IS NOT NULL) AS has_letterhead,
+         number_digits,
+         time_format,
          patients_prefix, patients_width, patients_next,
          suppliers_prefix, suppliers_width, suppliers_next,
          doctors_prefix, doctors_width, doctors_next,
@@ -43,6 +53,8 @@ const SETTINGS_RETURNING = `
   date_format, currency_symbol, decimal_places, thousands_separator,
   decimal_separator, print_header_text, letterhead_mime,
   (letterhead_bytes IS NOT NULL) AS has_letterhead,
+  number_digits,
+  time_format,
   patients_prefix, patients_width, patients_next,
   suppliers_prefix, suppliers_width, suppliers_next,
   doctors_prefix, doctors_width, doctors_next,
@@ -80,6 +92,12 @@ router.get('/settings', requireAuth, requireClinicContext, async (req, res) => {
       dateFormats: DATE_FORMATS,
       baseCurrencyId: data.baseCurrency?.id || null,
       baseCurrencyCode: data.baseCurrency?.code || null,
+      baseCurrencySymbol: data.baseCurrency?.symbol || null,
+      currencySymbol:
+        (data.settings?.currency_symbol && String(data.settings.currency_symbol).trim())
+        || data.baseCurrency?.symbol
+        || data.baseCurrency?.code
+        || '₪',
     });
   } catch (err) {
     console.error('Loading settings failed:', err);
@@ -91,6 +109,7 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
   const {
     dateFormat, currencySymbol, decimalPlaces,
     thousandsSeparator, decimalSeparator, printHeaderText,
+    numberDigits, timeFormat,
     patientsPrefix, patientsWidth, patientsNext,
     suppliersPrefix, suppliersWidth, suppliersNext,
     doctorsPrefix, doctorsWidth, doctorsNext,
@@ -100,6 +119,12 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
 
   if (dateFormat && !DATE_FORMATS.includes(dateFormat)) {
     return res.status(400).json({ error: 'شكل التاريخ غير مدعوم' });
+  }
+  if (numberDigits && !NUMBER_DIGITS.includes(numberDigits)) {
+    return res.status(400).json({ error: 'ترميز الأرقام غير مدعوم' });
+  }
+  if (timeFormat && !TIME_FORMATS.includes(timeFormat)) {
+    return res.status(400).json({ error: 'نظام الوقت غير مدعوم' });
   }
   const places = decimalPlaces == null ? null : Number(decimalPlaces);
   if (places != null && (places < 0 || places > 4)) {
@@ -147,18 +172,20 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
            thousands_separator = COALESCE($5, thousands_separator),
            decimal_separator = COALESCE($6, decimal_separator),
            print_header_text = COALESCE($7, print_header_text),
-           patients_prefix = COALESCE($8, patients_prefix),
-           patients_width = COALESCE($9, patients_width),
-           patients_next = COALESCE($10, patients_next),
-           suppliers_prefix = COALESCE($11, suppliers_prefix),
-           suppliers_width = COALESCE($12, suppliers_width),
-           suppliers_next = COALESCE($13, suppliers_next),
-           doctors_prefix = COALESCE($14, doctors_prefix),
-           doctors_width = COALESCE($15, doctors_width),
-           doctors_next = COALESCE($16, doctors_next),
-           employees_prefix = COALESCE($17, employees_prefix),
-           employees_width = COALESCE($18, employees_width),
-           employees_next = COALESCE($19, employees_next),
+           number_digits = COALESCE($8, number_digits),
+           time_format = COALESCE($9, time_format),
+           patients_prefix = COALESCE($10, patients_prefix),
+           patients_width = COALESCE($11, patients_width),
+           patients_next = COALESCE($12, patients_next),
+           suppliers_prefix = COALESCE($13, suppliers_prefix),
+           suppliers_width = COALESCE($14, suppliers_width),
+           suppliers_next = COALESCE($15, suppliers_next),
+           doctors_prefix = COALESCE($16, doctors_prefix),
+           doctors_width = COALESCE($17, doctors_width),
+           doctors_next = COALESCE($18, doctors_next),
+           employees_prefix = COALESCE($19, employees_prefix),
+           employees_width = COALESCE($20, employees_width),
+           employees_next = COALESCE($21, employees_next),
            updated_at = now()
          WHERE tenant_id = $1
          RETURNING ${SETTINGS_RETURNING}`,
@@ -170,6 +197,8 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
           thousandsSeparator == null ? null : String(thousandsSeparator).slice(0, 2),
           decimalSeparator == null ? null : String(decimalSeparator).slice(0, 2),
           printHeaderText == null ? null : String(printHeaderText),
+          numberDigits || null,
+          timeFormat || null,
           patientsPrefix == null ? null : String(patientsPrefix).slice(0, 10),
           wP, nP,
           suppliersPrefix == null ? null : String(suppliersPrefix).slice(0, 10),
@@ -184,15 +213,21 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
     });
     const base = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(
-        `SELECT id, code FROM currencies WHERE is_base = TRUE LIMIT 1`
+        `SELECT id, code, symbol FROM currencies WHERE is_base = TRUE LIMIT 1`
       );
       return result.rows[0] || null;
     });
     res.json({
       ...mapSettings(row),
       baseCurrencyId: base?.id || null,
-      baseCurrencyCode: base?.code || null,
-    });
+          baseCurrencyCode: base?.code || null,
+          baseCurrencySymbol: base?.symbol || null,
+          currencySymbol:
+            (row?.currency_symbol && String(row.currency_symbol).trim())
+            || base?.symbol
+            || base?.code
+            || '₪',
+        });
   } catch (err) {
     if (err.statusCode === 400 || err.statusCode === 404) {
       return res.status(err.statusCode).json({ error: err.message });
@@ -537,11 +572,68 @@ router.patch('/auth/password', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/tooth-conditions', requireAuth, requireClinicContext, async (req, res) => {
+  try {
+    await ensureToothConditionsSchema();
+    const activeOnly = String(req.query.activeOnly || '') === '1';
+    const rows = await withTenantClient(req.user.tenantId, async (client) => (
+      listToothConditions(client, req.user.tenantId, { activeOnly })
+    ));
+    res.json(rows);
+  } catch (err) {
+    console.error('Listing tooth conditions failed:', err);
+    res.status(500).json({ error: 'تعذّر جلب حالات السن' });
+  }
+});
+
+router.post('/tooth-conditions', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
+  try {
+    await ensureToothConditionsSchema();
+    const created = await withTenantClient(req.user.tenantId, async (client) => (
+      createToothCondition(client, req.user.tenantId, req.body || {})
+    ));
+    res.status(201).json(created);
+  } catch (err) {
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    console.error('Creating tooth condition failed:', err);
+    res.status(500).json({ error: 'تعذّر إضافة حالة السن' });
+  }
+});
+
+router.patch('/tooth-conditions/:id', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
+  try {
+    await ensureToothConditionsSchema();
+    const updated = await withTenantClient(req.user.tenantId, async (client) => (
+      updateToothCondition(client, req.user.tenantId, req.params.id, req.body || {})
+    ));
+    res.json(updated);
+  } catch (err) {
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    console.error('Updating tooth condition failed:', err);
+    res.status(500).json({ error: 'تعذّر حفظ حالة السن' });
+  }
+});
+
+router.delete('/tooth-conditions/:id', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
+  try {
+    await ensureToothConditionsSchema();
+    await withTenantClient(req.user.tenantId, async (client) => (
+      deleteToothCondition(client, req.user.tenantId, req.params.id)
+    ));
+    res.json({ success: true });
+  } catch (err) {
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    console.error('Deleting tooth condition failed:', err);
+    res.status(500).json({ error: 'تعذّر حذف حالة السن' });
+  }
+});
+
 router.get('/treatments', requireAuth, requireClinicContext, async (req, res) => {
   try {
     const rows = await withTenantClient(req.user.tenantId, async (client) => {
+      await client.query(`ALTER TABLE treatment_catalog ADD COLUMN IF NOT EXISTS condition_code VARCHAR(32)`);
       const result = await client.query(
-        `SELECT id, name, price, is_active, sort_order
+        `SELECT id, name, price, is_active, sort_order, condition_code
          FROM treatment_catalog
          WHERE tenant_id = $1
          ORDER BY sort_order ASC, name ASC`,
@@ -549,7 +641,11 @@ router.get('/treatments', requireAuth, requireClinicContext, async (req, res) =>
       );
       return result.rows;
     });
-    res.json(rows.map((r) => ({ ...r, price: Number(r.price) })));
+    res.json(rows.map((r) => ({
+      ...r,
+      price: Number(r.price),
+      condition_code: r.condition_code || null,
+    })));
   } catch (err) {
     console.error('Listing treatments failed:', err);
     res.status(500).json({ error: 'تعذّر جلب العلاجات' });
@@ -557,21 +653,29 @@ router.get('/treatments', requireAuth, requireClinicContext, async (req, res) =>
 });
 
 router.post('/treatments', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
-  const { name, price, sortOrder } = req.body;
+  const { name, price, sortOrder, conditionCode } = req.body;
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'اسم العلاج مطلوب' });
   const p = Number(price);
   if (!(p >= 0)) return res.status(400).json({ error: 'السعر غير صالح' });
+  const code = normalizeConditionCode(conditionCode)
+    || inferConditionFromTreatmentName(name)
+    || null;
   try {
     const created = await withTenantClient(req.user.tenantId, async (client) => {
+      await client.query(`ALTER TABLE treatment_catalog ADD COLUMN IF NOT EXISTS condition_code VARCHAR(32)`);
       const result = await client.query(
-        `INSERT INTO treatment_catalog (tenant_id, name, price, sort_order)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, name, price, is_active, sort_order`,
-        [req.user.tenantId, String(name).trim(), p, Number(sortOrder) || 0]
+        `INSERT INTO treatment_catalog (tenant_id, name, price, sort_order, condition_code)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, name, price, is_active, sort_order, condition_code`,
+        [req.user.tenantId, String(name).trim(), p, Number(sortOrder) || 0, code]
       );
       return result.rows[0];
     });
-    res.status(201).json({ ...created, price: Number(created.price) });
+    res.status(201).json({
+      ...created,
+      price: Number(created.price),
+      condition_code: created.condition_code || null,
+    });
   } catch (err) {
     console.error('Creating treatment failed:', err);
     res.status(500).json({ error: 'تعذّر إضافة العلاج' });
@@ -579,17 +683,23 @@ router.post('/treatments', requireAuth, requireClinicContext, requireRole(['OWNE
 });
 
 router.patch('/treatments/:id', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
-  const { name, price, isActive, sortOrder } = req.body;
+  const { name, price, isActive, sortOrder, conditionCode } = req.body;
+  const hasCondition = Object.prototype.hasOwnProperty.call(req.body, 'conditionCode');
+  const nextCode = hasCondition
+    ? (conditionCode ? normalizeConditionCode(conditionCode) : null)
+    : undefined;
   try {
     const updated = await withTenantClient(req.user.tenantId, async (client) => {
+      await client.query(`ALTER TABLE treatment_catalog ADD COLUMN IF NOT EXISTS condition_code VARCHAR(32)`);
       const result = await client.query(
         `UPDATE treatment_catalog SET
            name = COALESCE($3, name),
            price = COALESCE($4, price),
            is_active = COALESCE($5, is_active),
-           sort_order = COALESCE($6, sort_order)
+           sort_order = COALESCE($6, sort_order),
+           condition_code = CASE WHEN $7::boolean THEN $8 ELSE condition_code END
          WHERE id = $1 AND tenant_id = $2
-         RETURNING id, name, price, is_active, sort_order`,
+         RETURNING id, name, price, is_active, sort_order, condition_code`,
         [
           req.params.id,
           req.user.tenantId,
@@ -597,12 +707,18 @@ router.patch('/treatments/:id', requireAuth, requireClinicContext, requireRole([
           price == null ? null : Number(price),
           typeof isActive === 'boolean' ? isActive : null,
           sortOrder == null ? null : Number(sortOrder),
+          hasCondition,
+          nextCode,
         ]
       );
       return result.rows[0] || null;
     });
     if (!updated) return res.status(404).json({ error: 'العلاج غير موجود' });
-    res.json({ ...updated, price: Number(updated.price) });
+    res.json({
+      ...updated,
+      price: Number(updated.price),
+      condition_code: updated.condition_code || null,
+    });
   } catch (err) {
     console.error('Updating treatment failed:', err);
     res.status(500).json({ error: 'تعذّر تعديل العلاج' });

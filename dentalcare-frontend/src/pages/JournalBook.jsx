@@ -70,8 +70,8 @@ export default function JournalBook() {
                   <td>{r.accountCode}</td>
                   <td>{r.accountName}</td>
                   <td>{r.lineMemo || r.memo}</td>
-                  <td>{money(r.debit)}</td>
-                  <td>{money(r.credit)}</td>
+                  <td className="dc-money">{money(r.debit)}</td>
+                  <td className="dc-money">{money(r.credit)}</td>
                 </tr>
               ))}
             </tbody>

@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api, getToken, apiHref } from '../api/client';
 import { useAuth } from './AuthContext';
-import { formatDate, formatMoney } from '../utils/format';
+import { formatDate, formatMoney, formatTime, formatTimeRange, formatDateTime, applyNumberDigits, observeNumberDigitInputs, resolveCurrencySymbol } from '../utils/format';
 
 const SettingsContext = createContext(null);
 
@@ -13,6 +14,8 @@ const DEFAULTS = {
   decimalPlaces: 2,
   thousandsSeparator: ',',
   decimalSeparator: '.',
+  numberDigits: 'western',
+  timeFormat: '12h',
   printHeaderText: '',
   hasLetterhead: false,
   letterheadMime: null,
@@ -43,6 +46,7 @@ const DEFAULTS = {
 
 export function SettingsProvider({ children }) {
   const { user } = useAuth();
+  const { i18n } = useTranslation();
   const [settings, setSettings] = useState(DEFAULTS);
   const [letterheadUrl, setLetterheadUrl] = useState(null);
 
@@ -54,7 +58,12 @@ export function SettingsProvider({ children }) {
     }
     try {
       const data = await api.get('/settings');
-      setSettings({ ...DEFAULTS, ...data });
+      const merged = {
+        ...DEFAULTS,
+        ...data,
+        currencySymbol: resolveCurrencySymbol({ ...DEFAULTS, ...data }),
+      };
+      setSettings(merged);
       if (data.hasLetterhead) {
         const token = getToken();
         const res = await fetch(apiHref('/settings/letterhead'), {
@@ -82,14 +91,26 @@ export function SettingsProvider({ children }) {
     load();
   }, [load]);
 
-  const value = useMemo(() => ({
-    settings,
-    letterheadUrl,
-    reload: load,
-    money: (v) => formatMoney(v, settings),
-    date: (v) => formatDate(v, settings),
-    isOwner: user?.role === 'OWNER',
-  }), [settings, letterheadUrl, load, user]);
+  useEffect(() => {
+    return observeNumberDigitInputs(settings.numberDigits || 'western');
+  }, [settings.numberDigits]);
+
+  const value = useMemo(() => {
+    const locale = i18n.language || 'ar';
+    return {
+      settings,
+      letterheadUrl,
+      reload: load,
+      money: (v) => formatMoney(v, settings),
+      date: (v) => formatDate(v, settings),
+      time: (v) => formatTime(v, settings, locale),
+      timeRange: (start, end) => formatTimeRange(start, end, settings, locale),
+      dateTime: (v) => formatDateTime(v, settings, locale),
+      digits: (v) => applyNumberDigits(v, settings),
+      currencySymbol: resolveCurrencySymbol(settings),
+      isOwner: user?.role === 'OWNER',
+    };
+  }, [settings, letterheadUrl, load, user, i18n.language]);
 
   return (
     <SettingsContext.Provider value={value}>

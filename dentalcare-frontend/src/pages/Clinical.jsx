@@ -13,7 +13,8 @@ import ClinicalImagesAttach from '../components/ClinicalImagesAttach';
 import ClinicalSessionImages from '../components/ClinicalSessionImages';
 import RoomTimelineModal from '../components/RoomTimelineModal';
 import { localizedDisplay } from '../lib/localizedName';
-import { inferConditionFromName, conditionLabelKey } from '../lib/toothConditions';
+import { TOOTH_CONDITIONS, inferConditionFromName, conditionLabelKey } from '../lib/toothConditions';
+import ClinicNumberInput from '../components/ClinicNumberInput';
 
 const ROOM_NAME_KEYS = {
   ar: ['name', 'room_name'],
@@ -79,6 +80,23 @@ function todayIso() {
   return `${y}-${m}-${day}`;
 }
 
+/** YYYY-MM-DD بدون انزياح timezone (مشكلة DATE من pg → يوم سابق) */
+function toDateIso(value) {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(value.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const m = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
+}
+
 function daySlots() {
   const slots = [];
   for (let hour = CLINIC_OPEN_HOUR; hour < CLINIC_CLOSE_HOUR; hour += 1) {
@@ -128,15 +146,10 @@ function slotsInRange(start, end, allSlots) {
   });
 }
 
-function formatSlotRange(start, end) {
-  const range = normalizeSlotRange(start, end);
-  if (!range) return start || '';
-  if (range.start === range.end) return range.start;
-  return `${range.start}–${range.end}`;
-}
-
-function slotAvailability(appointments, slot, doctorId, roomId) {
-  const active = (appointments || []).filter((a) => a.status !== 'CANCELLED');
+function slotAvailability(appointments, slot, doctorId, roomId, excludeId = null) {
+  const active = (appointments || []).filter(
+    (a) => a.status !== 'CANCELLED' && (!excludeId || a.id !== excludeId)
+  );
   const covering = active.filter((a) => appointmentCoversSlot(a, slot));
   const forDoctor = covering.find((a) => a.doctor_id === doctorId);
   const forRoom = covering.find((a) => a.room_id === roomId);
@@ -151,10 +164,10 @@ function slotAvailability(appointments, slot, doctorId, roomId) {
   };
 }
 
-function isRangeFullyAvailable(appointments, start, end, doctorId, roomId, allSlots) {
+function isRangeFullyAvailable(appointments, start, end, doctorId, roomId, allSlots, excludeId = null) {
   const rangeSlots = slotsInRange(start, end, allSlots);
   if (rangeSlots.length === 0) return false;
-  return rangeSlots.every((s) => slotAvailability(appointments, s, doctorId, roomId).available);
+  return rangeSlots.every((s) => slotAvailability(appointments, s, doctorId, roomId, excludeId).available);
 }
 
 function isSlotInModalRange(slot, start, end, allSlots) {
@@ -162,9 +175,9 @@ function isSlotInModalRange(slot, start, end, allSlots) {
   return slotsInRange(start, end || start, allSlots).includes(slot);
 }
 
-function firstAvailableSlot(appointments, doctorId, roomId, allSlots) {
+function firstAvailableSlot(appointments, doctorId, roomId, allSlots, excludeId = null) {
   for (const slot of allSlots) {
-    if (slotAvailability(appointments, slot, doctorId, roomId).available) return slot;
+    if (slotAvailability(appointments, slot, doctorId, roomId, excludeId).available) return slot;
   }
   return '';
 }
@@ -193,7 +206,7 @@ export default function Clinical({
   onFocusPatientConsumed,
 }) {
   const { t, i18n } = useTranslation();
-  const { money, date, settings } = useSettings();
+  const { money, date, time, timeRange, settings } = useSettings();
   const waEnabled = Boolean(settings?.waEnabled);
   const revenueAccounts = accounts.filter((a) => a.account_type === 'REVENUE');
   const defaultRevenueAccountId = useMemo(() => {
@@ -218,8 +231,12 @@ export default function Clinical({
   const [selectedTooth, setSelectedTooth] = useState(null);
   const [treatmentName, setTreatmentName] = useState('');
   const [treatmentCost, setTreatmentCost] = useState('');
+  const [treatmentCatalogId, setTreatmentCatalogId] = useState('');
+  const [treatmentConditionCode, setTreatmentConditionCode] = useState('');
   const [cart, setCart] = useState([]);
   const [sessionNotes, setSessionNotes] = useState('');
+  const [sessionAppointmentId, setSessionAppointmentId] = useState('');
+  const [patientDayAppointments, setPatientDayAppointments] = useState([]);
   const [pendingXrays, setPendingXrays] = useState([]);
   const [xrayUploadSessionId, setXrayUploadSessionId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -229,6 +246,7 @@ export default function Clinical({
   const [catalog, setCatalog] = useState([]);
   const [patientFile, setPatientFile] = useState({ sessions: [], treatedTeeth: [] });
   const [toothChartTeeth, setToothChartTeeth] = useState({});
+  const [toothChartConditions, setToothChartConditions] = useState(TOOTH_CONDITIONS);
   const [planDraftItems, setPlanDraftItems] = useState([]);
   const [planNotes, setPlanNotes] = useState('');
   const [chartSaving, setChartSaving] = useState(false);
@@ -236,6 +254,7 @@ export default function Clinical({
   const [appointments, setAppointments] = useState([]);
   const [waBusy, setWaBusy] = useState(null);
   const [apptModalOpen, setApptModalOpen] = useState(false);
+  const [editingAppointmentId, setEditingAppointmentId] = useState('');
   const [modalPatientId, setModalPatientId] = useState('');
   const [modalNotes, setModalNotes] = useState('');
   const [modalRange, setModalRange] = useState({ start: '', end: '' });
@@ -259,15 +278,17 @@ export default function Clinical({
     api.get('/doctors').then((rows) => {
       const list = Array.isArray(rows) ? rows : [];
       setDoctors(list);
-      if (list.length === 1) {
-        setScheduleDoctorId(list[0].id);
+      // أول طبيب/غرفة تلقائيًا حتى يظهر جدول المواعيد فور فتح الصفحة
+      if (list.length > 0) {
+        setScheduleDoctorId((prev) => prev || list[0].id);
+        setSelectedDoctorId((prev) => prev || list[0].id);
       }
     }).catch(() => setDoctors([]));
     api.get('/rooms').then((rows) => {
       const list = (Array.isArray(rows) ? rows : []).filter((r) => r.is_active !== false);
       setRooms(list);
-      if (list.length === 1) {
-        setScheduleRoomId(list[0].id);
+      if (list.length > 0) {
+        setScheduleRoomId((prev) => prev || list[0].id);
       }
     }).catch(() => setRooms([]));
     api.get('/treatments').then((rows) => setCatalog(rows.filter((x) => x.is_active))).catch(() => setCatalog([]));
@@ -281,6 +302,14 @@ export default function Clinical({
 
   useEffect(() => {
     api.get('/patients').then(setPatients).catch(() => setPatients([]));
+  }, []);
+
+  useEffect(() => {
+    api.get('/tooth-conditions', { activeOnly: 1 })
+      .then((rows) => {
+        if (Array.isArray(rows) && rows.length) setToothChartConditions(rows);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -313,6 +342,7 @@ export default function Clinical({
   useEffect(() => {
     setSelectedTooth(null);
     setDoctorFieldAlert(false);
+    setPatientDayAppointments([]);
   }, [selectedPatientId]);
 
   useEffect(() => {
@@ -344,13 +374,49 @@ export default function Clinical({
   }, [selectedPatientId]);
 
   useEffect(() => {
+    if (!selectedPatientId) {
+      setPatientDayAppointments([]);
+      setSessionAppointmentId('');
+      return;
+    }
+    let cancelled = false;
+    api.get('/appointments', { date: apptDate })
+      .then((rows) => {
+        if (cancelled) return;
+        const scheduled = (Array.isArray(rows) ? rows : [])
+          .filter((a) => a.patient_id === selectedPatientId && a.status === 'SCHEDULED')
+          .sort((a, b) => String(a.slot || '').localeCompare(String(b.slot || '')));
+        setPatientDayAppointments(scheduled);
+        setSessionAppointmentId((prev) => {
+          if (prev && scheduled.some((a) => a.id === prev)) return prev;
+          if (scheduled.length === 0) return '';
+          const byDoctor = selectedDoctorId
+            ? scheduled.filter((a) => a.doctor_id === selectedDoctorId)
+            : [];
+          if (byDoctor.length === 1) return byDoctor[0].id;
+          if (scheduled.length === 1) return scheduled[0].id;
+          if (byDoctor.length > 1) return byDoctor[0].id;
+          return '';
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPatientDayAppointments([]);
+        setSessionAppointmentId('');
+      });
+    return () => { cancelled = true; };
+  }, [selectedPatientId, apptDate, selectedDoctorId]);
+
+  useEffect(() => {
     if (!apptModalOpen || !modalPatientId) {
       if (!modalPatientId) setModalPendingPlan([]);
       return;
     }
     api.get(`/clinical/treatment-plan/${modalPatientId}`)
       .then((plan) => {
-        const pending = (plan.items || []).filter((i) => i.status === 'PLANNED');
+        const pending = (plan.items || []).filter(
+          (i) => i.status === 'PLANNED' || i.status === 'IN_PROGRESS'
+        );
         setModalPendingPlan(pending);
       })
       .catch(() => setModalPendingPlan([]));
@@ -443,9 +509,17 @@ export default function Clinical({
     }
     setError(null);
     setDoctorFieldAlert(false);
-    setCart((prev) => [...prev, { tooth: selectedTooth, name: treatmentName.trim(), cost }]);
+    setCart((prev) => [...prev, {
+      tooth: selectedTooth,
+      name: treatmentName.trim(),
+      cost,
+      catalogId: treatmentCatalogId || undefined,
+      conditionCode: treatmentConditionCode || inferConditionFromName(treatmentName) || undefined,
+    }]);
     setTreatmentName('');
     setTreatmentCost('');
+    setTreatmentCatalogId('');
+    setTreatmentConditionCode('');
   }
 
   function pickCatalog(item) {
@@ -460,6 +534,10 @@ export default function Clinical({
     setError(null);
     setTreatmentName(item.name);
     setTreatmentCost(String(item.price));
+    setTreatmentCatalogId(item.id || '');
+    setTreatmentConditionCode(
+      item.condition_code || inferConditionFromName(item.name) || ''
+    );
   }
 
   function removeFromCart(index) {
@@ -532,15 +610,26 @@ export default function Clinical({
         doctorId: selectedDoctorId || undefined,
         notes: sessionNotes.trim() || undefined,
         idempotencyKey,
+        appointmentId: sessionAppointmentId || undefined,
       });
 
       setCart([]);
       setSessionNotes('');
+      setSessionAppointmentId('');
       setSelectedTooth(null);
       setIdempotencyKey(newIdempotencyKey());
       const refreshed = await api.get('/patients').catch(() => patients);
       setPatients(refreshed);
       onAccountsChanged?.();
+      await reloadAppointments();
+      if (selectedPatientId) {
+        const dayRows = await api.get('/appointments', { date: apptDate }).catch(() => []);
+        setPatientDayAppointments(
+          (Array.isArray(dayRows) ? dayRows : [])
+            .filter((a) => a.patient_id === selectedPatientId && a.status === 'SCHEDULED')
+            .sort((a, b) => String(a.slot || '').localeCompare(String(b.slot || '')))
+        );
+      }
 
       if (result.sessionId && pendingXrays.length > 0) {
         try {
@@ -604,13 +693,22 @@ export default function Clinical({
     }
   }
 
-  function openApptModal(slot = '', { roomId: roomOverride } = {}) {
-    let doctorId = scheduleDoctorId;
+  function closeApptModal() {
+    setApptModalOpen(false);
+    setEditingAppointmentId('');
+    setModalPlanItemId('');
+    setModalNotes('');
+  }
+
+  function openApptModal(slot = '', { roomId: roomOverride, planItemId = '', patientId = '', doctorId: doctorOverride = '' } = {}) {
+    let doctorId = doctorOverride || scheduleDoctorId || selectedDoctorId || '';
     let roomId = roomOverride || scheduleRoomId;
 
     // إن لم يُختر بعد — اختر الأول المتاح حتى لا يبدو الزر «ميّتاً»
     if (!doctorId && doctors.length > 0) {
       doctorId = doctors[0].id;
+    }
+    if (doctorId && doctorId !== scheduleDoctorId) {
       setScheduleDoctorId(doctorId);
     }
     if (!roomId && activeRooms.length > 0) {
@@ -621,22 +719,24 @@ export default function Clinical({
       roomId = roomOverride;
     }
 
+    setEditingAppointmentId('');
+
     if (!doctorId) {
       setError(t('clinical_schedule_doctor_required'));
       setApptModalOpen(true);
       setModalRange({ start: '', end: '' });
-      setModalPatientId(selectedPatientId || '');
+      setModalPatientId(patientId || selectedPatientId || '');
       setModalNotes('');
-      setModalPlanItemId('');
+      setModalPlanItemId(planItemId || '');
       return;
     }
     if (!roomId) {
       setError(t('clinical_schedule_no_rooms'));
       setApptModalOpen(true);
       setModalRange({ start: '', end: '' });
-      setModalPatientId(selectedPatientId || '');
+      setModalPatientId(patientId || selectedPatientId || '');
       setModalNotes('');
-      setModalPlanItemId('');
+      setModalPlanItemId(planItemId || '');
       return;
     }
 
@@ -647,9 +747,50 @@ export default function Clinical({
 
     setError(null);
     setModalRange({ start: startSlot, end: startSlot });
-    setModalPatientId(selectedPatientId || '');
+    setModalPatientId(patientId || selectedPatientId || '');
     setModalNotes('');
-    setModalPlanItemId('');
+    setModalPlanItemId(planItemId || '');
+    setApptModalOpen(true);
+  }
+
+  function bookFromPlanItem(item) {
+    if (!canEditAppointments) {
+      setError(t('clinical_appointment_no_permission'));
+      return;
+    }
+    if (!selectedPatientId) {
+      setError(t('clinical_patient_required'));
+      return;
+    }
+    if (!item?.id || String(item.id).startsWith('draft-')) {
+      setError(t('clinical_plan_save_before_book'));
+      return;
+    }
+    const doctorId = item.doctorId || selectedDoctorId || scheduleDoctorId || '';
+    if (doctorId) {
+      setScheduleDoctorId(doctorId);
+      setSelectedDoctorId(doctorId);
+    }
+    openApptModal('', {
+      planItemId: item.id,
+      patientId: selectedPatientId,
+      doctorId,
+    });
+  }
+
+  function openEditAppointment(row) {
+    if (!row?.id || row.status !== 'SCHEDULED') return;
+    setError(null);
+    setEditingAppointmentId(row.id);
+    if (row.doctor_id) setScheduleDoctorId(row.doctor_id);
+    if (row.room_id) setScheduleRoomId(row.room_id);
+    if (row.appointment_date) setApptDate(toDateIso(row.appointment_date));
+    setModalPatientId(row.patient_id || '');
+    setModalNotes(row.notes || '');
+    setModalPlanItemId(row.plan_item_id || '');
+    const start = row.slot || String(row.starts_at || '').slice(11, 16);
+    const end = appointmentEndSlot(row);
+    setModalRange({ start: start || '', end: end || start || '' });
     setApptModalOpen(true);
   }
 
@@ -661,7 +802,15 @@ export default function Clinical({
       }
       const range = normalizeSlotRange(prev.start, slot);
       if (!range) return prev;
-      if (!isRangeFullyAvailable(appointments, range.start, range.end, scheduleDoctorId, scheduleRoomId, slots)) {
+      if (!isRangeFullyAvailable(
+        appointments,
+        range.start,
+        range.end,
+        scheduleDoctorId,
+        scheduleRoomId,
+        slots,
+        editingAppointmentId || null
+      )) {
         setError(t('clinical_appointment_range_busy'));
         return prev;
       }
@@ -692,8 +841,12 @@ export default function Clinical({
 
   function handleTimelineSelect(appt) {
     setSelectedPatientId(appt.patient_id);
-    if (appt.doctor_id) setScheduleDoctorId(appt.doctor_id);
+    if (appt.doctor_id) {
+      setScheduleDoctorId(appt.doctor_id);
+      setSelectedDoctorId(appt.doctor_id);
+    }
     if (appt.room_id) setScheduleRoomId(appt.room_id);
+    if (appt.status === 'SCHEDULED') setSessionAppointmentId(appt.id);
     setTimelineOpen(false);
   }
 
@@ -706,7 +859,12 @@ export default function Clinical({
   async function reloadToothChart() {
     if (!selectedPatientId) return;
     const chart = await api.get(`/clinical/tooth-chart/${selectedPatientId}`).catch(() => null);
-    if (chart) setToothChartTeeth(chart.teeth || {});
+    if (chart) {
+      setToothChartTeeth(chart.teeth || {});
+      if (Array.isArray(chart.conditions) && chart.conditions.length) {
+        setToothChartConditions(chart.conditions);
+      }
+    }
     const plan = await api.get(`/clinical/treatment-plan/${selectedPatientId}`).catch(() => null);
     if (plan) {
       setPlanDraftItems(plan.items || []);
@@ -747,21 +905,106 @@ export default function Clinical({
     setPlanDraftItems((prev) => prev.filter((x) => x.id !== id));
   }
 
-  async function saveTreatmentPlanDraft() {
-    if (!selectedPatientId) return;
-    setChartSaving(true);
-    setError(null);
+  function updatePlannedItem(id, patch) {
+    setPlanDraftItems((prev) => {
+      const next = prev.map((item) => (
+        String(item.id) === String(id) ? { ...item, ...patch } : item
+      ));
+
+      const isSavedItem = Boolean(id && !String(id).startsWith('draft-'));
+      if (
+        isSavedItem
+        && selectedPatientId
+        && Object.prototype.hasOwnProperty.call(patch, 'doctorId')
+        && patch.doctorId
+      ) {
+        void persistPlanItemDoctor(id, patch.doctorId, next);
+      }
+      return next;
+    });
+  }
+
+  async function persistPlanItemDoctor(itemId, doctorId, itemsSnapshot) {
     try {
+      try {
+        const saved = await api.patch(
+          `/clinical/treatment-plan/${selectedPatientId}/items/${itemId}`,
+          { doctorId }
+        );
+        setPlanDraftItems((prev) => prev.map((item) => (
+          String(item.id) === String(itemId)
+            ? {
+              ...item,
+              doctorId: saved.doctorId || doctorId,
+              doctorName: saved.doctorName || item.doctorName,
+            }
+            : item
+        )));
+        setError(null);
+        return;
+      } catch (patchErr) {
+        // Old backend without PATCH route — fall back to full plan PUT.
+        if (!(patchErr instanceof ApiError) || patchErr.status !== 404) throw patchErr;
+      }
+
+      const active = itemsSnapshot.filter(
+        (item) => item.status !== 'COMPLETED' && item.status !== 'CANCELLED'
+      );
+      if (active.some((item) => !item.doctorId)) {
+        setError(t('clinical_plan_doctor_required'));
+        return;
+      }
       const plan = await api.put(`/clinical/treatment-plan/${selectedPatientId}`, {
         notes: planNotes || undefined,
-        items: planDraftItems.map((item, index) => ({
+        items: active.map((item, index) => ({
+          id: item.id && !String(item.id).startsWith('draft-') ? item.id : undefined,
           tooth: item.tooth,
           conditionCode: item.conditionCode || inferConditionFromName(item.name),
           catalogId: item.catalogId || undefined,
           name: item.name,
           cost: item.cost,
+          doctorId: item.doctorId,
           sortOrder: index,
+          status: item.status === 'IN_PROGRESS' ? 'IN_PROGRESS' : 'PLANNED',
         })),
+      });
+      setPlanDraftItems(plan.items || []);
+      setPlanNotes(plan.notes || '');
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
+    }
+  }
+
+  async function saveTreatmentPlanDraft() {
+    if (!selectedPatientId) return;
+    const missingDoctor = planDraftItems.some(
+      (item) => item.status !== 'COMPLETED'
+        && item.status !== 'CANCELLED'
+        && !item.doctorId
+    );
+    if (missingDoctor) {
+      setError(t('clinical_plan_doctor_required'));
+      return;
+    }
+    setChartSaving(true);
+    setError(null);
+    try {
+      const plan = await api.put(`/clinical/treatment-plan/${selectedPatientId}`, {
+        notes: planNotes || undefined,
+        items: planDraftItems
+          .filter((item) => item.status !== 'COMPLETED' && item.status !== 'CANCELLED')
+          .map((item, index) => ({
+            id: item.id && !String(item.id).startsWith('draft-') ? item.id : undefined,
+            tooth: item.tooth,
+            conditionCode: item.conditionCode || inferConditionFromName(item.name),
+            catalogId: item.catalogId || undefined,
+            name: item.name,
+            cost: item.cost,
+            doctorId: item.doctorId,
+            sortOrder: index,
+            status: item.status === 'IN_PROGRESS' ? 'IN_PROGRESS' : 'PLANNED',
+          })),
       });
       setPlanDraftItems(plan.items || []);
       setPlanNotes(plan.notes || '');
@@ -775,14 +1018,17 @@ export default function Clinical({
 
   const planItemsForSelectedTooth = useMemo(
     () => planDraftItems.filter(
-      (item) => String(item.tooth) === String(selectedTooth) && item.status !== 'CANCELLED'
+      (item) => String(item.tooth) === String(selectedTooth)
+        && (item.status === 'PLANNED' || item.status === 'IN_PROGRESS')
     ),
     [planDraftItems, selectedTooth]
   );
 
   const savedPlannedItems = useMemo(
     () => planDraftItems.filter(
-      (item) => item.status === 'PLANNED' && item.id && !String(item.id).startsWith('draft-')
+      (item) => (item.status === 'PLANNED' || item.status === 'IN_PROGRESS')
+        && item.id
+        && !String(item.id).startsWith('draft-')
     ),
     [planDraftItems]
   );
@@ -792,22 +1038,61 @@ export default function Clinical({
       setError(t('clinical_patient_required'));
       return;
     }
-    if (!selectedDoctorId) {
+    const doctorId = item.doctorId || selectedDoctorId;
+    if (!doctorId) {
       setError(t('clinical_doctor_required'));
       setDoctorFieldAlert(true);
       return;
     }
+    if (item.doctorId) {
+      setSelectedDoctorId(item.doctorId);
+      setScheduleDoctorId(item.doctorId);
+    }
     setError(null);
     setDoctorFieldAlert(false);
     setSelectedTooth(item.tooth);
-    setCart((prev) => [...prev, {
-      tooth: item.tooth,
-      name: item.name,
-      cost: item.cost,
-      conditionCode: item.conditionCode,
-      catalogId: item.catalogId || undefined,
-      planItemId: item.id,
-    }]);
+    const remaining = Number.isFinite(Number(item.remainingCost))
+      ? Number(item.remainingCost)
+      : Number(item.cost) || 0;
+    const sessionCost = remaining > 0 ? remaining : Number(item.cost) || 0;
+    setCart((prev) => {
+      if (prev.some((c) => String(c.planItemId) === String(item.id))) return prev;
+      return [...prev, {
+        tooth: item.tooth,
+        name: item.name,
+        cost: sessionCost,
+        conditionCode: item.conditionCode,
+        catalogId: item.catalogId || undefined,
+        planItemId: item.id,
+        completeItem: true,
+        remainingCost: remaining,
+      }];
+    });
+  }
+
+  function updateCartLine(index, patch) {
+    setCart((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  }
+
+  async function completePlanItem(item) {
+    if (!selectedPatientId || !item?.id || String(item.id).startsWith('draft-')) {
+      setError(t('clinical_plan_save_before_book'));
+      return;
+    }
+    setChartSaving(true);
+    setError(null);
+    try {
+      const plan = await api.post(
+        `/clinical/treatment-plan/${selectedPatientId}/items/${item.id}/complete`
+      );
+      setPlanDraftItems(plan.items || []);
+      await reloadToothChart();
+      await reloadFile();
+    } catch (err) {
+      setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
+    } finally {
+      setChartSaving(false);
+    }
   }
 
   async function loadPlanReport() {
@@ -844,25 +1129,44 @@ export default function Clinical({
       setError(t('clinical_appointment_slot_required'));
       return;
     }
-    if (!isRangeFullyAvailable(appointments, range.start, range.end, scheduleDoctorId, scheduleRoomId, slots)) {
+    if (!isRangeFullyAvailable(
+      appointments,
+      range.start,
+      range.end,
+      scheduleDoctorId,
+      scheduleRoomId,
+      slots,
+      editingAppointmentId || null
+    )) {
       setError(t('clinical_appointment_range_busy'));
       return;
     }
     setError(null);
     try {
-      await api.post('/appointments', {
-        patientId: modalPatientId,
-        doctorId: scheduleDoctorId,
-        roomId: scheduleRoomId,
-        date: apptDate,
-        slot: range.start,
-        endSlot: range.end,
-        notes: modalNotes || undefined,
-        planItemId: modalPlanItemId || undefined,
-      });
-      setApptModalOpen(false);
-      setModalPlanItemId('');
-      setModalNotes('');
+      if (editingAppointmentId) {
+        await api.patch(`/appointments/${editingAppointmentId}`, {
+          patientId: modalPatientId,
+          doctorId: scheduleDoctorId,
+          roomId: scheduleRoomId,
+          date: apptDate,
+          slot: range.start,
+          endSlot: range.end,
+          notes: modalNotes.trim() || null,
+          planItemId: modalPlanItemId || null,
+        });
+      } else {
+        await api.post('/appointments', {
+          patientId: modalPatientId,
+          doctorId: scheduleDoctorId,
+          roomId: scheduleRoomId,
+          date: apptDate,
+          slot: range.start,
+          endSlot: range.end,
+          notes: modalNotes.trim() || undefined,
+          planItemId: modalPlanItemId || undefined,
+        });
+      }
+      closeApptModal();
       await reloadAppointments();
     } catch (err) {
       setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
@@ -1016,7 +1320,18 @@ export default function Clinical({
                     {planReport.planned.map((item) => (
                       <li key={item.id} className="dc-tooth-plan-item">
                         #{item.tooth} — {t(conditionLabelKey(item.conditionCode))}: {item.name}
-                        <span className="dc-money"> ({money(item.cost)})</span>
+                        {item.status === 'IN_PROGRESS' && (
+                          <span className="dc-plan-status-badge">{t('clinical_plan_status_in_progress')}</span>
+                        )}
+                        <span className="dc-money"> ({money(item.remainingCost ?? item.cost)})</span>
+                        {item.billedAmount > 0 && (
+                          <span className="dc-muted text-sm">
+                            {' '}· {t('clinical_plan_billed')}: {money(item.billedAmount)}
+                          </span>
+                        )}
+                        {item.doctorName ? (
+                          <span className="dc-muted text-sm"> · {item.doctorName}</span>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -1038,6 +1353,7 @@ export default function Clinical({
                 {t('clinical_plan_report_totals', {
                   remaining: money(planReport.totals?.plannedRemaining || 0),
                   executed: money(planReport.totals?.sessionExecuted || 0),
+                  billed: money(planReport.totals?.plannedBilled || 0),
                 })}
               </p>
             </div>
@@ -1101,6 +1417,7 @@ export default function Clinical({
           <DentalChart
             selectedTooth={selectedTooth}
             toothStates={toothChartTeeth}
+            conditions={toothChartConditions}
             selectEnabled={hasSelectedPatient}
             selectHint={t('clinical_patient_required')}
             onSelectTooth={(tooth) => {
@@ -1120,7 +1437,10 @@ export default function Clinical({
               toothState={toothChartTeeth[String(selectedTooth)]}
               planItemsForTooth={planItemsForSelectedTooth}
               toothHistory={toothHistory}
+              conditions={toothChartConditions}
               catalog={catalog}
+              doctors={doctors}
+              defaultDoctorId={selectedDoctorId || scheduleDoctorId || ''}
               money={money}
               date={date}
               canEdit={canEditClinical}
@@ -1128,6 +1448,9 @@ export default function Clinical({
               onSaveCurrent={saveToothCurrent}
               onAddPlanned={addPlannedItem}
               onRemovePlanned={removePlannedItem}
+              onUpdatePlanned={updatePlannedItem}
+              onBookPlanItem={canEditAppointments ? bookFromPlanItem : undefined}
+              onCompletePlanned={canEditClinical ? completePlanItem : undefined}
               onSavePlan={saveTreatmentPlanDraft}
               planNotes={planNotes}
               onPlanNotesChange={setPlanNotes}
@@ -1180,7 +1503,11 @@ export default function Clinical({
             <div className="dc-form-field">
               <input
                 type="text" placeholder={t('clinical_treatment_name')}
-                value={treatmentName} onChange={(e) => setTreatmentName(e.target.value)}
+                value={treatmentName} onChange={(e) => {
+                  setTreatmentName(e.target.value);
+                  setTreatmentCatalogId('');
+                  setTreatmentConditionCode('');
+                }}
                 disabled={!canPickTreatment}
               />
             </div>
@@ -1210,9 +1537,13 @@ export default function Clinical({
               )}
             </div>
             <div className="dc-form-field">
-              <input
-                type="number" min="0" step="0.01" placeholder={t('clinical_treatment_cost')}
-                value={treatmentCost} onChange={(e) => setTreatmentCost(e.target.value)}
+              <ClinicNumberInput
+                showCurrency
+                min="0"
+                step="0.01"
+                placeholder={t('clinical_treatment_cost')}
+                value={treatmentCost}
+                onChange={setTreatmentCost}
                 disabled={!canPickTreatment}
               />
             </div>
@@ -1245,6 +1576,10 @@ export default function Clinical({
                       onClick={() => addFromPlanItem(item)}
                     >
                       #{item.tooth} {item.name}
+                      {item.status === 'IN_PROGRESS' ? ` (${t('clinical_plan_status_in_progress')})` : ''}
+                      {item.doctorName ? ` — ${item.doctorName}` : ''}
+                      {' · '}
+                      {money(item.remainingCost ?? item.cost)}
                     </button>
                   ))}
                 </div>
@@ -1253,11 +1588,34 @@ export default function Clinical({
             {cart.length === 0 && <div>{t('clinical_cart_empty')}</div>}
             {cart.map((c, i) => (
               <div key={i} className="dc-cart-line">
-                <span><span className="dc-tooth-badge">#{c.tooth}</span> {c.name}</span>
-                <span className="dc-money">
-                  {money(c.cost)}
-                  <button type="button" className="dc-cart-remove" onClick={() => removeFromCart(i)} aria-label="×">×</button>
-                </span>
+                <div className="dc-cart-line-main">
+                  <span><span className="dc-tooth-badge">#{c.tooth}</span> {c.name}</span>
+                  <span className="dc-cart-line-cost">
+                    {c.planItemId ? (
+                      <ClinicNumberInput
+                        showCurrency
+                        className="dc-cart-cost-input"
+                        min="0"
+                        step="0.01"
+                        value={String(c.cost ?? '')}
+                        onChange={(v) => updateCartLine(i, { cost: Number(v) || 0 })}
+                      />
+                    ) : (
+                      <span className="dc-money">{money(c.cost)}</span>
+                    )}
+                    <button type="button" className="dc-cart-remove" onClick={() => removeFromCart(i)} aria-label="×">×</button>
+                  </span>
+                </div>
+                {c.planItemId && (
+                  <label className="dc-cart-complete-toggle">
+                    <input
+                      type="checkbox"
+                      checked={c.completeItem !== false}
+                      onChange={(e) => updateCartLine(i, { completeItem: e.target.checked })}
+                    />
+                    <span>{t('clinical_cart_complete_item')}</span>
+                  </label>
+                )}
               </div>
             ))}
             {cart.length > 0 && (
@@ -1275,6 +1633,24 @@ export default function Clinical({
               onChange={(e) => setSessionNotes(e.target.value)}
             />
           </label>
+          {patientDayAppointments.length > 0 && (
+            <label className="dc-session-appt-link">
+              <span className="dc-muted text-sm">{t('clinical_link_appointment')}</span>
+              <select
+                value={sessionAppointmentId}
+                onChange={(e) => setSessionAppointmentId(e.target.value)}
+              >
+                <option value="">{t('clinical_link_appointment_none')}</option>
+                {patientDayAppointments.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {timeRange(a.slot, appointmentEndSlot(a))}
+                    {a.doctor_name ? ` — ${a.doctor_name}` : ''}
+                    {a.room_name ? ` · ${a.room_name}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <ClinicalImagesAttach
             items={pendingXrays}
             onChange={(next) => {
@@ -1389,9 +1765,9 @@ export default function Clinical({
                     });
                 const timeLabel = taken
                   ? (isApptStart
-                    ? formatSlotRange(row.slot, appointmentEndSlot(row))
-                    : formatSlotRange(slot, segmentEnd))
-                  : slot;
+                    ? timeRange(row.slot, appointmentEndSlot(row))
+                    : timeRange(slot, segmentEnd))
+                  : time(slot);
                 return (
                   <div
                     key={slot}
@@ -1406,8 +1782,14 @@ export default function Clinical({
                       row && selectedPatientId === row.patient_id ? ' is-active' : '',
                     ].join('')}
                     onClick={() => {
-                      if (taken) setSelectedPatientId(row.patient_id);
-                      else if (state.available && canEditAppointments) openApptModal(slot);
+                      if (taken) {
+                        setSelectedPatientId(row.patient_id);
+                        if (row.doctor_id) {
+                          setScheduleDoctorId(row.doctor_id);
+                          setSelectedDoctorId(row.doctor_id);
+                        }
+                        if (row.status === 'SCHEDULED') setSessionAppointmentId(row.id);
+                      } else if (state.available && canEditAppointments) openApptModal(slot);
                     }}
                   >
                     <div className="dc-schedule-cell-time" dir="ltr">{timeLabel}</div>
@@ -1415,11 +1797,9 @@ export default function Clinical({
                       {taken ? (
                         <>
                           <div className="dc-schedule-cell-name">{row.patient_name}</div>
-                          {(row.plan_item_name || row.pending_plan) && (
+                          {row.plan_item_name && (
                             <div className="dc-schedule-cell-plan dc-muted text-sm">
-                              {row.plan_item_name
-                                ? `#${row.plan_tooth} ${row.plan_item_name}`
-                                : row.pending_plan}
+                              #{row.plan_tooth} {row.plan_item_name}
                             </div>
                           )}
                           <span className={`dc-badge ${row.status === 'DONE' ? 'dc-badge-emerald' : 'dc-badge-amber'}`}>
@@ -1445,6 +1825,14 @@ export default function Clinical({
                             {waBusy === `reminder:${row.id}` ? '…' : 'WA'}
                           </button>
                         )}
+                        <button
+                          type="button"
+                          className="dc-ghost"
+                          title={t('clinical_appointment_edit')}
+                          onClick={() => openEditAppointment(row)}
+                        >
+                          <i className="fa-solid fa-pen" />
+                        </button>
                         <button type="button" className="dc-success" onClick={() => setApptStatus(row.id, 'DONE')}>✓</button>
                         <button type="button" className="dc-danger" onClick={() => setApptStatus(row.id, 'CANCELLED')}>×</button>
                       </div>
@@ -1500,13 +1888,21 @@ export default function Clinical({
       </PartyModal>
 
       {apptModalOpen && (
-        <div className="dc-modal-backdrop" onClick={() => setApptModalOpen(false)}>
+        <div className="dc-modal-backdrop" onClick={closeApptModal}>
           <div className="dc-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="dc-appt-head">
-              <h3>{t('clinical_appointment_modal_title')}</h3>
-              <button type="button" className="dc-danger" onClick={() => setApptModalOpen(false)}>×</button>
+              <h3>
+                {editingAppointmentId
+                  ? t('clinical_appointment_edit_modal_title')
+                  : t('clinical_appointment_modal_title')}
+              </h3>
+              <button type="button" className="dc-danger" onClick={closeApptModal}>×</button>
             </div>
-            <p className="dc-muted text-sm">{t('clinical_appointment_modal_hint')}</p>
+            <p className="dc-muted text-sm">
+              {editingAppointmentId
+                ? t('clinical_appointment_edit_modal_hint')
+                : t('clinical_appointment_modal_hint')}
+            </p>
             {scheduleDoctorId && selectedScheduleRoom && (
               <p className="text-sm">
                 {t('clinical_appointment_for_doctor_room', {
@@ -1562,13 +1958,19 @@ export default function Clinical({
               {modalRange.start && (
                 <p className="text-sm">
                   <strong>{t('clinical_appointment_selected_range', {
-                    range: formatSlotRange(modalRange.start, modalRange.end || modalRange.start),
+                    range: timeRange(modalRange.start, modalRange.end || modalRange.start),
                   })}</strong>
                 </p>
               )}
               <div className="dc-slot-grid">
                 {slots.map((slot) => {
-                  const state = slotAvailability(appointments, slot, scheduleDoctorId, scheduleRoomId);
+                  const state = slotAvailability(
+                    appointments,
+                    slot,
+                    scheduleDoctorId,
+                    scheduleRoomId,
+                    editingAppointmentId || null
+                  );
                   const inRange = isSlotInModalRange(slot, modalRange.start, modalRange.end, slots);
                   const disabled = !state.available;
                   return (
@@ -1589,7 +1991,7 @@ export default function Clinical({
                       ].filter(Boolean).join(' ')}
                       onClick={() => { if (state.available) pickModalSlot(slot); }}
                     >
-                      {slot}
+                      {time(slot)}
                     </button>
                   );
                 })}
@@ -1618,7 +2020,9 @@ export default function Clinical({
               )}
               {error && <div className="dc-error">{error}</div>}
               <button type="submit">
-                {t('clinical_appointment_save')}
+                {editingAppointmentId
+                  ? t('clinical_appointment_update')
+                  : t('clinical_appointment_save')}
               </button>
             </form>
           </div>

@@ -28,8 +28,9 @@ const CATALOG_DEFAULT_CODES = {
 };
 
 function normalizeConditionCode(value) {
-  const raw = String(value || '').trim().toUpperCase();
-  return VALID_CODES.has(raw) ? raw : null;
+  const raw = String(value || '').trim().toUpperCase().replace(/\s+/g, '_');
+  if (!/^[A-Z][A-Z0-9_]{0,31}$/.test(raw)) return null;
+  return raw;
 }
 
 function inferConditionFromTreatmentName(name) {

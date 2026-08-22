@@ -88,11 +88,15 @@ const { ensureRoomsSchema } = require('./db/ensureRooms');
 const { ensureTenantSettingsSchema } = require('./db/ensureTenantSettings');
 const { ensureAppointmentsSchema } = require('./db/ensureAppointments');
 const { ensureToothChartSchema } = require('./db/ensureToothChart');
+const { ensureUsersAvatarSchema } = require('./db/ensureUsersAvatar');
+const { ensureToothConditionsSchema } = require('./db/ensureToothConditions');
 
 Promise.all([
   ensureCheckbooksSchema().catch((err) => console.error('checkbooks ensure failed:', err.message)),
   ensureRoomsSchema().catch((err) => console.error('rooms ensure failed:', err.message)),
   ensureTenantSettingsSchema().catch((err) => console.error('tenant_settings ensure failed:', err.message)),
+  ensureUsersAvatarSchema().catch((err) => console.error('users avatar ensure failed:', err.message)),
+  ensureToothConditionsSchema().catch((err) => console.error('tooth_conditions ensure failed:', err.message)),
   // مخطط الأسنان أولاً حتى يمكن ربط plan_item_id في المواعيد
   ensureToothChartSchema()
     .catch((err) => console.error('tooth_chart ensure failed:', err.message))

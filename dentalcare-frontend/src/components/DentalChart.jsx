@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import ToothIcon from './ToothIcon';
 import { FDI, isPrimaryTooth, toothTilt, toothType } from '../lib/fdiChart';
-import { conditionCssClass } from '../lib/toothConditions';
+import { conditionCssClass, conditionColorStyle, conditionLabel } from '../lib/toothConditions';
 
 function ToothButton({
   num,
@@ -13,6 +13,7 @@ function ToothButton({
   toothState,
   onSelect,
   selectEnabled = true,
+  colorMap,
 }) {
   const primary = isPrimaryTooth(num);
   const isSelected = selectedTooth === num;
@@ -20,6 +21,7 @@ function ToothButton({
   const hasPlanned = (toothState?.planned || []).length > 0;
   const condClass = conditionCssClass(current);
   const tilt = toothTilt(num, index, count, side, arch);
+  const colorStyle = conditionColorStyle(current, colorMap) || {};
 
   return (
     <button
@@ -32,7 +34,7 @@ function ToothButton({
         current === 'MISSING' ? 'is-missing' : '',
         hasPlanned ? 'is-planned' : '',
       ].filter(Boolean).join(' ')}
-      style={{ '--tooth-tilt': `${tilt}deg` }}
+      style={{ '--tooth-tilt': `${tilt}deg`, ...colorStyle }}
       onClick={() => onSelect(num)}
       disabled={!selectEnabled}
       title={num}
@@ -46,7 +48,7 @@ function ToothButton({
   );
 }
 
-function QuadRow({ teeth, arch, side, selectedTooth, toothStates, onSelect, variant, selectEnabled }) {
+function QuadRow({ teeth, arch, side, selectedTooth, toothStates, onSelect, variant, selectEnabled, colorMap }) {
   return (
     <div className={`dc-fdi-row dc-fdi-${variant}`}>
       {teeth.map((num, index) => (
@@ -61,13 +63,14 @@ function QuadRow({ teeth, arch, side, selectedTooth, toothStates, onSelect, vari
           toothState={toothStates?.[num]}
           onSelect={onSelect}
           selectEnabled={selectEnabled}
+          colorMap={colorMap}
         />
       ))}
     </div>
   );
 }
 
-function ArchHalf({ arch, side, perm, prim, selectedTooth, toothStates, onSelect, selectEnabled }) {
+function ArchHalf({ arch, side, perm, prim, selectedTooth, toothStates, onSelect, selectEnabled, colorMap }) {
   const permFirst = arch === 'upper';
   return (
     <div className={`dc-fdi-half dc-fdi-${side}`}>
@@ -81,6 +84,7 @@ function ArchHalf({ arch, side, perm, prim, selectedTooth, toothStates, onSelect
           toothStates={toothStates}
           onSelect={onSelect}
           selectEnabled={selectEnabled}
+          colorMap={colorMap}
         />
       )}
       <QuadRow
@@ -92,6 +96,7 @@ function ArchHalf({ arch, side, perm, prim, selectedTooth, toothStates, onSelect
         toothStates={toothStates}
         onSelect={onSelect}
         selectEnabled={selectEnabled}
+        colorMap={colorMap}
       />
       {!permFirst && (
         <QuadRow
@@ -103,6 +108,7 @@ function ArchHalf({ arch, side, perm, prim, selectedTooth, toothStates, onSelect
           toothStates={toothStates}
           onSelect={onSelect}
           selectEnabled={selectEnabled}
+          colorMap={colorMap}
         />
       )}
     </div>
@@ -115,8 +121,26 @@ export default function DentalChart({
   onSelectTooth,
   selectEnabled = true,
   selectHint = '',
+  conditions = [],
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+
+  const colorMap = {};
+  for (const c of conditions || []) {
+    if (c?.code && c?.color) colorMap[c.code] = c.color;
+  }
+
+  const legendConditions = (conditions || []).filter(
+    (c) => c.code && c.code !== 'HEALTHY' && c.is_active !== false
+  );
+
+  const halfProps = {
+    selectedTooth,
+    toothStates,
+    onSelect: onSelectTooth,
+    selectEnabled,
+    colorMap,
+  };
 
   return (
     <div className={`dc-fdi-chart${selectEnabled ? '' : ' is-select-disabled'}`} dir="ltr">
@@ -146,10 +170,7 @@ export default function DentalChart({
           side="right"
           perm={FDI.upperRightPerm}
           prim={FDI.upperRightPrim}
-          selectedTooth={selectedTooth}
-          toothStates={toothStates}
-          onSelect={onSelectTooth}
-          selectEnabled={selectEnabled}
+          {...halfProps}
         />
         <div className="dc-fdi-midline"><span>{t('clinical_midline')}</span></div>
         <ArchHalf
@@ -157,10 +178,7 @@ export default function DentalChart({
           side="left"
           perm={FDI.upperLeftPerm}
           prim={FDI.upperLeftPrim}
-          selectedTooth={selectedTooth}
-          toothStates={toothStates}
-          onSelect={onSelectTooth}
-          selectEnabled={selectEnabled}
+          {...halfProps}
         />
       </div>
 
@@ -172,10 +190,7 @@ export default function DentalChart({
           side="right"
           perm={FDI.lowerRightPerm}
           prim={FDI.lowerRightPrim}
-          selectedTooth={selectedTooth}
-          toothStates={toothStates}
-          onSelect={onSelectTooth}
-          selectEnabled={selectEnabled}
+          {...halfProps}
         />
         <div className="dc-fdi-midline" />
         <ArchHalf
@@ -183,10 +198,7 @@ export default function DentalChart({
           side="left"
           perm={FDI.lowerLeftPerm}
           prim={FDI.lowerLeftPrim}
-          selectedTooth={selectedTooth}
-          toothStates={toothStates}
-          onSelect={onSelectTooth}
-          selectEnabled={selectEnabled}
+          {...halfProps}
         />
       </div>
 
@@ -199,9 +211,16 @@ export default function DentalChart({
       <div className="dc-fdi-legend">
         <span><i className="dc-fdi-legend-dot is-perm" /> {t('clinical_permanent_teeth')}</span>
         <span><i className="dc-fdi-legend-dot is-prim" /> {t('clinical_primary_teeth')}</span>
-        <span><i className="dc-fdi-legend-dot is-cond-caries" /> {t('tooth_cond_caries')}</span>
-        <span><i className="dc-fdi-legend-dot is-cond-filling" /> {t('tooth_cond_filling')}</span>
-        <span><i className="dc-fdi-legend-dot is-cond-crown" /> {t('tooth_cond_crown')}</span>
+        {legendConditions.slice(0, 6).map((c) => (
+          <span key={c.code}>
+            <i
+              className={`dc-fdi-legend-dot ${conditionCssClass(c.code)}`}
+              style={c.color ? { background: c.color } : undefined}
+            />
+            {' '}
+            {conditionLabel(c, t, i18n.language)}
+          </span>
+        ))}
         <span><i className="dc-fdi-legend-dot is-planned" /> {t('tooth_legend_planned')}</span>
       </div>
     </div>

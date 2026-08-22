@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import ClinicNumberInput from './ClinicNumberInput';
 
 export default function DoctorForm({ record, onSaved }) {
   const { t } = useTranslation();
@@ -85,15 +86,25 @@ export default function DoctorForm({ record, onSaved }) {
         </select>
       </div>
       {compensationType === 'PERCENTAGE' && (
-        <input
-          type="number" min="0" max="100" step="0.5" placeholder={t('doctor_percentage_rate')}
-          value={percentageRate} onChange={(e) => setPercentageRate(e.target.value)} required
+        <ClinicNumberInput
+          min="0"
+          max="100"
+          step="0.5"
+          placeholder={t('doctor_percentage_rate')}
+          value={percentageRate}
+          onChange={setPercentageRate}
+          required
         />
       )}
       {compensationType === 'SALARY' && (
-        <input
-          type="number" min="0" step="0.01" placeholder={t('doctor_monthly_salary')}
-          value={monthlySalary} onChange={(e) => setMonthlySalary(e.target.value)} required
+        <ClinicNumberInput
+          showCurrency
+          min="0"
+          step="0.01"
+          placeholder={t('doctor_monthly_salary')}
+          value={monthlySalary}
+          onChange={setMonthlySalary}
+          required
         />
       )}
       {error && <div className="dc-error">{error}</div>}

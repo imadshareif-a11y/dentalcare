@@ -4,6 +4,8 @@ import { api } from '../api/client';
 import { useBanksCatalog } from '../hooks/useBanksCatalog';
 import CheckImageAttach from './CheckImageAttach';
 import FormattedDateInput from './FormattedDateInput';
+import ClinicNumberInput from './ClinicNumberInput';
+import { useSettings } from '../context/SettingsContext';
 
 export default function CheckFields({
   check,
@@ -15,6 +17,7 @@ export default function CheckFields({
   issuingBankAccounts = [],
 }) {
   const { t, i18n } = useTranslation();
+  const { currencySymbol } = useSettings();
   const { findByNumber } = useBanksCatalog();
   const [loadingNext, setLoadingNext] = useState(false);
   const [nextHint, setNextHint] = useState(null);
@@ -111,9 +114,17 @@ export default function CheckFields({
       )}
 
       {showAmount && (
-        <input
-          type="number" min="0" step="0.01" placeholder={t('amount')}
-          value={check.amount || ''} onChange={(e) => update('amount', e.target.value)} required
+        <ClinicNumberInput
+          showCurrency
+          currencySymbol={
+            currencies.find((c) => c.id === check.currencyId)?.symbol || currencySymbol
+          }
+          min="0"
+          step="0.01"
+          placeholder={t('amount')}
+          value={check.amount || ''}
+          onChange={(amount) => update('amount', amount)}
+          required
         />
       )}
       {showAmount && currencies.length > 0 && (

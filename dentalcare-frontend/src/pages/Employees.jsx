@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import EmployeeForm from '../components/EmployeeForm';
 import PartyModal from '../components/PartyModal';
+import { useSettings } from '../context/SettingsContext';
 
 export default function Employees({ canEdit = true, onAccountsChanged }) {
   const { t } = useTranslation();
+  const { money } = useSettings();
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -78,7 +80,7 @@ export default function Employees({ canEdit = true, onAccountsChanged }) {
               <tr key={row.id}>
                 <td>{row.name}</td>
                 <td>{row.phone || '—'}</td>
-                <td>{Number(row.balance).toFixed(2)}</td>
+                <td className="dc-money">{money(row.balance)}</td>
                 {canEdit && (
                   <td>
                     <button type="button" className="dc-icon-btn dc-icon-btn-sm" onClick={() => openEdit(row)} title={t('party_edit')}>

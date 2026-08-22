@@ -98,9 +98,9 @@ export default function LedgerReport({ accounts }) {
                 <tr key={i}>
                   <td>{date(m.date)}</td>
                   <td>{m.details}</td>
-                  <td>{money(m.debit)}</td>
-                  <td>{money(m.credit)}</td>
-                  <td>{money(m.runningBalance)}</td>
+                  <td className="dc-money">{money(m.debit)}</td>
+                  <td className="dc-money">{money(m.credit)}</td>
+                  <td className="dc-money">{money(m.runningBalance)}</td>
                 </tr>
               ))}
             </tbody>

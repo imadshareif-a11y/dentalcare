@@ -14,12 +14,15 @@ import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import CurrencySelect from './CurrencySelect';
+import ClinicNumberInput from './ClinicNumberInput';
 import { useCurrencies } from '../hooks/useCurrencies';
+import { useSettings } from '../context/SettingsContext';
 
 const emptyLine = () => ({ accountId: '', debit: '', credit: '', lineMemo: '' });
 
 export default function VoucherForm({ accounts, onPosted }) {
   const { t } = useTranslation();
+  const { money } = useSettings();
   const { currencies, baseCurrency } = useCurrencies();
   const [lines, setLines] = useState([emptyLine(), emptyLine()]);
   const [memo, setMemo] = useState('');
@@ -120,15 +123,23 @@ export default function VoucherForm({ accounts, onPosted }) {
               <option key={a.id} value={a.id}>{a.account_name}</option>
             ))}
           </select>
-          <input
-            type="number" min="0" step="0.01" placeholder={t('voucher_debit')}
+          <ClinicNumberInput
+            showCurrency
+            currencySymbol={currencies.find((c) => c.id === currencyId)?.symbol || baseCurrency?.symbol}
+            min="0"
+            step="0.01"
+            placeholder={t('voucher_debit')}
             value={line.debit}
-            onChange={(e) => updateLine(i, 'debit', e.target.value)}
+            onChange={(debit) => updateLine(i, 'debit', debit)}
           />
-          <input
-            type="number" min="0" step="0.01" placeholder={t('voucher_credit')}
+          <ClinicNumberInput
+            showCurrency
+            currencySymbol={currencies.find((c) => c.id === currencyId)?.symbol || baseCurrency?.symbol}
+            min="0"
+            step="0.01"
+            placeholder={t('voucher_credit')}
             value={line.credit}
-            onChange={(e) => updateLine(i, 'credit', e.target.value)}
+            onChange={(credit) => updateLine(i, 'credit', credit)}
           />
           <input
             type="text" placeholder={t('voucher_line_memo')}
@@ -142,8 +153,8 @@ export default function VoucherForm({ accounts, onPosted }) {
       <button type="button" onClick={addLine}>{t('voucher_add_line')}</button>
 
       <div className={isBalanced ? 'text-emerald-700' : 'text-rose-700'}>
-        {t('voucher_debit')}: {totalDebit.toFixed(2)} — {t('voucher_credit')}: {totalCredit.toFixed(2)}
-        {!isBalanced && ` — ${Math.abs(diff).toFixed(2)}`}
+        {t('voucher_debit')}: {money(totalDebit)} — {t('voucher_credit')}: {money(totalCredit)}
+        {!isBalanced && ` — ${money(Math.abs(diff))}`}
       </div>
 
       <input

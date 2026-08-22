@@ -72,7 +72,7 @@ export default function ProfitLoss() {
                 {report.revenues.map((r, i) => (
                   <tr key={i}>
                     <td>{r.name}</td>
-                    <td>{money(r.amount)}</td>
+                    <td className="dc-money">{money(r.amount)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -87,7 +87,7 @@ export default function ProfitLoss() {
                 {report.expenses.map((r, i) => (
                   <tr key={i}>
                     <td>{r.name}</td>
-                    <td>{money(r.amount)}</td>
+                    <td className="dc-money">{money(r.amount)}</td>
                   </tr>
                 ))}
               </tbody>

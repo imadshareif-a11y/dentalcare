@@ -10,6 +10,7 @@ import { initReactI18next } from 'react-i18next';
 import ar from './locales/ar.json';
 import en from './locales/en.json';
 import he from './locales/he.json';
+import { applyNumberDigitsToDocument } from './utils/format';
 
 const RTL_LANGUAGES = ['ar', 'he'];
 
@@ -28,6 +29,9 @@ export function applyDirection(locale) {
   const dir = RTL_LANGUAGES.includes(locale) ? 'rtl' : 'ltr';
   document.documentElement.setAttribute('dir', dir);
   document.documentElement.setAttribute('lang', locale);
+  // بعد تغيير لغة الواجهة أعد فرض ترميز الأرقام من إعداد العيادة
+  const digits = document.documentElement.getAttribute('data-number-digits') || 'western';
+  applyNumberDigitsToDocument(digits);
 }
 
 export function changeLocale(locale) {

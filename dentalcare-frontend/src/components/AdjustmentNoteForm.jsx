@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import PartyAccountSelect from './PartyAccountSelect';
 import CurrencySelect from './CurrencySelect';
+import ClinicNumberInput from './ClinicNumberInput';
 import { useCurrencies } from '../hooks/useCurrencies';
 
 function isDiscountAccount(account) {
@@ -113,7 +114,15 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
       <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
       <div>
         <label>{t('amount')}</label>
-        <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+        <ClinicNumberInput
+          showCurrency
+          currencySymbol={currencies.find((c) => c.id === currencyId)?.symbol || baseCurrency?.symbol}
+          min="0"
+          step="0.01"
+          value={amount}
+          onChange={setAmount}
+          required
+        />
       </div>
       <input type="text" placeholder={t('voucher_memo')} value={memo} onChange={(e) => setMemo(e.target.value)} />
       {error && <div className="dc-error">{error}</div>}

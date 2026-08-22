@@ -4,6 +4,7 @@ import { api, ApiError, newIdempotencyKey } from '../api/client';
 import CheckFields from './CheckFields';
 import FormattedDateInput from './FormattedDateInput';
 import PartyAccountSelect from './PartyAccountSelect';
+import ClinicNumberInput from './ClinicNumberInput';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useCashBoxes } from '../hooks/useCashBoxes';
 import { useSettings } from '../context/SettingsContext';
@@ -19,7 +20,7 @@ function emptyForeignPayment() {
 
 export default function ReceiptForm({ accounts, onPosted }) {
   const { t } = useTranslation();
-  const { settings } = useSettings();
+  const { settings, money, currencySymbol } = useSettings();
   const { currencies, baseCurrency } = useCurrencies();
   const { cashBoxes, baseCashBox } = useCashBoxes();
   const waEnabled = Boolean(settings?.waEnabled);
@@ -228,16 +229,16 @@ export default function ReceiptForm({ accounts, onPosted }) {
       <div className="dc-form-row dc-cash-shekel-row">
         <div className="dc-form-field" style={{ flex: 1 }}>
           <label>{t('voucher_cash_amount')}</label>
-          <div className="dc-input-with-tag">
-            <input
-              type="number" min="0" step="0.01"
-              value={shekelAmount} onChange={(e) => setShekelAmount(e.target.value)}
-              placeholder={t('voucher_cash_amount_optional')}
-            />
-            <span className="dc-input-tag">
-              {baseCashBox?.name || t('voucher_shekel_cash_box')}
-            </span>
-          </div>
+          <ClinicNumberInput
+            showCurrency
+            currencySymbol={baseCurrency?.symbol || currencySymbol}
+            extraTag={baseCashBox?.name || t('voucher_shekel_cash_box')}
+            min="0"
+            step="0.01"
+            value={shekelAmount}
+            onChange={setShekelAmount}
+            placeholder={t('voucher_cash_amount_optional')}
+          />
         </div>
       </div>
 
@@ -275,9 +276,18 @@ export default function ReceiptForm({ accounts, onPosted }) {
                     </option>
                   ))}
                 </select>
-                <input
-                  type="number" min="0" step="0.01" placeholder={t('amount')}
-                  value={p.amount} onChange={(e) => updateForeignRow(i, { amount: e.target.value })}
+                <ClinicNumberInput
+                  showCurrency
+                  currencySymbol={
+                    foreignCashBoxes.find((b) => b.currency_id === p.currencyId)?.currency_symbol
+                    || currencies.find((c) => c.id === p.currencyId)?.symbol
+                    || currencySymbol
+                  }
+                  min="0"
+                  step="0.01"
+                  placeholder={t('amount')}
+                  value={p.amount}
+                  onChange={(amount) => updateForeignRow(i, { amount })}
                   required
                 />
                 <select
@@ -317,7 +327,7 @@ export default function ReceiptForm({ accounts, onPosted }) {
             </div>
           ))}
           <button type="button" onClick={addCheckRow}>{t('check_add')}</button>
-          <div>{t('checks_total')}: {checksTotal.toFixed(2)}</div>
+          <div>{t('checks_total')}: {money(checksTotal)}</div>
         </div>
       )}
 

@@ -81,17 +81,17 @@ export default function TrialBalance() {
                   <td>{r.account_code}</td>
                   <td>{r.account_name}</td>
                   <td>{r.account_type}</td>
-                  <td>{money(r.total_debit)}</td>
-                  <td>{money(r.total_credit)}</td>
-                  <td>{money(r.balance)}</td>
+                  <td className="dc-money">{money(r.total_debit)}</td>
+                  <td className="dc-money">{money(r.total_credit)}</td>
+                  <td className="dc-money">{money(r.balance)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ fontWeight: 'bold' }}>
                 <td colSpan={3}>{t('trial_balance_totals')}</td>
-                <td>{money(totalDebit)}</td>
-                <td>{money(totalCredit)}</td>
+                <td className="dc-money">{money(totalDebit)}</td>
+                <td className="dc-money">{money(totalCredit)}</td>
                 <td></td>
               </tr>
             </tfoot>
