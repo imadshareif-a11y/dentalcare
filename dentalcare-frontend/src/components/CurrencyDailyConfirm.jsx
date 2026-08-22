@@ -1,20 +1,32 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
-import { markRatesConfirmedToday } from '../lib/currencyDailyConfirm';
+import { getLastRatesConfirmInfo, markRatesConfirmedToday } from '../lib/currencyDailyConfirm';
 import { dedupeByCode } from '../lib/dedupeList';
+import { useSettings } from '../context/SettingsContext';
+
+function formatDateTime(value, lang) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  const locale = lang === 'he' ? 'he-IL' : lang === 'en' ? 'en-GB' : 'ar-EG';
+  return d.toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' });
+}
 
 export default function CurrencyDailyConfirm({ user, onConfirmed }) {
   const { t, i18n } = useTranslation();
+  const { date } = useSettings();
   const [rows, setRows] = useState([]);
   const [rates, setRates] = useState({});
   const [marketMeta, setMarketMeta] = useState(null);
+  const [clinicConfirmedAt, setClinicConfirmedAt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [marketWarning, setMarketWarning] = useState(null);
 
   const base = useMemo(() => rows.find((r) => r.is_base) || null, [rows]);
+  const lastLocalConfirm = useMemo(() => getLastRatesConfirmInfo(user?.id), [user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -23,8 +35,13 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
       setError(null);
       setMarketWarning(null);
       try {
-        const list = await api.get('/currencies');
+        const [list, status] = await Promise.all([
+          api.get('/currencies'),
+          api.get('/currencies/rates-status').catch(() => ({ confirmedAt: null })),
+        ]);
         if (cancelled) return;
+        setClinicConfirmedAt(status?.confirmedAt || null);
+
         const active = dedupeByCode(Array.isArray(list) ? list : [], 'code', 'id')
           .filter((c) => c.is_active !== false);
         setRows(active);
@@ -123,13 +140,14 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
 
     setSaving(true);
     try {
-      await api.post('/currencies/daily-confirm', { rates: payload });
+      const result = await api.post('/currencies/daily-confirm', { rates: payload });
       markRatesConfirmedToday(user.id, {
         rates: Object.fromEntries(
           rows.map((r) => [r.code, r.is_base ? 1 : Number(rates[r.id])])
         ),
         source: marketMeta?.provider || null,
       });
+      setClinicConfirmedAt(result?.confirmedAt || new Date().toISOString());
       onConfirmed?.();
     } catch (err) {
       setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
@@ -137,6 +155,13 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
       setSaving(false);
     }
   }
+
+  const lastClinicLabel = clinicConfirmedAt
+    ? formatDateTime(clinicConfirmedAt, i18n.language)
+    : null;
+  const lastLocalLabel = lastLocalConfirm?.at
+    ? formatDateTime(lastLocalConfirm.at, i18n.language)
+    : (lastLocalConfirm?.date ? date(lastLocalConfirm.date) : null);
 
   return (
     <div className="dc-modal-backdrop" role="presentation">
@@ -154,11 +179,30 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
             {t('currency_daily_base', { code: base.code, symbol: base.symbol })}
           </p>
         )}
+
+        <div className="dc-currency-daily-meta text-sm" style={{ marginTop: 8 }}>
+          {lastClinicLabel && (
+            <p className="dc-muted">
+              {t('currency_daily_last_clinic_update', { at: lastClinicLabel })}
+            </p>
+          )}
+          {lastLocalLabel && (
+            <p className="dc-muted">
+              {t('currency_daily_last_user_confirm', { at: lastLocalLabel })}
+            </p>
+          )}
+          {!lastClinicLabel && !lastLocalLabel && (
+            <p className="dc-muted">{t('currency_daily_never_confirmed')}</p>
+          )}
+        </div>
+
         {marketMeta && (
-          <p className="dc-muted text-sm">
+          <p className="dc-muted text-sm" style={{ marginTop: 8 }}>
             {t('currency_daily_market_source', {
               provider: marketMeta.provider,
-              updatedAt: marketMeta.updatedAt || '—',
+              updatedAt: marketMeta.updatedAt
+                ? formatDateTime(marketMeta.updatedAt, i18n.language)
+                : '—',
             })}
             {' · '}
             <a href={marketMeta.attributionUrl || 'https://www.exchangerate-api.com'} target="_blank" rel="noreferrer">

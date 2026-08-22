@@ -8,6 +8,14 @@ const {
   createBankAccount,
   ensureDefaultCurrentAccount,
 } = require('../accounting/bankAccounts');
+const {
+  normalizeSerial,
+  compareSerials,
+  serialInRange,
+  mapCheckbook,
+  findAvailableCheckbook,
+  countRemaining,
+} = require('../accounting/checkbooks');
 
 const LIST_ACCESS = requireAnyPermission([
   ['accounts', 'view'],
@@ -293,5 +301,168 @@ router.patch('/bank-accounts/:id', requireAuth, requirePermission('accounts', 'e
     res.status(500).json({ error: 'تعذّر تعديل الحساب البنكي' });
   }
 });
+
+// ---------- دفاتر الشيكات ----------
+
+const ISSUING_ACCOUNT_KINDS = new Set(['CURRENT', 'PAYMENT']);
+
+async function loadBankAccountForCheckbooks(client, tenantId, bankAccountId) {
+  const result = await client.query(
+    `SELECT ba.id, ba.account_kind, ba.is_active,
+            b.bank_number, b.name AS bank_name
+     FROM bank_accounts ba
+     LEFT JOIN banks b ON b.id = ba.bank_id
+     WHERE ba.id = $1 AND ba.tenant_id = $2`,
+    [bankAccountId, tenantId]
+  );
+  return result.rows[0] || null;
+}
+
+router.get(
+  '/bank-accounts/:id/checkbooks',
+  requireAuth,
+  LIST_ACCESS,
+  async (req, res) => {
+    try {
+      const rows = await withTenantClient(req.user.tenantId, async (client) => {
+        const account = await loadBankAccountForCheckbooks(
+          client,
+          req.user.tenantId,
+          req.params.id
+        );
+        if (!account) {
+          throw Object.assign(new Error('الحساب البنكي غير موجود'), { statusCode: 404 });
+        }
+        const result = await client.query(
+          `SELECT * FROM checkbooks
+           WHERE bank_account_id = $1
+           ORDER BY issued_at DESC, created_at DESC`,
+          [req.params.id]
+        );
+        return result.rows.map(mapCheckbook);
+      });
+      res.json(rows);
+    } catch (err) {
+      if (err.code === '42P01') {
+        return res.status(503).json({
+          error: 'جدول دفاتر الشيكات غير مهيّأ — أعد تشغيل السيرفر أو نفّذ npm run migrate:checkbooks',
+        });
+      }
+      if (err.statusCode === 400 || err.statusCode === 404) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
+      console.error('Listing checkbooks failed:', err);
+      res.status(500).json({ error: 'تعذّر جلب دفاتر الشيكات' });
+    }
+  }
+);
+
+router.get(
+  '/bank-accounts/:id/next-check-number',
+  requireAuth,
+  requireAnyPermission([['payments', 'edit'], ['accounts', 'view']]),
+  async (req, res) => {
+    try {
+      const payload = await withTenantClient(req.user.tenantId, async (client) => {
+        const account = await loadBankAccountForCheckbooks(
+          client,
+          req.user.tenantId,
+          req.params.id
+        );
+        if (!account) {
+          throw Object.assign(new Error('الحساب البنكي غير موجود'), { statusCode: 404 });
+        }
+        const checkbookId = req.query.checkbookId || null;
+        const book = await findAvailableCheckbook(client, req.params.id, checkbookId);
+        if (!book) {
+          return {
+            available: false,
+            bankNumber: account.bank_number || null,
+            bankName: account.bank_name || null,
+          };
+        }
+        return {
+          available: true,
+          checkNumber: book.next_serial,
+          checkbookId: book.id,
+          serialFrom: book.serial_from,
+          serialTo: book.serial_to,
+          remaining: countRemaining(book.next_serial, book.serial_to),
+          bankNumber: book.bank_number || account.bank_number || null,
+          bankName: book.bank_name || account.bank_name || null,
+        };
+      });
+      res.json(payload);
+    } catch (err) {
+      if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+      console.error('Fetching next check number failed:', err);
+      res.status(500).json({ error: 'تعذّر جلب الرقم التسلسلي التالي' });
+    }
+  }
+);
+
+router.post(
+  '/bank-accounts/:id/checkbooks',
+  requireAuth,
+  requirePermission('accounts', 'edit'),
+  async (req, res) => {
+    const serialFrom = normalizeSerial(req.body.serialFrom);
+    const serialTo = normalizeSerial(req.body.serialTo);
+    const nextSerial = normalizeSerial(req.body.nextSerial || serialFrom);
+
+    if (!serialFrom || !serialTo) {
+      return res.status(400).json({ error: 'يجب تحديد الرقم الأول والأخير في الدفتر' });
+    }
+    if (compareSerials(serialFrom, serialTo) > 0) {
+      return res.status(400).json({ error: 'الرقم الأول يجب أن يكون أصغر من أو يساوي الرقم الأخير' });
+    }
+    if (!serialInRange(nextSerial, serialFrom, serialTo)) {
+      return res.status(400).json({ error: 'الرقم التالي يجب أن يكون ضمن نطاق الدفتر' });
+    }
+
+    try {
+      const row = await withTenantClient(req.user.tenantId, async (client) => {
+        const account = await loadBankAccountForCheckbooks(
+          client,
+          req.user.tenantId,
+          req.params.id
+        );
+        if (!account) {
+          throw Object.assign(new Error('الحساب البنكي غير موجود'), { statusCode: 404 });
+        }
+        if (!ISSUING_ACCOUNT_KINDS.has(account.account_kind)) {
+          throw Object.assign(
+            new Error('دفتر الشيكات يُصدر فقط لحساب جاري أو حساب دفع'),
+            { statusCode: 400 }
+          );
+        }
+        if (!account.is_active) {
+          throw Object.assign(new Error('الحساب البنكي غير فعّال'), { statusCode: 400 });
+        }
+
+        const result = await client.query(
+          `INSERT INTO checkbooks
+             (tenant_id, bank_account_id, serial_from, serial_to, next_serial, is_active)
+           VALUES ($1, $2, $3, $4, $5, TRUE)
+           RETURNING *`,
+          [req.user.tenantId, req.params.id, serialFrom, serialTo, nextSerial]
+        );
+        return result.rows[0];
+      });
+      res.status(201).json({ success: true, checkbook: mapCheckbook(row) });
+    } catch (err) {
+      if (err.code === '42P01') {
+        return res.status(503).json({
+          error: 'جدول دفاتر الشيكات غير مهيّأ — أعد تشغيل السيرفر أو نفّذ npm run migrate:checkbooks',
+        });
+      }
+      if (err.statusCode === 400 || err.statusCode === 404) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
+      console.error('Issuing checkbook failed:', err);
+      res.status(500).json({ error: 'تعذّر إصدار دفتر الشيكات' });
+    }
+  }
+);
 
 module.exports = router;

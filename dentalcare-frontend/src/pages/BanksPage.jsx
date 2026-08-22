@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import PartyModal from '../components/PartyModal';
-import { BankAccountForm, BankCatalogForm } from '../components/BankForms';
+import { BankAccountForm, BankCatalogForm, CheckbookIssueForm } from '../components/BankForms';
 
 const ACCOUNT_KINDS = [
   { kind: 'CURRENT', labelKey: 'bank_accounts_section_current' },
@@ -10,6 +10,8 @@ const ACCOUNT_KINDS = [
   { kind: 'PAYMENT', labelKey: 'bank_accounts_section_payment' },
   { kind: 'SAVINGS', labelKey: 'bank_accounts_section_savings' },
 ];
+
+const ISSUING_CHECKBOOK_KINDS = new Set(['CURRENT', 'PAYMENT']);
 
 export default function BanksPage({ canEdit = true, onAccountsChanged }) {
   const { t, i18n } = useTranslation();
@@ -21,8 +23,9 @@ export default function BanksPage({ canEdit = true, onAccountsChanged }) {
   const [error, setError] = useState(null);
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState('account'); // account | bank
+  const [modalMode, setModalMode] = useState('account'); // account | bank | checkbook
   const [editing, setEditing] = useState(null);
+  const [checkbookAccount, setCheckbookAccount] = useState(null);
   const [defaultKind, setDefaultKind] = useState('CURRENT');
 
   const load = useCallback(async () => {
@@ -76,6 +79,13 @@ export default function BanksPage({ canEdit = true, onAccountsChanged }) {
     setModalOpen(true);
   }
 
+  function openIssueCheckbook(row) {
+    setModalMode('checkbook');
+    setCheckbookAccount(row);
+    setEditing(null);
+    setModalOpen(true);
+  }
+
   function openAddBank() {
     setModalMode('bank');
     setEditing(null);
@@ -91,6 +101,7 @@ export default function BanksPage({ canEdit = true, onAccountsChanged }) {
   function closeModal() {
     setModalOpen(false);
     setEditing(null);
+    setCheckbookAccount(null);
   }
 
   async function handleSaved() {
@@ -177,14 +188,26 @@ export default function BanksPage({ canEdit = true, onAccountsChanged }) {
                         </td>
                         {canEdit && (
                           <td>
-                            <button
-                              type="button"
-                              className="dc-icon-btn dc-icon-btn-sm"
-                              onClick={() => openEditAccount(row)}
-                              title={t('party_edit')}
-                            >
-                              <i className="fa-solid fa-pen" />
-                            </button>
+                            <div className="dc-doc-view-actions">
+                              <button
+                                type="button"
+                                className="dc-icon-btn dc-icon-btn-sm"
+                                onClick={() => openEditAccount(row)}
+                                title={t('party_edit')}
+                              >
+                                <i className="fa-solid fa-pen" />
+                              </button>
+                              {ISSUING_CHECKBOOK_KINDS.has(kind) && (
+                                <button
+                                  type="button"
+                                  className="dc-icon-btn dc-icon-btn-sm"
+                                  onClick={() => openIssueCheckbook(row)}
+                                  title={t('checkbook_issue')}
+                                >
+                                  <i className="fa-solid fa-book" />
+                                </button>
+                              )}
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -254,13 +277,17 @@ export default function BanksPage({ canEdit = true, onAccountsChanged }) {
         <PartyModal
           open={modalOpen}
           title={
-            modalMode === 'bank'
-              ? (editing ? t('bank_edit') : t('bank_add'))
-              : (editing ? t('bank_account_edit') : t('bank_account_add'))
+            modalMode === 'checkbook'
+              ? t('checkbook_issue')
+              : modalMode === 'bank'
+                ? (editing ? t('bank_edit') : t('bank_add'))
+                : (editing ? t('bank_account_edit') : t('bank_account_add'))
           }
           onClose={closeModal}
         >
-          {modalMode === 'bank' ? (
+          {modalMode === 'checkbook' ? (
+            <CheckbookIssueForm account={checkbookAccount} onSaved={handleSaved} />
+          ) : modalMode === 'bank' ? (
             <BankCatalogForm record={editing} onSaved={handleSaved} />
           ) : (
             <BankAccountForm

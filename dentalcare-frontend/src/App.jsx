@@ -248,6 +248,10 @@ export default function App() {
   const handleFavoriteAction = useCallback((action) => {
     if (!action) return;
     if (action.kind === 'modal') {
+      if (action.modal === 'currencyDaily') {
+        setShowCurrencyDaily(true);
+        return;
+      }
       setQuickModal(action.modal);
       return;
     }

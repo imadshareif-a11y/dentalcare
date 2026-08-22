@@ -17,7 +17,11 @@ const imageUpload = multer({
 
 const ALLOWED_CHECK_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
-router.get('/checks', requireAuth, requirePermission('checks', 'view'), async (req, res) => {
+router.get(
+  '/checks',
+  requireAuth,
+  requireAnyPermission([['checks', 'view'], ['payments', 'edit']]),
+  async (req, res) => {
   const { status, location } = req.query;
 
   try {
@@ -510,10 +514,11 @@ router.post(
 router.post(
   '/checks/:id/endorse',
   requireAuth,
-  requirePermission('checks', 'edit'),
+  requireAnyPermission([['checks', 'edit'], ['payments', 'edit']]),
   async (req, res) => {
     const { id } = req.params;
-    const { payeeAccountId } = req.body;
+    const { payeeAccountId, date } = req.body;
+    const entryDate = date ? String(date).slice(0, 10) : null;
 
     if (!payeeAccountId) {
       return res.status(400).json({ error: 'يجب تحديد حساب المستفيد (المورد)' });
@@ -545,6 +550,7 @@ router.post(
         sourceType: 'CHECK_ENDORSEMENT',
         sourceRefId: id,
         memo: 'تظهير شيك لمورد',
+        entryDate,
         lines: [
           { accountId: payeeAccountId, debit: check.amount },
           { accountId: fromAccountId, credit: check.amount },

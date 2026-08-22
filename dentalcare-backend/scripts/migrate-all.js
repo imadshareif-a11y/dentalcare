@@ -27,6 +27,8 @@ const MIGRATION_FILES = [
   'sql/journal_currency_v1.sql',
   'sql/cash_boxes_v1.sql',
   'sql/banks_v1.sql',
+  'sql/checkbooks_v1.sql',
+  'sql/currency_rates_meta_v1.sql',
   'sql/checks_v2.sql',
   'sql/checks_v3_location.sql',
   'sql/checks_v4_images.sql',

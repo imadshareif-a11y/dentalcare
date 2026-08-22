@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireAuth, requireAnyPermission } = require('../middleware/auth');
 const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
 const { resolveCurrencyContext, toBaseAmount } = require('../accounting/currency');
+const { withTenantClient } = require('../db/pool');
 
 const canPostNote = requireAnyPermission([
   ['receipts', 'edit'],
@@ -10,7 +11,32 @@ const canPostNote = requireAnyPermission([
   ['journal', 'edit'],
 ]);
 
+async function assertDiscountAccountKind(tenantId, discountAccountId, isCreditNote) {
+  const row = await withTenantClient(tenantId, async (client) => {
+    const result = await client.query(
+      `SELECT account_code, account_type, account_name_ar, account_name
+       FROM chart_of_accounts WHERE id = $1`,
+      [discountAccountId]
+    );
+    return result.rows[0] || null;
+  });
+  if (!row) {
+    throw Object.assign(new Error('حساب الخصم غير موجود'), { statusCode: 400 });
+  }
+  const code = String(row.account_code || '');
+  const name = `${row.account_name_ar || ''} ${row.account_name || ''}`;
+  const isEarned = code === '4200' || (row.account_type === 'REVENUE' && /خصم|discount|הנח/i.test(name));
+  const isAllowed = code === '5300' || (row.account_type === 'EXPENSE' && /خصم|discount|הנח/i.test(name));
+  if (isCreditNote && !isAllowed) {
+    throw Object.assign(new Error('إشعار الدائن يستخدم حساب الخصم المسموح به فقط (5300)'), { statusCode: 400 });
+  }
+  if (!isCreditNote && !isEarned) {
+    throw Object.assign(new Error('إشعار المدين يستخدم حساب الخصم المكتسب فقط (4200)'), { statusCode: 400 });
+  }
+}
+
 function postNote(sourceType, creditTheParty) {
+  const isCreditNote = creditTheParty;
   return async (req, res) => {
     const { partyAccountId, discountAccountId, amount, memo, idempotencyKey, currencyId } = req.body;
     const numericAmount = Number(amount);
@@ -34,6 +60,14 @@ function postNote(sourceType, creditTheParty) {
     }
 
     const baseAmount = toBaseAmount(numericAmount, currency.rate);
+
+    try {
+      await assertDiscountAccountKind(req.user.tenantId, discountAccountId, isCreditNote);
+    } catch (err) {
+      if (err.statusCode === 400) return res.status(400).json({ error: err.message });
+      throw err;
+    }
+
     const lines = creditTheParty
       ? [
           { accountId: discountAccountId, debit: baseAmount },

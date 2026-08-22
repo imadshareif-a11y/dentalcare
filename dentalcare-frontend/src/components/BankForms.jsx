@@ -277,3 +277,138 @@ export function BankAccountForm({
     </form>
   );
 }
+
+const EMPTY_CHECKBOOK = { serialFrom: '', serialTo: '', nextSerial: '' };
+
+export function CheckbookIssueForm({ account, onSaved }) {
+  const { t } = useTranslation();
+  const [form, setForm] = useState(EMPTY_CHECKBOOK);
+  const [existing, setExisting] = useState([]);
+  const [loadingBooks, setLoadingBooks] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setForm(EMPTY_CHECKBOOK);
+    setError(null);
+    if (!account?.id) {
+      setExisting([]);
+      setLoadingBooks(false);
+      return;
+    }
+    setLoadingBooks(true);
+    api.get(`/bank-accounts/${account.id}/checkbooks`)
+      .then((rows) => setExisting(Array.isArray(rows) ? rows : []))
+      .catch(() => setExisting([]))
+      .finally(() => setLoadingBooks(false));
+  }, [account]);
+
+  function setField(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    if (!form.serialFrom.trim() || !form.serialTo.trim()) {
+      setError(t('checkbook_serial_required'));
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.post(`/bank-accounts/${account.id}/checkbooks`, {
+        serialFrom: form.serialFrom.trim(),
+        serialTo: form.serialTo.trim(),
+        nextSerial: form.nextSerial.trim() || form.serialFrom.trim(),
+      });
+      onSaved?.();
+    } catch (err) {
+      const msg = err instanceof ApiError
+        ? (err.body?.error || err.message)
+        : (err?.message || t('error_network'));
+      setError(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="dc-muted text-sm">
+        <strong>{account?.name}</strong>
+        {account?.bank_number ? ` — ${account.bank_number}` : ''}
+        {account?.account_number ? ` (${account.account_number})` : ''}
+      </div>
+      <p className="dc-muted text-sm">{t('checkbook_issue_hint')}</p>
+
+      {loadingBooks && <div>{t('ledger_loading')}</div>}
+      {!loadingBooks && existing.length > 0 && (
+        <div className="space-y-1">
+          <h5>{t('checkbook_existing_title')}</h5>
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                <th>{t('checkbook_serial_from')}</th>
+                <th>{t('checkbook_serial_to')}</th>
+                <th>{t('checkbook_next_serial')}</th>
+                <th>{t('checkbook_remaining')}</th>
+                <th>{t('currency_status')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {existing.map((book) => (
+                <tr key={book.id}>
+                  <td>{book.serial_from}</td>
+                  <td>{book.serial_to}</td>
+                  <td>{book.next_serial}</td>
+                  <td>{book.remaining ?? '—'}</td>
+                  <td>
+                    {book.is_active
+                      ? <span className="dc-badge dc-badge-emerald">{t('currency_active')}</span>
+                      : <span className="dc-badge dc-badge-amber">{t('checkbook_exhausted')}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="dc-form-row">
+          <div className="dc-form-field">
+            <label>{t('checkbook_serial_from')}</label>
+            <input
+              type="text"
+              value={form.serialFrom}
+              onChange={(e) => setField('serialFrom', e.target.value)}
+              required
+            />
+          </div>
+          <div className="dc-form-field">
+            <label>{t('checkbook_serial_to')}</label>
+            <input
+              type="text"
+              value={form.serialTo}
+              onChange={(e) => setField('serialTo', e.target.value)}
+              required
+            />
+          </div>
+        </div>
+        <div>
+          <label className="dc-muted text-sm">{t('checkbook_next_serial_optional')}</label>
+          <input
+            type="text"
+            value={form.nextSerial}
+            onChange={(e) => setField('nextSerial', e.target.value)}
+            placeholder={form.serialFrom || t('checkbook_serial_from')}
+          />
+        </div>
+        {error && <div className="dc-error">{error}</div>}
+        <button type="submit" disabled={submitting}>
+          {submitting ? t('party_saving') : t('checkbook_issue_submit')}
+        </button>
+      </form>
+    </div>
+  );
+}

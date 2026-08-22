@@ -7,6 +7,10 @@ const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
 const { resolveCurrencyContext, toBaseAmount } = require('../accounting/currency');
+const {
+  validateCheckbookIssue,
+  advanceCheckbookAfterIssue,
+} = require('../accounting/checkbooks');
 
 async function resolveAccountByCode(tenantId, code) {
   return withTenantClient(tenantId, async (client) => {
@@ -154,20 +158,49 @@ router.post(
           });
 
           const inserted = await withTenantClient(req.user.tenantId, async (client) => {
+            let bankAccountId = c.bankAccountId || null;
+            let checkbookId = c.checkbookId || null;
+            let checkNumber = c.checkNumber;
+            let bankNumber = c.bankNumber || null;
+            let bankName = c.bankName;
+
+            if (bankAccountId) {
+              const validated = await validateCheckbookIssue(client, req.user.tenantId, {
+                bankAccountId,
+                checkbookId,
+                checkNumber: c.checkNumber,
+              });
+              checkbookId = validated.checkbook.id;
+              checkNumber = validated.checkNumber;
+              bankNumber = validated.checkbook.bank_number || bankNumber;
+              if (!bankName && validated.checkbook.bank_name) {
+                bankName = validated.checkbook.bank_name;
+              }
+              await advanceCheckbookAfterIssue(
+                client,
+                checkbookId,
+                checkNumber,
+                validated.checkbook.serial_from,
+                validated.checkbook.serial_to
+              );
+            }
+
             const result = await client.query(
               `INSERT INTO checks
                  (tenant_id, journal_entry_id, check_number, bank_name, due_date,
                   drawer_name, amount, holding_account_id, check_type,
                   currency_id, exchange_rate, foreign_amount, bank_number,
-                  location, location_account_id, status)
+                  location, location_account_id, status, bank_account_id, checkbook_id)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ISSUED', $9, $10, $11, $12,
-                       'CHECKS_BOX', $8, 'PENDING')
+                       'CHECKS_BOX', $8, 'PENDING', $13, $14)
                RETURNING id, check_number`,
               [
-                req.user.tenantId, journalEntryId, c.checkNumber, c.bankName,
+                req.user.tenantId, journalEntryId, checkNumber, bankName,
                 c.dueDate, c.drawerName || null, baseAmount, holdingId,
                 currency.currencyId, currency.rate, foreignAmount,
-                c.bankNumber || null,
+                bankNumber,
+                bankAccountId,
+                checkbookId,
               ]
             );
             return result.rows[0];
@@ -189,7 +222,9 @@ router.post(
         checks: createdChecks,
       });
     } catch (err) {
-      if (err.statusCode === 400) return res.status(400).json({ error: err.message });
+      if (err.statusCode === 400 || err.statusCode === 409) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
       if (err instanceof UnbalancedEntryError || err?.name === 'ClosedFiscalYearError') {
         return res.status(err.statusCode || 400).json({ error: err.message });
       }

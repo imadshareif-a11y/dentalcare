@@ -3,6 +3,7 @@
 export const DEFAULT_QUICK_ACTIONS = [
   'receipt',
   'payment',
+  'currencyRates',
   'newPatient',
   'newSupplier',
   'purchase',
@@ -32,6 +33,17 @@ export const QUICK_ACTION_CATALOG = [
     labelKey: 'nav_purchase_invoice',
     icon: 'fa-solid fa-cart-shopping',
     can: (p) => p('payments') === 'edit',
+  },
+  {
+    id: 'currencyRates',
+    kind: 'modal',
+    modal: 'currencyDaily',
+    labelKey: 'fav_currency_rates',
+    icon: 'fa-solid fa-coins',
+    can: (p) => p('accounts') !== 'none'
+      || p('receipts') === 'edit'
+      || p('payments') === 'edit'
+      || p('journal') === 'edit',
   },
   {
     id: 'newPatient',

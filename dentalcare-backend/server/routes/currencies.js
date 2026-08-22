@@ -108,6 +108,34 @@ router.get(
 );
 
 router.get(
+  '/currencies/rates-status',
+  requireAuth,
+  dailyConfirmAccess,
+  async (req, res) => {
+    try {
+      const row = await withTenantClient(req.user.tenantId, async (client) => {
+        const result = await client.query(
+          `SELECT currency_rates_confirmed_at
+           FROM tenant_settings
+           WHERE tenant_id = $1`,
+          [req.user.tenantId]
+        );
+        return result.rows[0] || null;
+      });
+      res.json({
+        confirmedAt: row?.currency_rates_confirmed_at || null,
+      });
+    } catch (err) {
+      if (err.code === '42703') {
+        return res.json({ confirmedAt: null });
+      }
+      console.error('Fetching currency rates status failed:', err);
+      res.status(500).json({ error: 'تعذّر جلب حالة أسعار الصرف' });
+    }
+  }
+);
+
+router.get(
   '/currencies/market-rates',
   requireAuth,
   dailyConfirmAccess,
@@ -177,6 +205,7 @@ router.post(
     }
 
     try {
+      let confirmedAt = null;
       await withTenantClient(req.user.tenantId, async (client) => {
         for (const row of rates) {
           const currencyId = row.currencyId;
@@ -198,8 +227,16 @@ router.post(
             [currencyId, rate]
           );
         }
+        const stamp = await client.query(
+          `UPDATE tenant_settings
+           SET currency_rates_confirmed_at = now(), updated_at = now()
+           WHERE tenant_id = $1
+           RETURNING currency_rates_confirmed_at`,
+          [req.user.tenantId]
+        );
+        confirmedAt = stamp.rows[0]?.currency_rates_confirmed_at || new Date().toISOString();
       });
-      res.json({ success: true });
+      res.json({ success: true, confirmedAt });
     } catch (err) {
       if (err.statusCode === 400 || err.statusCode === 404) {
         return res.status(err.statusCode).json({ error: err.message });

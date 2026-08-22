@@ -10,21 +10,30 @@ function isDiscountAccount(account) {
   return /خصم|discount|הנח/i.test(account.account_name || '');
 }
 
+function discountAccountsForNote(accounts, isCredit) {
+  if (isCredit) {
+    return accounts.filter((a) => a.account_code === '5300'
+      || (isDiscountAccount(a) && a.account_type === 'EXPENSE' && a.account_code !== '4200'));
+  }
+  return accounts.filter((a) => a.account_code === '4200'
+    || (isDiscountAccount(a) && a.account_type === 'REVENUE' && a.account_code !== '5300'));
+}
+
 export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
   const { t } = useTranslation();
   const { currencies, baseCurrency } = useCurrencies();
   const isCredit = type === 'credit';
   const partyList = partyAccounts(accounts);
-  const discountAccounts = useMemo(() => {
-    const tagged = accounts.filter(isDiscountAccount);
-    return tagged.length > 0 ? tagged : accounts.filter((a) => ['EXPENSE', 'REVENUE'].includes(a.account_type));
-  }, [accounts]);
+  const discountAccounts = useMemo(
+    () => discountAccountsForNote(accounts, isCredit),
+    [accounts, isCredit]
+  );
 
   const defaultDiscount = discountAccounts.find((a) => a.account_code === (isCredit ? '5300' : '4200'))
     || discountAccounts[0];
 
   const [partyAccountId, setPartyAccountId] = useState('');
-  const [discountAccountId, setDiscountAccountId] = useState(defaultDiscount?.id || '');
+  const [discountAccountId, setDiscountAccountId] = useState('');
   const [currencyId, setCurrencyId] = useState('');
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
@@ -35,6 +44,10 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
   useEffect(() => {
     if (!currencyId && baseCurrency?.id) setCurrencyId(baseCurrency.id);
   }, [baseCurrency, currencyId]);
+
+  useEffect(() => {
+    setDiscountAccountId(defaultDiscount?.id || '');
+  }, [defaultDiscount?.id, isCredit]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -89,13 +102,16 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
         </select>
       </div>
       <div>
-        <label>{t('note_discount_account')}</label>
+        <label>{isCredit ? t('note_discount_allowed') : t('note_discount_earned')}</label>
         <select value={discountAccountId} onChange={(e) => setDiscountAccountId(e.target.value)} required>
           <option value="">{t('voucher_choose_account')}</option>
           {discountAccounts.map((a) => (
             <option key={a.id} value={a.id}>{a.account_name}</option>
           ))}
         </select>
+        {discountAccounts.length === 0 && (
+          <p className="dc-error text-sm">{isCredit ? t('note_discount_allowed_missing') : t('note_discount_earned_missing')}</p>
+        )}
       </div>
       <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
       <div>

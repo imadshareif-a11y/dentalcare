@@ -169,7 +169,10 @@ export default function PlatformAdmin() {
       if (editing?.id === tenant.id) setEditing(null);
       await load();
     } catch (err) {
-      alert(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
+      const msg = err instanceof ApiError
+        ? (err.body?.error || err.message)
+        : t('error_network');
+      alert(msg);
     }
   }
 

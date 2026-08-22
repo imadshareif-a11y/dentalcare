@@ -30,7 +30,6 @@ export default function PaymentForm({ accounts, onPosted }) {
     [cashBoxes]
   );
 
-  const [method, setMethod] = useState('standard');
   const [payeeAccountId, setPayeeAccountId] = useState('');
   const [docDate, setDocDate] = useState(todayIso);
   const [shekelAmount, setShekelAmount] = useState('');
@@ -39,6 +38,7 @@ export default function PaymentForm({ accounts, onPosted }) {
   const [memo, setMemo] = useState('');
   const [includeChecks, setIncludeChecks] = useState(false);
   const [checkList, setCheckList] = useState([]);
+  const [includeExistingChecks, setIncludeExistingChecks] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
@@ -49,30 +49,31 @@ export default function PaymentForm({ accounts, onPosted }) {
   const [searchText, setSearchText] = useState('');
   const [dueFrom, setDueFrom] = useState('');
   const [dueTo, setDueTo] = useState('');
+  const [issuingAccounts, setIssuingAccounts] = useState([]);
 
   useEffect(() => {
-    if (method !== 'existingCheck') return;
+    if (!includeChecks) return;
+    Promise.all([
+      api.get('/bank-accounts', { kind: 'CURRENT' }),
+      api.get('/bank-accounts', { kind: 'PAYMENT' }),
+    ])
+      .then(([currentRows, paymentRows]) => {
+        const merged = [...(currentRows || []), ...(paymentRows || [])]
+          .filter((row) => row.is_active !== false);
+        const unique = [...new Map(merged.map((row) => [row.id, row])).values()];
+        setIssuingAccounts(unique);
+      })
+      .catch(() => setIssuingAccounts([]));
+  }, [includeChecks]);
+
+  useEffect(() => {
+    if (!includeExistingChecks) return;
     setLoadingChecks(true);
     api.get('/checks', { status: 'PENDING' })
       .then((data) => setPendingChecks(data.filter((c) => c.check_type === 'RECEIVED')))
       .catch(() => setPendingChecks([]))
       .finally(() => setLoadingChecks(false));
-  }, [method]);
-
-  useEffect(() => {
-    if (method === 'existingCheck') {
-      setIncludeChecks(false);
-      setCheckList([]);
-      setShekelAmount('');
-      setIncludeForeign(false);
-      setForeignPayments([]);
-      return;
-    }
-    setSelectedCheckIds(new Set());
-    setSearchText('');
-    setDueFrom('');
-    setDueTo('');
-  }, [method]);
+  }, [includeExistingChecks]);
 
   const filteredChecks = useMemo(() => {
     const q = searchText.trim().toLowerCase();
@@ -115,6 +116,7 @@ export default function PaymentForm({ accounts, onPosted }) {
     setCheckList((prev) => [...prev, {
       idempotencyKey: newIdempotencyKey(),
       currencyId: baseCurrency?.id || '',
+      bankAccountId: issuingAccounts.length === 1 ? issuingAccounts[0].id : '',
     }]);
   }
   function updateCheckRow(index, updated) {
@@ -132,6 +134,16 @@ export default function PaymentForm({ accounts, onPosted }) {
     if (!checked) setCheckList([]);
   }
 
+  function toggleIncludeExistingChecks(checked) {
+    setIncludeExistingChecks(checked);
+    if (!checked) {
+      setSelectedCheckIds(new Set());
+      setSearchText('');
+      setDueFrom('');
+      setDueTo('');
+    }
+  }
+
   function toggleIncludeForeign(checked) {
     setIncludeForeign(checked);
     if (checked && foreignPayments.length === 0) addForeignRow();
@@ -147,47 +159,29 @@ export default function PaymentForm({ accounts, onPosted }) {
     setMemo('');
     setIncludeChecks(false);
     setCheckList([]);
+    setIncludeExistingChecks(false);
     setSelectedCheckIds(new Set());
-    setMethod('standard');
+    setSearchText('');
+    setDueFrom('');
+    setDueTo('');
     setIdempotencyKey(newIdempotencyKey());
   }
 
-  async function handleSubmitExistingCheck(e) {
-    e.preventDefault();
-    setError(null);
-    if (!payeeAccountId || selectedCheckIds.size === 0) {
-      setError(t('accounts_required'));
-      return;
-    }
-    setSubmitting(true);
+  async function endorseSelectedChecks() {
     const results = [];
     const failures = [];
     for (const checkId of selectedCheckIds) {
       try {
-        const result = await api.post(`/checks/${checkId}/endorse`, { payeeAccountId });
+        const result = await api.post(`/checks/${checkId}/endorse`, { payeeAccountId, date: docDate });
         results.push(result);
       } catch (err) {
         failures.push(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
       }
     }
-    setSubmitting(false);
-    if (failures.length > 0) {
-      setError(`${failures.length}/${selectedCheckIds.size}: ${failures[0]}`);
-      const data = await api.get('/checks', { status: 'PENDING' }).catch(() => []);
-      setPendingChecks(data.filter((c) => c.check_type === 'RECEIVED'));
-      setSelectedCheckIds(new Set());
-      return;
-    }
-    resetForm();
-    onPosted?.({
-      success: true,
-      count: results.length,
-      journalEntryIds: results.map((r) => r?.journalEntryId).filter(Boolean),
-      journalEntryId: results[0]?.journalEntryId,
-    });
+    return { results, failures };
   }
 
-  async function handleSubmitStandard(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
 
@@ -231,14 +225,25 @@ export default function PaymentForm({ accounts, onPosted }) {
       }
     }
 
-    const hasChecks = includeChecks && checkList.length > 0;
-    if (cashPayments.length === 0 && !hasChecks) {
-      setError(t('voucher_cash_or_check_required'));
+    const hasNewChecks = includeChecks && checkList.length > 0;
+    const hasExistingChecks = includeExistingChecks && selectedCheckIds.size > 0;
+
+    if (cashPayments.length === 0 && !hasNewChecks && !hasExistingChecks) {
+      setError(t('voucher_payment_amount_required'));
       return;
     }
 
-    if (hasChecks) {
+    if (hasExistingChecks && selectedCheckIds.size === 0) {
+      setError(t('payment_endorse_select_required'));
+      return;
+    }
+
+    if (hasNewChecks) {
       for (const c of checkList) {
+        if (issuingAccounts.length > 0 && !c.bankAccountId) {
+          setError(t('check_issuing_account_required'));
+          return;
+        }
         if (!c.checkNumber || !c.bankNumber || !c.bankName || !c.dueDate || !c.currencyId
           || !Number(c.amount) || Number(c.amount) <= 0) {
           setError(t('amount_required'));
@@ -248,38 +253,67 @@ export default function PaymentForm({ accounts, onPosted }) {
     }
 
     setSubmitting(true);
+    const journalEntryIds = [];
     try {
-      const checksPayload = hasChecks
-        ? checkList.map(({ imageFront, imageBack, ...rest }) => rest)
-        : undefined;
+      if (cashPayments.length > 0 || hasNewChecks) {
+        const checksPayload = hasNewChecks
+          ? checkList.map(({ imageFront, imageBack, ...rest }) => rest)
+          : undefined;
 
-      const result = await api.post('/payments', {
-        payeeAccountId,
-        date: docDate,
-        cashPayments,
-        memo,
-        idempotencyKey,
-        checks: checksPayload,
-      });
+        const result = await api.post('/payments', {
+          payeeAccountId,
+          date: docDate,
+          cashPayments,
+          memo,
+          idempotencyKey,
+          checks: checksPayload,
+        });
 
-      if (hasChecks && Array.isArray(result.checks)) {
-        for (let i = 0; i < result.checks.length; i += 1) {
-          const local = checkList[i];
-          const created = result.checks[i];
-          if (!created?.id || (!local?.imageFront && !local?.imageBack)) continue;
-          const form = new FormData();
-          if (local.imageFront) form.append('front', local.imageFront);
-          if (local.imageBack) form.append('back', local.imageBack);
-          try {
-            await api.uploadForm(`/checks/${created.id}/images`, form);
-          } catch (uploadErr) {
-            console.error('Check image upload failed:', uploadErr);
+        journalEntryIds.push(...(result.journalEntryIds || []));
+        if (result.journalEntryId) journalEntryIds.push(result.journalEntryId);
+
+        if (hasNewChecks && Array.isArray(result.checks)) {
+          for (let i = 0; i < result.checks.length; i += 1) {
+            const local = checkList[i];
+            const created = result.checks[i];
+            if (!created?.id || (!local?.imageFront && !local?.imageBack)) continue;
+            const form = new FormData();
+            if (local.imageFront) form.append('front', local.imageFront);
+            if (local.imageBack) form.append('back', local.imageBack);
+            try {
+              await api.uploadForm(`/checks/${created.id}/images`, form);
+            } catch (uploadErr) {
+              console.error('Check image upload failed:', uploadErr);
+            }
           }
         }
       }
 
+      if (hasExistingChecks) {
+        const { results, failures } = await endorseSelectedChecks();
+        if (failures.length > 0) {
+          setError(`${failures.length}/${selectedCheckIds.size}: ${failures[0]}`);
+          const data = await api.get('/checks', { status: 'PENDING' }).catch(() => []);
+          setPendingChecks(data.filter((c) => c.check_type === 'RECEIVED'));
+          setSelectedCheckIds(new Set());
+          if (journalEntryIds.length > 0) {
+            onPosted?.({
+              success: true,
+              partial: true,
+              journalEntryIds: [...new Set(journalEntryIds)],
+            });
+          }
+          return;
+        }
+        journalEntryIds.push(...results.map((r) => r?.journalEntryId).filter(Boolean));
+      }
+
       resetForm();
-      onPosted?.(result);
+      onPosted?.({
+        success: true,
+        journalEntryIds: [...new Set(journalEntryIds)],
+        journalEntryId: journalEntryIds[0],
+      });
     } catch (err) {
       setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
     } finally {
@@ -287,21 +321,11 @@ export default function PaymentForm({ accounts, onPosted }) {
     }
   }
 
-  const handleSubmit = method === 'existingCheck' ? handleSubmitExistingCheck : handleSubmitStandard;
+  const documentTotal = shekelCashNum + checksTotal + (includeExistingChecks ? selectedTotal : 0);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <h3>{t('payment_title')}</h3>
-
-      <div className="dc-form-row">
-        <div className="dc-form-field">
-          <label>{t('payment_method')}</label>
-          <select value={method} onChange={(e) => { setMethod(e.target.value); setError(null); }}>
-            <option value="standard">{t('payment_method_standard')}</option>
-            <option value="existingCheck">{t('payment_method_existing_check')}</option>
-          </select>
-        </div>
-      </div>
 
       <div className="dc-form-row">
         <div className="dc-form-field">
@@ -315,16 +339,122 @@ export default function PaymentForm({ accounts, onPosted }) {
             ))}
           </select>
         </div>
-        {method === 'standard' && (
-          <div className="dc-form-field">
-            <label>{t('voucher_date')}</label>
-            <FormattedDateInput value={docDate} onChange={setDocDate} required />
-          </div>
-        )}
+        <div className="dc-form-field">
+          <label>{t('voucher_date')}</label>
+          <FormattedDateInput value={docDate} onChange={setDocDate} required />
+        </div>
       </div>
 
-      {method === 'existingCheck' ? (
+      <div className="dc-form-row dc-cash-shekel-row">
+        <div className="dc-form-field" style={{ flex: 1 }}>
+          <label>{t('voucher_cash_amount')}</label>
+          <div className="dc-input-with-tag">
+            <input
+              type="number" min="0" step="0.01"
+              value={shekelAmount} onChange={(e) => setShekelAmount(e.target.value)}
+              placeholder={t('voucher_cash_amount_optional')}
+            />
+            <span className="dc-input-tag">
+              {baseCashBox?.name || t('voucher_shekel_cash_box')}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <label className="dc-check-row">
+        <input
+          type="checkbox"
+          checked={includeForeign}
+          onChange={(e) => toggleIncludeForeign(e.target.checked)}
+        />
+        {t('voucher_other_currencies')}
+      </label>
+
+      {includeForeign && (
         <div className="space-y-2">
+          {foreignPayments.map((p, i) => {
+            const boxesForCurrency = foreignCashBoxes.filter((b) => b.currency_id === p.currencyId);
+            return (
+              <div key={p.key} className="dc-form-row dc-foreign-cash-row">
+                <select
+                  value={p.currencyId}
+                  onChange={(e) => {
+                    const currencyId = e.target.value;
+                    const firstBox = foreignCashBoxes.find((b) => b.currency_id === currencyId);
+                    updateForeignRow(i, {
+                      currencyId,
+                      cashAccountId: firstBox?.account_id || '',
+                    });
+                  }}
+                  required
+                >
+                  <option value="">{t('doc_currency_choose')}</option>
+                  {[...new Map(foreignCashBoxes.map((b) => [b.currency_id, b])).values()].map((b) => (
+                    <option key={b.currency_id} value={b.currency_id}>
+                      {b.currency_code} — {b.currency_symbol}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number" min="0" step="0.01" placeholder={t('amount')}
+                  value={p.amount} onChange={(e) => updateForeignRow(i, { amount: e.target.value })}
+                  required
+                />
+                <select
+                  value={p.cashAccountId}
+                  onChange={(e) => updateForeignRow(i, { cashAccountId: e.target.value })}
+                  required
+                >
+                  <option value="">{t('voucher_currency_cash_box')}</option>
+                  {boxesForCurrency.map((b) => (
+                    <option key={b.id} value={b.account_id}>{b.name}</option>
+                  ))}
+                </select>
+                <button type="button" onClick={() => removeForeignRow(i)}>×</button>
+              </div>
+            );
+          })}
+          <button type="button" onClick={addForeignRow}>{t('voucher_add_foreign_payment')}</button>
+        </div>
+      )}
+
+      <label className="dc-check-row">
+        <input type="checkbox" checked={includeChecks} onChange={(e) => toggleIncludeChecks(e.target.checked)} />
+        {t('paid_by_check')}
+      </label>
+
+      {includeChecks && (
+        <div className="space-y-2">
+          {checkList.map((c, i) => (
+            <div key={c.idempotencyKey || i} className="dc-check-row-wrap">
+              <CheckFields
+                check={c}
+                onChange={(updated) => updateCheckRow(i, updated)}
+                showAmount
+                currencies={currencies}
+                showIssuingAccount={issuingAccounts.length > 0}
+                issuingBankAccounts={issuingAccounts}
+              />
+              <button type="button" onClick={() => removeCheckRow(i)}>×</button>
+            </div>
+          ))}
+          <button type="button" onClick={addCheckRow}>{t('check_add')}</button>
+          <div>{t('checks_total')}: {checksTotal.toFixed(2)}</div>
+        </div>
+      )}
+
+      <label className="dc-check-row">
+        <input
+          type="checkbox"
+          checked={includeExistingChecks}
+          onChange={(e) => toggleIncludeExistingChecks(e.target.checked)}
+        />
+        {t('paid_by_existing_check')}
+      </label>
+
+      {includeExistingChecks && (
+        <div className="space-y-2">
+          <p className="dc-muted text-sm">{t('payment_endorse_hint')}</p>
           <div className="dc-form-row">
             <input
               type="text" placeholder={t('check_search_placeholder')}
@@ -353,6 +483,7 @@ export default function PaymentForm({ accounts, onPosted }) {
                   <th />
                   <th>{t('check_col_number')}</th>
                   <th>{t('check_col_bank')}</th>
+                  <th>{t('check_col_drawer')}</th>
                   <th>{t('check_col_due')}</th>
                   <th>{t('check_col_amount')}</th>
                 </tr>
@@ -369,6 +500,7 @@ export default function PaymentForm({ accounts, onPosted }) {
                     </td>
                     <td>{c.check_number}</td>
                     <td>{c.bank_name}</td>
+                    <td>{c.drawer_name || '—'}</td>
                     <td>{c.due_date}</td>
                     <td>{Number(c.amount).toFixed(2)}</td>
                   </tr>
@@ -381,117 +513,23 @@ export default function PaymentForm({ accounts, onPosted }) {
             <div>{t('check_selected_count', { count: selectedCheckIds.size, total: selectedTotal.toFixed(2) })}</div>
           )}
         </div>
-      ) : (
-        <>
-          <div className="dc-form-row dc-cash-shekel-row">
-            <div className="dc-form-field" style={{ flex: 1 }}>
-              <label>{t('voucher_cash_amount')}</label>
-              <div className="dc-input-with-tag">
-                <input
-                  type="number" min="0" step="0.01"
-                  value={shekelAmount} onChange={(e) => setShekelAmount(e.target.value)}
-                  placeholder={t('voucher_cash_amount_optional')}
-                />
-                <span className="dc-input-tag">
-                  {baseCashBox?.name || t('voucher_shekel_cash_box')}
-                </span>
-              </div>
-            </div>
-          </div>
+      )}
 
-          <label className="dc-check-row">
-            <input
-              type="checkbox"
-              checked={includeForeign}
-              onChange={(e) => toggleIncludeForeign(e.target.checked)}
-            />
-            {t('voucher_other_currencies')}
-          </label>
+      <input
+        type="text" placeholder={t('voucher_memo')}
+        value={memo} onChange={(e) => setMemo(e.target.value)}
+      />
 
-          {includeForeign && (
-            <div className="space-y-2">
-              {foreignPayments.map((p, i) => {
-                const boxesForCurrency = foreignCashBoxes.filter((b) => b.currency_id === p.currencyId);
-                return (
-                  <div key={p.key} className="dc-form-row dc-foreign-cash-row">
-                    <select
-                      value={p.currencyId}
-                      onChange={(e) => {
-                        const currencyId = e.target.value;
-                        const firstBox = foreignCashBoxes.find((b) => b.currency_id === currencyId);
-                        updateForeignRow(i, {
-                          currencyId,
-                          cashAccountId: firstBox?.account_id || '',
-                        });
-                      }}
-                      required
-                    >
-                      <option value="">{t('doc_currency_choose')}</option>
-                      {[...new Map(foreignCashBoxes.map((b) => [b.currency_id, b])).values()].map((b) => (
-                        <option key={b.currency_id} value={b.currency_id}>
-                          {b.currency_code} — {b.currency_symbol}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="number" min="0" step="0.01" placeholder={t('amount')}
-                      value={p.amount} onChange={(e) => updateForeignRow(i, { amount: e.target.value })}
-                      required
-                    />
-                    <select
-                      value={p.cashAccountId}
-                      onChange={(e) => updateForeignRow(i, { cashAccountId: e.target.value })}
-                      required
-                    >
-                      <option value="">{t('voucher_currency_cash_box')}</option>
-                      {boxesForCurrency.map((b) => (
-                        <option key={b.id} value={b.account_id}>{b.name}</option>
-                      ))}
-                    </select>
-                    <button type="button" onClick={() => removeForeignRow(i)}>×</button>
-                  </div>
-                );
-              })}
-              <button type="button" onClick={addForeignRow}>{t('voucher_add_foreign_payment')}</button>
-            </div>
-          )}
-
-          <label className="dc-check-row">
-            <input type="checkbox" checked={includeChecks} onChange={(e) => toggleIncludeChecks(e.target.checked)} />
-            {t('paid_by_check')}
-          </label>
-
-          {includeChecks && (
-            <div className="space-y-2">
-              {checkList.map((c, i) => (
-                <div key={c.idempotencyKey || i} className="dc-check-row-wrap">
-                  <CheckFields
-                    check={c}
-                    onChange={(updated) => updateCheckRow(i, updated)}
-                    showAmount
-                    currencies={currencies}
-                  />
-                  <button type="button" onClick={() => removeCheckRow(i)}>×</button>
-                </div>
-              ))}
-              <button type="button" onClick={addCheckRow}>{t('check_add')}</button>
-              <div>{t('checks_total')}: {checksTotal.toFixed(2)}</div>
-            </div>
-          )}
-
-          <input
-            type="text" placeholder={t('voucher_memo')}
-            value={memo} onChange={(e) => setMemo(e.target.value)}
-          />
-        </>
+      {documentTotal > 0 && (
+        <div className="dc-muted text-sm">
+          {t('voucher_document_total')}: {documentTotal.toFixed(2)}
+        </div>
       )}
 
       {error && <div className="dc-error">{error}</div>}
 
       <button type="submit" className="dc-danger" disabled={submitting}>
-        {submitting
-          ? t('saving_voucher')
-          : method === 'existingCheck' ? t('check_endorse_multiple') : t('save_voucher')}
+        {submitting ? t('saving_voucher') : t('save_voucher')}
       </button>
     </form>
   );

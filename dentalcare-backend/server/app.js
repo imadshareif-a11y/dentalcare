@@ -83,6 +83,12 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 DentalCare API running on port ${PORT}`));
+const { ensureCheckbooksSchema } = require('./db/ensureCheckbooks');
+
+ensureCheckbooksSchema()
+  .catch((err) => console.error('checkbooks ensure failed:', err.message))
+  .finally(() => {
+    app.listen(PORT, () => console.log(`🚀 DentalCare API running on port ${PORT}`));
+  });
 
 module.exports = app;

@@ -44,6 +44,7 @@ async function purgeTenant(client, tenantId) {
   await runOptional(client, `DELETE FROM clinical_session_images WHERE tenant_id = $1`, [tenantId]);
   await runOptional(client, `DELETE FROM clinical_sessions WHERE tenant_id = $1`, [tenantId]);
   await runOptional(client, `DELETE FROM checks WHERE tenant_id = $1`, [tenantId]);
+  await runOptional(client, `DELETE FROM checkbooks WHERE tenant_id = $1`, [tenantId]);
   await runOptional(client, `DELETE FROM journal_entries WHERE tenant_id = $1`, [tenantId]);
   await runOptional(client, `DELETE FROM idempotency_keys WHERE tenant_id = $1`, [tenantId]);
 

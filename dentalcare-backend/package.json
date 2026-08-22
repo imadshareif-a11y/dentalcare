@@ -21,6 +21,7 @@
     "migrate:journal-currency": "node scripts/migrate-journal-currency.js",
     "migrate:cash-boxes": "node scripts/migrate-cash-boxes.js",
     "migrate:banks": "node scripts/migrate-banks.js",
+    "migrate:checkbooks": "node scripts/migrate-checkbooks.js",
     "migrate:employees": "node scripts/migrate-employees.js",
     "migrate:checks-location": "node scripts/migrate-checks-location.js",
     "migrate:checks-images": "node scripts/migrate-checks-images.js",
