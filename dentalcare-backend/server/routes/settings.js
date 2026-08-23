@@ -95,7 +95,8 @@ router.get('/settings', requireAuth, requireClinicContext, async (req, res) => {
     const data = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(SETTINGS_SELECT, [req.user.tenantId]);
       const base = await client.query(
-        `SELECT id, code, symbol FROM currencies WHERE is_base = TRUE LIMIT 1`
+        `SELECT id, code, symbol FROM currencies WHERE tenant_id = $1 AND is_base = TRUE LIMIT 1`,
+        [req.user.tenantId]
       );
       return {
         settings: result.rows[0] || null,
@@ -286,7 +287,8 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
     });
     const base = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(
-        `SELECT id, code, symbol FROM currencies WHERE is_base = TRUE LIMIT 1`
+        `SELECT id, code, symbol FROM currencies WHERE tenant_id = $1 AND is_base = TRUE LIMIT 1`,
+        [req.user.tenantId]
       );
       return result.rows[0] || null;
     });

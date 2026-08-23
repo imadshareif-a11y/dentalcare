@@ -56,13 +56,30 @@ function requireClinicContext(req, res, next) {
   const { withSystemClient } = require('../db/pool');
   withSystemClient(async (client) => {
     const result = await client.query(
-      `SELECT status, active_from, active_until FROM tenants WHERE id = $1`,
-      [req.user.tenantId]
+      `SELECT u.tenant_id, u.is_active,
+              t.status, t.active_from, t.active_until
+       FROM users u
+       JOIN tenants t ON t.id = u.tenant_id
+       WHERE u.id = $1`,
+      [req.user.userId]
     );
-    return result.rows[0] || null;
-  }).then((tenant) => {
+    const row = result.rows[0];
+    if (!row || String(row.tenant_id) !== String(req.user.tenantId)) {
+      return { denied: 'حسابك غير مرتبط بهذه العيادة — سجّل الدخول من جديد' };
+    }
+    if (!row.is_active) {
+      return { denied: 'حسابك غير نشط' };
+    }
+    return { tenant: row };
+  }).then((out) => {
+    if (out?.denied) return res.status(403).json({ error: out.denied });
+
+    if (req.user.supportMode) {
+      return next();
+    }
+
     const { clinicAccessDeniedReason } = require('../tenants/access');
-    const denied = clinicAccessDeniedReason(tenant);
+    const denied = clinicAccessDeniedReason(out.tenant);
     if (denied) return res.status(403).json({ error: denied });
     next();
   }).catch((err) => {
@@ -108,7 +125,10 @@ function requireAnyPermission(requirements) {
       try {
         const { withTenantClient } = require('../db/pool');
         const perms = await withTenantClient(req.user.tenantId, async (client) => {
-          const result = await client.query('SELECT permissions FROM users WHERE id = $1', [req.user.userId]);
+          const result = await client.query(
+            'SELECT permissions FROM users WHERE id = $1 AND tenant_id = $2',
+            [req.user.userId, req.user.tenantId]
+          );
           return result.rows[0]?.permissions || {};
         });
         const hasEnough = requirements.some(([key, minLevel]) => {

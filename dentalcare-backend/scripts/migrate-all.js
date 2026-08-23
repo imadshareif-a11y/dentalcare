@@ -22,6 +22,7 @@ const MIGRATION_FILES = [
   'sql/number_digits_v1.sql',
   'sql/time_format_v1.sql',
   'sql/letterhead_layout_v1.sql',
+  'sql/tenant_isolation_hardening_v1.sql',
   'sql/user_avatar_v1.sql',
   'sql/appointments_v1.sql',
   'sql/appointments_v2.sql',

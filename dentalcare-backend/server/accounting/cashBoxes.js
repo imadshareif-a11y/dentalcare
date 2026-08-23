@@ -191,8 +191,8 @@ async function createManualBox(client, tenantId, {
   }
 
   const currency = await client.query(
-    `SELECT id, code, is_base FROM currencies WHERE id = $1 AND is_active = TRUE`,
-    [currencyId]
+    `SELECT id, code, is_base FROM currencies WHERE id = $1 AND tenant_id = $2 AND is_active = TRUE`,
+    [currencyId, tenantId]
   );
   if (currency.rowCount === 0) {
     throw Object.assign(new Error('العملة غير موجودة أو غير نشطة'), { statusCode: 400 });

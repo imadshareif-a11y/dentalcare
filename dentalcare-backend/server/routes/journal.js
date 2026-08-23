@@ -172,7 +172,8 @@ router.post(
       let baseCurrencyId;
       const mappedLines = await withTenantClient(req.user.tenantId, async (client) => {
         const baseRow = await client.query(
-          `SELECT id FROM currencies WHERE is_base = TRUE LIMIT 1`
+          `SELECT id FROM currencies WHERE tenant_id = $1 AND is_base = TRUE LIMIT 1`,
+          [req.user.tenantId]
         );
         if (!baseRow.rows[0]?.id) {
           throw Object.assign(new Error('لم تُعرَّف عملة أساس للعيادة'), { statusCode: 400 });

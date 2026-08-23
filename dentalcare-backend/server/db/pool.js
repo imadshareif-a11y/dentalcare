@@ -61,7 +61,8 @@ async function withTenantClient(tenantId, callback) {
     // SET LOCAL بدل SET العادي: القيمة بتنطبق بس على هاي الـ
     // transaction، وبتنمسح تلقائيًا بعد COMMIT/ROLLBACK. هيك
     // ما فيه احتمال "تسريب" tenant_id لاتصال تاني من الـ pool.
-    await client.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+    // set_config(..., true) = LOCAL للـ transaction — آمن ولا يتسرّب بين اتصالات الـ pool
+    await client.query(`SELECT set_config('app.current_tenant', $1, true)`, [String(tenantId)]);
 
     const result = await callback(client);
 

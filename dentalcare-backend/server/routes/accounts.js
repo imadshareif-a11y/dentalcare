@@ -49,16 +49,17 @@ router.get('/accounts', requireAuth, requireClinicContext, async (req, res) => {
                 COALESCE(c_cb.rate_to_base, c_ba.rate_to_base, c_acct.rate_to_base, c_base.rate_to_base, 1) AS exchange_rate
          FROM chart_of_accounts a
          LEFT JOIN LATERAL (
-           SELECT party_type FROM parties p WHERE p.account_id = a.id LIMIT 1
+           SELECT party_type FROM parties p WHERE p.account_id = a.id AND p.tenant_id = a.tenant_id LIMIT 1
          ) p ON TRUE
-         LEFT JOIN cash_boxes cb ON cb.account_id = a.id AND cb.is_active = TRUE
-         LEFT JOIN currencies c_cb ON c_cb.id = cb.currency_id
-         LEFT JOIN bank_accounts ba ON ba.chart_account_id = a.id AND ba.is_active = TRUE
-         LEFT JOIN currencies c_ba ON c_ba.id = ba.currency_id
-         LEFT JOIN currencies c_acct ON c_acct.id = a.currency_id
+         LEFT JOIN cash_boxes cb ON cb.account_id = a.id AND cb.tenant_id = a.tenant_id AND cb.is_active = TRUE
+         LEFT JOIN currencies c_cb ON c_cb.id = cb.currency_id AND c_cb.tenant_id = a.tenant_id
+         LEFT JOIN bank_accounts ba ON ba.chart_account_id = a.id AND ba.tenant_id = a.tenant_id AND ba.is_active = TRUE
+         LEFT JOIN currencies c_ba ON c_ba.id = ba.currency_id AND c_ba.tenant_id = a.tenant_id
+         LEFT JOIN currencies c_acct ON c_acct.id = a.currency_id AND c_acct.tenant_id = a.tenant_id
          LEFT JOIN currencies c_base ON c_base.tenant_id = a.tenant_id AND c_base.is_base = TRUE
-         WHERE a.is_active = TRUE
-         ORDER BY a.account_code ASC`
+         WHERE a.tenant_id = $1 AND a.is_active = TRUE
+         ORDER BY a.account_code ASC`,
+        [req.user.tenantId]
       );
       const locale = req.user.locale || 'ar';
       return dedupeChartRows(result.rows.map((row) => ({

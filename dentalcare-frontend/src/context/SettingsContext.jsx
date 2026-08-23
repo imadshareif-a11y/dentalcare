@@ -72,9 +72,18 @@ export function SettingsProvider({ children }) {
   const load = useCallback(async () => {
     if (!user || user.role === 'SUPER_ADMIN') {
       setSettings(DEFAULTS);
-      setLetterheadUrl(null);
+      setLetterheadUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
       return;
     }
+    // مسح فوري عند تبديل العيادة/المستخدم — يمنع عرض بيانات العيادة السابقة
+    setSettings(DEFAULTS);
+    setLetterheadUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     try {
       const data = await api.get('/settings');
       const merged = {
@@ -104,7 +113,7 @@ export function SettingsProvider({ children }) {
     } catch {
       setSettings(DEFAULTS);
     }
-  }, [user]);
+  }, [user?.id, user?.tenantId, user?.role]);
 
   useEffect(() => {
     load();

@@ -87,6 +87,7 @@ const PORT = process.env.PORT || 5000;
 const { ensureCheckbooksSchema } = require('./db/ensureCheckbooks');
 const { ensureRoomsSchema } = require('./db/ensureRooms');
 const { ensureTenantSettingsSchema } = require('./db/ensureTenantSettings');
+const { ensureTenantIsolation } = require('./db/ensureTenantIsolation');
 const { ensureAppointmentsSchema } = require('./db/ensureAppointments');
 const { ensureToothChartSchema } = require('./db/ensureToothChart');
 const { ensureUsersAvatarSchema } = require('./db/ensureUsersAvatar');
@@ -99,6 +100,7 @@ Promise.all([
   ensureCheckbooksSchema().catch((err) => console.error('checkbooks ensure failed:', err.message)),
   ensureRoomsSchema().catch((err) => console.error('rooms ensure failed:', err.message)),
   ensureTenantSettingsSchema().catch((err) => console.error('tenant_settings ensure failed:', err.message)),
+  ensureTenantIsolation().catch((err) => console.error('tenant isolation ensure failed:', err.message)),
   ensureJournalEntryNumberSchema().catch((err) => console.error('journal entry_number ensure failed:', err.message)),
   ensureJournalLineCurrencySchema().catch((err) => console.error('journal line currency ensure failed:', err.message)),
   ensureChartAccountCurrencySchema().catch((err) => console.error('chart account currency ensure failed:', err.message)),

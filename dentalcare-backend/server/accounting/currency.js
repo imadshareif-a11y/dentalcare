@@ -8,8 +8,7 @@ function toBaseAmount(amount, rate, places = 2) {
 }
 
 /**
- * يحمّل عملة المستند (أو الأساس إن لم تُرسل).
- * rate = rate_to_base لحظة الترحيل.
+ * يحمّل عملة المستند (أو الأساس إن لم تُرسل) — دائماً ضمن tenant_id.
  */
 async function resolveCurrencyContext(tenantId, currencyId) {
   return withTenantClient(tenantId, async (client) => {
@@ -17,8 +16,8 @@ async function resolveCurrencyContext(tenantId, currencyId) {
     if (currencyId) {
       const result = await client.query(
         `SELECT id, code, symbol, rate_to_base, decimal_places, is_base, is_active
-         FROM currencies WHERE id = $1`,
-        [currencyId]
+         FROM currencies WHERE id = $1 AND tenant_id = $2`,
+        [currencyId, tenantId]
       );
       row = result.rows[0];
       if (!row || !row.is_active) {
@@ -27,7 +26,8 @@ async function resolveCurrencyContext(tenantId, currencyId) {
     } else {
       const result = await client.query(
         `SELECT id, code, symbol, rate_to_base, decimal_places, is_base, is_active
-         FROM currencies WHERE is_base = TRUE LIMIT 1`
+         FROM currencies WHERE tenant_id = $1 AND is_base = TRUE LIMIT 1`,
+        [tenantId]
       );
       row = result.rows[0];
       if (!row) {
@@ -48,20 +48,23 @@ async function resolveCurrencyContext(tenantId, currencyId) {
 
 async function setBaseCurrency(client, tenantId, currencyId) {
   const existing = await client.query(
-    `SELECT id, symbol, decimal_places FROM currencies WHERE id = $1`,
-    [currencyId]
+    `SELECT id, symbol, decimal_places FROM currencies WHERE id = $1 AND tenant_id = $2`,
+    [currencyId, tenantId]
   );
   if (existing.rowCount === 0) {
     throw Object.assign(new Error('العملة غير موجودة'), { statusCode: 404 });
   }
   const currency = existing.rows[0];
 
-  await client.query(`UPDATE currencies SET is_base = FALSE WHERE is_base = TRUE AND id <> $1`, [currencyId]);
+  await client.query(
+    `UPDATE currencies SET is_base = FALSE WHERE tenant_id = $1 AND is_base = TRUE AND id <> $2`,
+    [tenantId, currencyId]
+  );
   await client.query(
     `UPDATE currencies
      SET is_base = TRUE, rate_to_base = 1, is_active = TRUE
-     WHERE id = $1`,
-    [currencyId]
+     WHERE id = $1 AND tenant_id = $2`,
+    [currencyId, tenantId]
   );
   await client.query(
     `INSERT INTO tenant_settings (tenant_id) VALUES ($1)

@@ -212,8 +212,8 @@ router.post(
           const rate = Number(row.rateToBase);
           if (!currencyId) continue;
           const existing = await client.query(
-            `SELECT id, is_base FROM currencies WHERE id = $1`,
-            [currencyId]
+            `SELECT id, is_base FROM currencies WHERE id = $1 AND tenant_id = $2`,
+            [currencyId, req.user.tenantId]
           );
           if (existing.rowCount === 0) {
             throw Object.assign(new Error('عملة غير موجودة'), { statusCode: 404 });
@@ -223,8 +223,8 @@ router.post(
             throw Object.assign(new Error('سعر الصرف يجب أن يكون أكبر من صفر'), { statusCode: 400 });
           }
           await client.query(
-            `UPDATE currencies SET rate_to_base = $2 WHERE id = $1 AND is_base = FALSE`,
-            [currencyId, rate]
+            `UPDATE currencies SET rate_to_base = $2 WHERE id = $1 AND tenant_id = $3 AND is_base = FALSE`,
+            [currencyId, rate, req.user.tenantId]
           );
         }
         const stamp = await client.query(
@@ -269,9 +269,15 @@ router.post(
         data.nameHe = names.name_he;
 
         if (data.isBase) {
-          await client.query(`UPDATE currencies SET is_base = FALSE WHERE is_base = TRUE`);
+          await client.query(
+            `UPDATE currencies SET is_base = FALSE WHERE tenant_id = $1 AND is_base = TRUE`,
+            [req.user.tenantId]
+          );
         } else {
-          const base = await client.query(`SELECT id FROM currencies WHERE is_base = TRUE LIMIT 1`);
+          const base = await client.query(
+            `SELECT id FROM currencies WHERE tenant_id = $1 AND is_base = TRUE LIMIT 1`,
+            [req.user.tenantId]
+          );
           if (base.rowCount === 0) {
             data.isBase = true;
             data.rateToBase = 1;
@@ -335,8 +341,8 @@ router.patch(
     try {
       await withTenantClient(req.user.tenantId, async (client) => {
         const existing = await client.query(
-          `SELECT id, is_base FROM currencies WHERE id = $1`,
-          [req.params.id]
+          `SELECT id, is_base FROM currencies WHERE id = $1 AND tenant_id = $2`,
+          [req.params.id, req.user.tenantId]
         );
         if (existing.rowCount === 0) {
           throw Object.assign(new Error('العملة غير موجودة'), { statusCode: 404 });
@@ -384,12 +390,15 @@ router.patch(
         if (fields.length === 0) return;
 
         await client.query(
-          `UPDATE currencies SET ${fields.join(', ')} WHERE id = $1`,
-          values
+          `UPDATE currencies SET ${fields.join(', ')} WHERE id = $1 AND tenant_id = $${values.length + 1}`,
+          [...values, req.user.tenantId]
         );
 
         if (data.symbol !== undefined || data.decimalPlaces !== undefined) {
-          const stillBase = await client.query(`SELECT is_base FROM currencies WHERE id = $1`, [req.params.id]);
+          const stillBase = await client.query(
+            `SELECT is_base FROM currencies WHERE id = $1 AND tenant_id = $2`,
+            [req.params.id, req.user.tenantId]
+          );
           if (stillBase.rows[0]?.is_base) {
             await client.query(
               `UPDATE tenant_settings

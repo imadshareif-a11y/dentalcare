@@ -139,10 +139,10 @@ router.get('/patients', requireAuth, requirePermission('patients', 'view'), asyn
           COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS balance
         FROM parties p
         LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
-        WHERE p.party_type = 'PATIENT'
+        WHERE p.tenant_id = $1 AND p.party_type = 'PATIENT'
         GROUP BY p.id, p.name, p.phone, p.address, p.medical_notes, p.birth_date, p.gender, p.account_id
         ORDER BY p.name ASC
-      `);
+      `, [req.user.tenantId]);
       return result.rows.map(mapPatientRow);
     });
     res.json(patients);

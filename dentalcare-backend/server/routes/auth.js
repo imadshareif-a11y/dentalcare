@@ -25,6 +25,7 @@ const AVATAR_MIME = ['image/png', 'image/jpeg', 'image/webp'];
 function publicUser(row, extras = {}) {
   return {
     id: row.id,
+    tenantId: row.tenant_id || null,
     name: row.name,
     username: row.username,
     role: row.role,
@@ -105,7 +106,7 @@ router.get('/auth/me', requireAuth, async (req, res) => {
     await ensureUsersAvatarSchema();
     const row = await withSystemClient(async (client) => {
       const result = await client.query(
-        `SELECT u.id, u.name, u.username, u.role, u.locale, u.permissions, u.is_active,
+        `SELECT u.id, u.tenant_id, u.name, u.username, u.role, u.locale, u.permissions, u.is_active,
                 COALESCE(u.preferences, '{}'::jsonb) AS preferences,
                 (u.avatar_bytes IS NOT NULL) AS has_avatar,
                 t.status AS tenant_status, t.active_from, t.active_until

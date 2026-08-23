@@ -12,34 +12,34 @@ const {
   advanceCheckbookAfterIssue,
 } = require('../accounting/checkbooks');
 
-async function resolveAccountByCode(tenantId, code) {
-  return withTenantClient(tenantId, async (client) => {
-    const result = await client.query(
-      `SELECT id FROM chart_of_accounts WHERE account_code = $1 AND is_active = TRUE LIMIT 1`,
-      [code]
-    );
-    return result.rows[0]?.id || null;
-  });
+async function resolveAccountByCode(client, tenantId, code) {
+  const result = await client.query(
+    `SELECT id FROM chart_of_accounts
+     WHERE tenant_id = $1 AND account_code = $2 AND is_active = TRUE
+     LIMIT 1`,
+    [tenantId, code]
+  );
+  return result.rows[0]?.id || null;
 }
 
-async function resolveCashBoxAccount(tenantId, currencyId, boxKind, fallbackCode) {
-  return withTenantClient(tenantId, async (client) => {
-    if (currencyId) {
-      const byCurrency = await client.query(
-        `SELECT account_id FROM cash_boxes
-         WHERE currency_id = $1 AND box_kind = $2 AND is_active = TRUE
-         ORDER BY is_system DESC, created_at ASC
-         LIMIT 1`,
-        [currencyId, boxKind]
-      );
-      if (byCurrency.rowCount > 0) return byCurrency.rows[0].account_id;
-    }
-    const byCode = await client.query(
-      `SELECT id FROM chart_of_accounts WHERE account_code = $1 AND is_active = TRUE LIMIT 1`,
-      [fallbackCode]
+async function resolveCashBoxAccount(client, tenantId, currencyId, boxKind, fallbackCode) {
+  if (currencyId) {
+    const byCurrency = await client.query(
+      `SELECT account_id FROM cash_boxes
+       WHERE tenant_id = $3 AND currency_id = $1 AND box_kind = $2 AND is_active = TRUE
+       ORDER BY is_system DESC, created_at ASC
+       LIMIT 1`,
+      [currencyId, boxKind, tenantId]
     );
-    return byCode.rows[0]?.id || null;
-  });
+    if (byCurrency.rowCount > 0) return byCurrency.rows[0].account_id;
+  }
+  return resolveAccountByCode(client, tenantId, fallbackCode);
+}
+
+async function resolveCashBoxAccountScoped(tenantId, currencyId, boxKind, fallbackCode) {
+  return withTenantClient(tenantId, async (client) => (
+    resolveCashBoxAccount(client, tenantId, currencyId, boxKind, fallbackCode)
+  ));
 }
 
 function normalizeCashPayments(body) {
@@ -104,7 +104,7 @@ router.post(
 
     let checksHoldingId = null;
     if (hasChecks) {
-      checksHoldingId = await resolveCashBoxAccount(req.user.tenantId, null, 'CHECKS_OUT', '2200');
+      checksHoldingId = await resolveCashBoxAccountScoped(req.user.tenantId, null, 'CHECKS_OUT', '2200');
       if (!checksHoldingId) {
         return res.status(400).json({ error: 'حساب حافظة الشيكات الصادرة غير موجود' });
       }
@@ -140,7 +140,7 @@ router.post(
           const foreignAmount = Number(c.amount);
           const baseAmount = toBaseAmount(foreignAmount, currency.rate);
           const holdingId = c.cashAccountId
-            || await resolveCashBoxAccount(req.user.tenantId, currency.currencyId, 'CHECKS_OUT', '2200')
+            || await resolveCashBoxAccountScoped(req.user.tenantId, currency.currencyId, 'CHECKS_OUT', '2200')
             || checksHoldingId;
           const { journalEntryId } = await postJournalEntry({
             tenantId: req.user.tenantId,

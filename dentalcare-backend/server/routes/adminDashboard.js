@@ -92,9 +92,10 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
            SELECT COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS balance
            FROM parties p
            LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
-           WHERE p.party_type = 'PATIENT'
+           WHERE p.tenant_id = $1 AND p.party_type = 'PATIENT'
            GROUP BY p.id
-         ) sub`
+         ) sub`,
+        [req.user.tenantId]
       );
 
       const payablesResult = await client.query(
@@ -103,9 +104,10 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
            SELECT COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS balance
            FROM parties p
            LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
-           WHERE p.party_type = 'SUPPLIER'
+           WHERE p.tenant_id = $1 AND p.party_type = 'SUPPLIER'
            GROUP BY p.id
-         ) sub`
+         ) sub`,
+        [req.user.tenantId]
       );
 
       const patientsWithDebt = await client.query(
@@ -115,10 +117,11 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
                   COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS balance
            FROM parties p
            LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
-           WHERE p.party_type = 'PATIENT'
+           WHERE p.tenant_id = $1 AND p.party_type = 'PATIENT'
            GROUP BY p.id
            HAVING COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) > 0
-         ) sub`
+         ) sub`,
+        [req.user.tenantId]
       );
 
       const activityResult = await client.query(
@@ -132,17 +135,17 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
                   SELECT string_agg(DISTINCT p.name, '، ')
                   FROM journal_entry_lines lx
                   JOIN chart_of_accounts ax ON ax.id = lx.account_id
-                  JOIN parties p ON p.account_id = ax.id
+                  JOIN parties p ON p.account_id = ax.id AND p.tenant_id = $3
                   WHERE lx.journal_entry_id = je.id
                 ) AS party_names
          FROM journal_entries je
          LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id
-         LEFT JOIN users u ON u.id = je.created_by
+         LEFT JOIN users u ON u.id = je.created_by AND u.tenant_id = je.tenant_id
          WHERE je.tenant_id = $1
          GROUP BY je.id, je.entry_number, je.source_type, je.memo, je.entry_date, je.created_at, u.name, u.username
          ORDER BY je.created_at DESC
          LIMIT $2`,
-        [req.user.tenantId, activityLimit]
+        [req.user.tenantId, activityLimit, req.user.tenantId]
       );
 
       const apptResult = await client.query(
@@ -154,12 +157,12 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
                 d.name AS doctor_name,
                 r.name AS room_name, r.name_en AS room_name_en, r.name_he AS room_name_he
          FROM appointments a
-         JOIN parties p ON p.id = a.patient_id
-         LEFT JOIN parties d ON d.id = a.doctor_id
-         LEFT JOIN rooms r ON r.id = a.room_id
-         WHERE a.appointment_date = $1::date AND a.status <> 'CANCELLED'
+         JOIN parties p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
+         LEFT JOIN parties d ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id
+         LEFT JOIN rooms r ON r.id = a.room_id AND r.tenant_id = a.tenant_id
+         WHERE a.tenant_id = $2 AND a.appointment_date = $1::date AND a.status <> 'CANCELLED'
          ORDER BY a.slot ASC, r.name ASC NULLS LAST`,
-        [today]
+        [today, req.user.tenantId]
       );
 
       const locale = req.user.locale || 'ar';
