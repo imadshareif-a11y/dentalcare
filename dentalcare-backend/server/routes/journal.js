@@ -13,7 +13,7 @@ const router = express.Router();
 const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
-const { resolveCurrencyContext, toBaseAmount } = require('../accounting/currency');
+const { resolveAccountCurrency, foreignToBase } = require('../accounting/accountCurrency');
 
 const attachmentUpload = multer({
   storage: multer.memoryStorage(),
@@ -53,7 +53,7 @@ const SOURCE_TYPES = new Set([
 async function loadDocumentBundle(client, entryId) {
   if (!entryId) return null;
   const entryResult = await client.query(
-    `SELECT je.id, je.source_type, je.source_ref_id, je.memo,
+    `SELECT je.id, je.entry_number, je.source_type, je.source_ref_id, je.memo,
             to_char(COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date), 'YYYY-MM-DD') AS entry_date,
             je.created_at, je.exchange_rate,
             (je.attachment_bytes IS NOT NULL) AS has_attachment,
@@ -71,11 +71,14 @@ async function loadDocumentBundle(client, entryId) {
 
   const linesResult = await client.query(
     `SELECT l.debit, l.credit, l.line_memo,
+            l.foreign_debit, l.foreign_credit, l.exchange_rate AS line_exchange_rate,
+            lc.code AS line_currency_code, lc.symbol AS line_currency_symbol,
             a.id AS account_id, a.account_code,
             a.account_name_ar, a.account_name_en, a.account_name_he,
             p.name AS party_name, p.party_type
      FROM journal_entry_lines l
      JOIN chart_of_accounts a ON a.id = l.account_id
+     LEFT JOIN currencies lc ON lc.id = l.currency_id
      LEFT JOIN parties p ON p.account_id = a.id
      WHERE l.journal_entry_id = $1
      ORDER BY l.debit DESC, l.credit DESC, a.account_code`,
@@ -98,6 +101,11 @@ async function loadDocumentBundle(client, entryId) {
   const lines = linesResult.rows.map((row) => ({
     debit: Number(row.debit) || 0,
     credit: Number(row.credit) || 0,
+    foreignDebit: Number(row.foreign_debit) || 0,
+    foreignCredit: Number(row.foreign_credit) || 0,
+    exchangeRate: row.line_exchange_rate != null ? Number(row.line_exchange_rate) : null,
+    currencyCode: row.line_currency_code || null,
+    currencySymbol: row.line_currency_symbol || null,
     lineMemo: row.line_memo,
     accountId: row.account_id,
     accountCode: row.account_code,
@@ -111,6 +119,7 @@ async function loadDocumentBundle(client, entryId) {
 
   return {
     id: entry.id,
+    entryNumber: entry.entry_number || null,
     sourceType: entry.source_type,
     sourceRefId: entry.source_ref_id,
     memo: entry.memo,
@@ -147,7 +156,7 @@ router.post(
   requireAuth,
   requirePermission('journal', 'edit'),
   async (req, res) => {
-    const { lines, memo, currencyId } = req.body;
+    const { lines, memo, idempotencyKey } = req.body;
 
     if (!Array.isArray(lines) || lines.length < 2) {
       return res.status(400).json({ error: 'القيد يجب أن يحتوي على سطرين على الأقل' });
@@ -159,31 +168,67 @@ router.post(
       }
     }
 
-    let currency;
     try {
-      currency = await resolveCurrencyContext(req.user.tenantId, currencyId || null);
-    } catch (err) {
-      if (err.statusCode === 400) return res.status(400).json({ error: err.message });
-      throw err;
-    }
+      let baseCurrencyId;
+      const mappedLines = await withTenantClient(req.user.tenantId, async (client) => {
+        const baseRow = await client.query(
+          `SELECT id FROM currencies WHERE is_base = TRUE LIMIT 1`
+        );
+        if (!baseRow.rows[0]?.id) {
+          throw Object.assign(new Error('لم تُعرَّف عملة أساس للعيادة'), { statusCode: 400 });
+        }
+        baseCurrencyId = baseRow.rows[0].id;
+        const out = [];
+        for (const line of lines) {
+          const accountCurrency = await resolveAccountCurrency(client, line.accountId);
+          if (!accountCurrency) {
+            throw Object.assign(new Error('تعذّر تحديد عملة الحساب'), { statusCode: 400 });
+          }
 
-    try {
-      const { journalEntryId } = await postJournalEntry({
+          const foreignDebit = Number(line.foreignDebit ?? line.debit ?? 0) || 0;
+          const foreignCredit = Number(line.foreignCredit ?? line.credit ?? 0) || 0;
+          if (foreignDebit > 0 && foreignCredit > 0) {
+            throw Object.assign(new Error('السطر الواحد لا يمكن أن يحتوي مدين ودائن معًا'), { statusCode: 400 });
+          }
+          if (line.currencyId && String(line.currencyId) !== String(accountCurrency.currencyId)) {
+            throw Object.assign(
+              new Error(`عملة السطر لا تطابق عملة الحساب (${accountCurrency.code})`),
+              { statusCode: 400 }
+            );
+          }
+
+          const rate = Number(line.exchangeRate) > 0
+            ? Number(line.exchangeRate)
+            : accountCurrency.rate;
+          const places = accountCurrency.decimalPlaces;
+
+          out.push({
+            accountId: line.accountId,
+            foreignDebit,
+            foreignCredit,
+            currencyId: accountCurrency.currencyId,
+            exchangeRate: rate,
+            debit: foreignToBase(foreignDebit, rate, places),
+            credit: foreignToBase(foreignCredit, rate, places),
+            lineMemo: line.lineMemo,
+          });
+        }
+        return out;
+      });
+
+      const { journalEntryId, entryNumber } = await postJournalEntry({
         tenantId: req.user.tenantId,
         userId: req.user.userId,
         sourceType: 'JOURNAL',
         memo,
-        currencyId: currency.currencyId,
-        exchangeRate: currency.rate,
-        lines: lines.map((l) => ({
-          accountId: l.accountId,
-          debit: toBaseAmount(Number(l.debit || 0), currency.rate),
-          credit: toBaseAmount(Number(l.credit || 0), currency.rate),
-          lineMemo: l.lineMemo,
-        })),
+        idempotencyKey,
+        currencyId: baseCurrencyId,
+        exchangeRate: 1,
+        lines: mappedLines,
       });
-      res.status(201).json({ success: true, journalEntryId });
+      res.status(201).json({ success: true, journalEntryId, entryNumber });
     } catch (err) {
+      if (err.statusCode === 400) return res.status(400).json({ error: err.message });
       if (err instanceof UnbalancedEntryError) {
         return res.status(400).json({
           error: err.message,
@@ -244,15 +289,16 @@ router.post(
 );
 
 router.get('/journal-entries', requireAuth, DOC_VIEW, async (req, res) => {
-  const { sourceType, fromDate, toDate, limit } = req.query;
+  const { sourceType, fromDate, toDate, limit, entryNumber } = req.query;
   if (!sourceType || !SOURCE_TYPES.has(String(sourceType))) {
     return res.status(400).json({ error: 'نوع المستند غير صالح' });
   }
   const take = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const numberQ = entryNumber ? String(entryNumber).trim() : '';
   try {
     const rows = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(
-        `SELECT je.id,
+        `SELECT je.id, je.entry_number,
                 to_char(COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date), 'YYYY-MM-DD') AS entry_date,
                 je.memo, je.source_type, je.created_at,
                 u.name AS created_by_name,
@@ -272,13 +318,15 @@ router.get('/journal-entries', requireAuth, DOC_VIEW, async (req, res) => {
          WHERE je.source_type = $1
            AND ($2::DATE IS NULL OR COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date) >= $2::DATE)
            AND ($3::DATE IS NULL OR COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date) <= $3::DATE)
-         GROUP BY je.id, u.name
+           AND ($5::text = '' OR je.entry_number ILIKE '%' || $5 || '%')
+         GROUP BY je.id, je.entry_number, u.name
          ORDER BY COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date) DESC, je.created_at DESC
          LIMIT $4`,
-        [sourceType, fromDate || null, toDate || null, take]
+        [sourceType, fromDate || null, toDate || null, take, numberQ]
       );
       return result.rows.map((row) => ({
         id: row.id,
+        entryNumber: row.entry_number || null,
         date: row.entry_date,
         memo: row.memo,
         partyNames: row.party_names || null,

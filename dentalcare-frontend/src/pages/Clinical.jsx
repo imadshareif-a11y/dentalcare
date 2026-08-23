@@ -12,6 +12,7 @@ import SearchableSelect from '../components/SearchableSelect';
 import ClinicalImagesAttach from '../components/ClinicalImagesAttach';
 import ClinicalSessionImages from '../components/ClinicalSessionImages';
 import RoomTimelineModal from '../components/RoomTimelineModal';
+import useEscapeClose from '../hooks/useEscapeClose';
 import { localizedDisplay } from '../lib/localizedName';
 import { TOOTH_CONDITIONS, inferConditionFromName, conditionLabelKey } from '../lib/toothConditions';
 import ClinicNumberInput from '../components/ClinicNumberInput';
@@ -203,7 +204,7 @@ export default function Clinical({
   canEditAppointments = true,
   canEditPatients = true,
   focusPatientId = null,
-  onFocusPatientConsumed,
+  focusPatientNonce = 0,
 }) {
   const { t, i18n } = useTranslation();
   const { money, date, time, timeRange, settings } = useSettings();
@@ -297,8 +298,10 @@ export default function Clinical({
   useEffect(() => {
     if (!focusPatientId) return;
     setSelectedPatientId(focusPatientId);
-    onFocusPatientConsumed?.();
-  }, [focusPatientId, onFocusPatientConsumed]);
+    setMobileTab('patient');
+    setPatientPickerOpen(false);
+    setPatientSearch('');
+  }, [focusPatientId, focusPatientNonce]);
 
   useEffect(() => {
     api.get('/patients').then(setPatients).catch(() => setPatients([]));
@@ -699,6 +702,8 @@ export default function Clinical({
     setModalPlanItemId('');
     setModalNotes('');
   }
+
+  useEscapeClose(apptModalOpen, closeApptModal);
 
   function openApptModal(slot = '', { roomId: roomOverride, planItemId = '', patientId = '', doctorId: doctorOverride = '' } = {}) {
     let doctorId = doctorOverride || scheduleDoctorId || selectedDoctorId || '';

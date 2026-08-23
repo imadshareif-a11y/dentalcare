@@ -5,6 +5,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
+const { insertChartAccount } = require('../accounting/chartAccounts');
 
 const LIST_ACCESS = requireAnyPermission([
   ['accounts', 'view'],
@@ -102,12 +103,19 @@ router.post(
           code = await nextExpenseCode(client, req.user.tenantId);
         }
 
+        const accountId = await insertChartAccount(client, req.user.tenantId, {
+          accountCode: code,
+          accountName: names.name,
+          accountNameAr: names.name,
+          accountNameEn: names.name_en,
+          accountNameHe: names.name_he,
+          accountType: 'EXPENSE',
+          currencyId: req.body.currencyId || null,
+        });
         const result = await client.query(
-          `INSERT INTO chart_of_accounts
-             (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type, is_active)
-           VALUES ($1, $2, $3, $3, $4, $5, 'EXPENSE', TRUE)
-           RETURNING id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type, is_active`,
-          [req.user.tenantId, code, names.name, names.name_en, names.name_he]
+          `SELECT id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type, is_active
+           FROM chart_of_accounts WHERE id = $1`,
+          [accountId]
         );
         return result.rows[0];
       });

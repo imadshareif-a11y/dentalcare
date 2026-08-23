@@ -2,15 +2,19 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import { localizedEditValue, localizedPayload } from '../lib/localizedName';
+import CurrencySelect from './CurrencySelect';
+import { useCurrencies } from '../hooks/useCurrencies';
 
 const EMPTY = {
   name: '',
   accountCode: '',
   isActive: true,
+  currencyId: '',
 };
 
 export default function ExpenseAccountForm({ record, onSaved }) {
   const { t, i18n } = useTranslation();
+  const { currencies, baseCurrency } = useCurrencies();
   const isEdit = Boolean(record?.id);
   const [form, setForm] = useState(EMPTY);
   const [submitting, setSubmitting] = useState(false);
@@ -28,10 +32,10 @@ export default function ExpenseAccountForm({ record, onSaved }) {
         isActive: record.is_active !== false,
       });
     } else {
-      setForm(EMPTY);
+      setForm({ ...EMPTY, currencyId: baseCurrency?.id || '' });
     }
     setError(null);
-  }, [record, i18n.language]);
+  }, [record, i18n.language, baseCurrency?.id]);
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -56,6 +60,7 @@ export default function ExpenseAccountForm({ record, onSaved }) {
         await api.post('/expense-accounts', {
           ...namePayload,
           accountCode: form.accountCode.trim() || null,
+          currencyId: form.currencyId || null,
         });
       }
       onSaved?.();
@@ -94,6 +99,18 @@ export default function ExpenseAccountForm({ record, onSaved }) {
         />
       </div>
       <p className="dc-muted text-sm">{t('localized_name_hint')}</p>
+
+      {!isEdit && (
+        <>
+          <CurrencySelect
+            label={t('account_currency')}
+            value={form.currencyId}
+            onChange={(id) => setField('currencyId', id)}
+            currencies={currencies}
+          />
+          <p className="dc-muted text-sm">{t('account_currency_default_hint')}</p>
+        </>
+      )}
 
       {isEdit && (
         <label className="dc-check-row">

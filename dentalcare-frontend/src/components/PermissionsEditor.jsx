@@ -2,7 +2,7 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-/** مجموعات مرتّبة لعرض أوضح في واجهة المستخدمين */
+/** مجموعات مرتّبة — كل مفتاح صلاحية يغطي أقسامًا محددة في النظام */
 const PERMISSION_GROUPS = [
   {
     id: 'clinic',
@@ -13,14 +13,26 @@ const PERMISSION_GROUPS = [
   {
     id: 'finance',
     tone: 'sky',
-    icon: 'fa-solid fa-coins',
-    keys: ['receipts', 'payments', 'journal', 'openingBalance', 'checks', 'accounts'],
+    icon: 'fa-solid fa-file-invoice-dollar',
+    keys: ['receipts', 'payments', 'journal', 'openingBalance', 'checks'],
   },
   {
-    id: 'org',
+    id: 'accounts',
+    tone: 'amber',
+    icon: 'fa-solid fa-wallet',
+    keys: ['accounts'],
+  },
+  {
+    id: 'administration',
+    tone: 'indigo',
+    icon: 'fa-solid fa-gauge-high',
+    keys: ['admin', 'reports', 'employees'],
+  },
+  {
+    id: 'system',
     tone: 'violet',
-    icon: 'fa-solid fa-sitemap',
-    keys: ['employees', 'users', 'reports'],
+    icon: 'fa-solid fa-shield-halved',
+    keys: ['users'],
   },
 ];
 
@@ -87,7 +99,12 @@ export default function PermissionsEditor({
             <header className="dc-perms-group-head">
               <div className="dc-perms-group-title">
                 <i className={group.icon} aria-hidden />
-                <strong>{t(`permission_group_${group.id}`)}</strong>
+                <div>
+                  <strong>{t(`permission_group_${group.id}`)}</strong>
+                  {t(`permission_group_${group.id}_hint`, { defaultValue: '' }) && (
+                    <p className="dc-perms-group-hint">{t(`permission_group_${group.id}_hint`)}</p>
+                  )}
+                </div>
               </div>
               <div className="dc-perms-group-bulk" role="group" aria-label={t('permissions_set_group')}>
                 {allowedLevels.map((lvl) => (
@@ -107,9 +124,16 @@ export default function PermissionsEditor({
             <ul className="dc-perms-rows">
               {group.keys.map((key) => {
                 const value = permissions[key] || 'none';
+                const hintKey = `permission_${key}_hint`;
+                const hint = t(hintKey, { defaultValue: '' });
                 return (
                   <li key={key} className={`dc-perms-row is-${value}`}>
-                    <span className="dc-perms-label">{t(`permission_${key}`)}</span>
+                    <div className="dc-perms-label-block">
+                      <span className="dc-perms-label">{t(`permission_${key}`)}</span>
+                      {hint && hint !== hintKey && (
+                        <span className="dc-perms-key-hint">{hint}</span>
+                      )}
+                    </div>
                     <div className="dc-perms-seg" role="group" aria-label={t(`permission_${key}`)}>
                       {allowedLevels.map((lvl) => (
                         <button

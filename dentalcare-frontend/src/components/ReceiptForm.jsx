@@ -5,6 +5,7 @@ import CheckFields from './CheckFields';
 import FormattedDateInput from './FormattedDateInput';
 import PartyAccountSelect from './PartyAccountSelect';
 import ClinicNumberInput from './ClinicNumberInput';
+import PartyVoucherInfo from './PartyVoucherInfo';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useCashBoxes } from '../hooks/useCashBoxes';
 import { useSettings } from '../context/SettingsContext';
@@ -212,7 +213,7 @@ export default function ReceiptForm({ accounts, onPosted }) {
     <form onSubmit={handleSubmit} className="space-y-3">
       <h3>{t('receipt_title')}</h3>
 
-      <div className="dc-form-row">
+      <div className="dc-form-row dc-voucher-head-row">
         <PartyAccountSelect
           accounts={accounts}
           value={patientAccountId}
@@ -220,14 +221,15 @@ export default function ReceiptForm({ accounts, onPosted }) {
           label={t('party_account')}
           required
         />
-        <div className="dc-form-field">
+        <div className="dc-form-field dc-field-date dc-voucher-date-col">
+          <PartyVoucherInfo accountId={patientAccountId} />
           <label>{t('voucher_date')}</label>
           <FormattedDateInput value={docDate} onChange={setDocDate} required />
         </div>
       </div>
 
-      <div className="dc-form-row dc-cash-shekel-row">
-        <div className="dc-form-field" style={{ flex: 1 }}>
+      <div className="dc-form-row">
+        <div className="dc-form-field dc-field-amount">
           <label>{t('voucher_cash_amount')}</label>
           <ClinicNumberInput
             showCurrency
@@ -339,6 +341,7 @@ export default function ReceiptForm({ accounts, onPosted }) {
 
       <input
         type="text" placeholder={t('voucher_memo')}
+        className="dc-field-memo"
         value={memo} onChange={(e) => setMemo(e.target.value)}
       />
 

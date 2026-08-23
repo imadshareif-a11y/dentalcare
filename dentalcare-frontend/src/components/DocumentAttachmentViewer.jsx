@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import useEscapeClose from '../hooks/useEscapeClose';
 
 export default function DocumentAttachmentViewer({
   entryId,
@@ -15,6 +16,7 @@ export default function DocumentAttachmentViewer({
   const [error, setError] = useState(null);
   const [lightbox, setLightbox] = useState(false);
   const [uploading, setUploading] = useState(false);
+  useEscapeClose(lightbox, () => setLightbox(false));
 
   useEffect(() => {
     setMime(attachmentMime);

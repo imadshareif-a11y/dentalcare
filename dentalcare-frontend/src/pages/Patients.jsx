@@ -15,6 +15,23 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
 
+  const openClinical = useCallback((patientId) => {
+    onOpenClinical?.(patientId);
+  }, [onOpenClinical]);
+
+  const handleRowClick = useCallback((patientId, event) => {
+    if (!onOpenClinical) return;
+    if (event.target.closest('button, a, input, select, textarea, label')) return;
+    openClinical(patientId);
+  }, [onOpenClinical, openClinical]);
+
+  const handleRowKeyDown = useCallback((patientId, event) => {
+    if (!onOpenClinical) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    openClinical(patientId);
+  }, [onOpenClinical, openClinical]);
+
   const loadPatients = useCallback(async () => {
     setLoading(true);
     try {
@@ -69,7 +86,7 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
       {!loading && patients.length === 0 && <div>{t('patient_none_yet')}</div>}
 
       {!loading && patients.length > 0 && (
-        <table className="w-full text-sm">
+        <table className={`w-full text-sm${onOpenClinical ? ' dc-patient-registry-table' : ''}`}>
           <thead>
             <tr>
               <th>{t('patient_name')}</th>
@@ -86,13 +103,24 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
           </thead>
           <tbody>
             {patients.map((p) => (
-              <tr key={p.id}>
+              <tr
+                key={p.id}
+                className={onOpenClinical ? 'dc-patient-row is-clickable' : undefined}
+                onClick={onOpenClinical ? (e) => handleRowClick(p.id, e) : undefined}
+                onKeyDown={onOpenClinical ? (e) => handleRowKeyDown(p.id, e) : undefined}
+                tabIndex={onOpenClinical ? 0 : undefined}
+                role={onOpenClinical ? 'button' : undefined}
+                aria-label={onOpenClinical ? t('patient_open_clinical_named', { name: p.name }) : undefined}
+              >
                 <td>
                   {onOpenClinical ? (
                     <button
                       type="button"
                       className="dc-patient-name-link"
-                      onClick={() => onOpenClinical(p.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openClinical(p.id);
+                      }}
                       title={t('patient_open_clinical')}
                     >
                       {p.name}

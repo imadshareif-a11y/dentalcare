@@ -1,5 +1,7 @@
 // accounting/chartAccounts.js — منع تكرار الحسابات (نفس الرمز + الاسم)
 
+const { resolveAccountCurrencyId } = require('./accountCurrency');
+
 function normalizeName(value) {
   return String(value || '').trim();
 }
@@ -24,6 +26,53 @@ async function findAccountByCode(client, tenantId, accountCode) {
 }
 
 /**
+ * إنشاء حساب جديد مع عملة (افتراضي: العملة الأساسية).
+ */
+async function insertChartAccount(client, tenantId, {
+  accountCode,
+  accountName,
+  accountNameAr,
+  accountNameEn,
+  accountNameHe,
+  accountType,
+  parentId = null,
+  isGroup = false,
+  sortOrder = null,
+  currencyId = null,
+  isActive = true,
+}) {
+  const code = String(accountCode).trim();
+  const primaryName = normalizeName(accountNameAr || accountName);
+  if (!code || !primaryName || !accountType) {
+    throw Object.assign(new Error('بيانات الحساب ناقصة'), { statusCode: 400 });
+  }
+
+  const resolvedCurrencyId = await resolveAccountCurrencyId(client, tenantId, currencyId);
+
+  const result = await client.query(
+    `INSERT INTO chart_of_accounts
+       (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he,
+        account_type, parent_id, is_group, is_active, sort_order, currency_id)
+     VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING id`,
+    [
+      tenantId,
+      code,
+      primaryName,
+      accountNameEn || null,
+      accountNameHe || null,
+      accountType,
+      parentId,
+      isGroup,
+      isActive,
+      sortOrder,
+      resolvedCurrencyId,
+    ]
+  );
+  return result.rows[0].id;
+}
+
+/**
  * يُنشئ حسابًا أو يعيد الموجود إذا تطابق الرمز والاسم.
  * إذا الرمز موجود باسم مختلف → 409.
  */
@@ -35,6 +84,7 @@ async function ensureChartAccount(client, tenantId, {
   accountNameHe,
   accountType,
   parentId = null,
+  currencyId = null,
 }) {
   const code = String(accountCode).trim();
   const primaryName = normalizeName(accountNameAr || accountName);
@@ -54,22 +104,16 @@ async function ensureChartAccount(client, tenantId, {
     );
   }
 
-  const result = await client.query(
-    `INSERT INTO chart_of_accounts
-       (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type, parent_id)
-     VALUES ($1, $2, $3, $3, $4, $5, $6, $7)
-     RETURNING id`,
-    [
-      tenantId,
-      code,
-      primaryName,
-      accountNameEn || null,
-      accountNameHe || null,
-      accountType,
-      parentId,
-    ]
-  );
-  return result.rows[0].id;
+  return insertChartAccount(client, tenantId, {
+    accountCode: code,
+    accountName,
+    accountNameAr,
+    accountNameEn,
+    accountNameHe,
+    accountType,
+    parentId,
+    currencyId,
+  });
 }
 
 async function reassignChartAccount(client, tenantId, fromId, toId) {
@@ -189,6 +233,7 @@ async function dedupeChartAccounts(client, tenantId) {
 module.exports = {
   normalizeName,
   findAccountByCode,
+  insertChartAccount,
   ensureChartAccount,
   reassignChartAccount,
   dedupeChartAccounts,

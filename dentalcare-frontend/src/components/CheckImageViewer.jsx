@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import useEscapeClose from '../hooks/useEscapeClose';
 
 function SideThumb({ checkId, side, label, open, onOpen }) {
   const { t } = useTranslation();
@@ -56,6 +57,7 @@ export default function CheckImageViewer({
   const { t } = useTranslation();
   const [lightbox, setLightbox] = useState(null);
   const [uploading, setUploading] = useState(false);
+  useEscapeClose(Boolean(lightbox), () => setLightbox(null));
 
   if (!hasFrontImage && !hasBackImage && !canUpload) return null;
 

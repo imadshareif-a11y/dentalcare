@@ -44,6 +44,7 @@ app.use('/api', require('./routes/banks'));
 app.use('/api', require('./routes/expenseAccounts'));
 app.use('/api', require('./routes/assetAccounts'));
 app.use('/api', require('./routes/chartTree'));
+app.use('/api', require('./routes/adminDashboard'));
 app.use('/api', require('./routes/partyImport'));         // إعدادات، علاجات، استيراد
 app.use('/api', require('./routes/platform'));         // SUPER_ADMIN /api/platform/*
 
@@ -90,21 +91,36 @@ const { ensureAppointmentsSchema } = require('./db/ensureAppointments');
 const { ensureToothChartSchema } = require('./db/ensureToothChart');
 const { ensureUsersAvatarSchema } = require('./db/ensureUsersAvatar');
 const { ensureToothConditionsSchema } = require('./db/ensureToothConditions');
+const { ensureJournalEntryNumberSchema } = require('./db/ensureJournalEntryNumber');
+const { ensureJournalLineCurrencySchema } = require('./db/ensureJournalLineCurrency');
+const { ensureChartAccountCurrencySchema } = require('./db/ensureChartAccountCurrency');
 
 Promise.all([
   ensureCheckbooksSchema().catch((err) => console.error('checkbooks ensure failed:', err.message)),
   ensureRoomsSchema().catch((err) => console.error('rooms ensure failed:', err.message)),
   ensureTenantSettingsSchema().catch((err) => console.error('tenant_settings ensure failed:', err.message)),
+  ensureJournalEntryNumberSchema().catch((err) => console.error('journal entry_number ensure failed:', err.message)),
+  ensureJournalLineCurrencySchema().catch((err) => console.error('journal line currency ensure failed:', err.message)),
+  ensureChartAccountCurrencySchema().catch((err) => console.error('chart account currency ensure failed:', err.message)),
   ensureUsersAvatarSchema().catch((err) => console.error('users avatar ensure failed:', err.message)),
   ensureToothConditionsSchema().catch((err) => console.error('tooth_conditions ensure failed:', err.message)),
-  // مخطط الأسنان أولاً حتى يمكن ربط plan_item_id في المواعيد
   ensureToothChartSchema()
     .catch((err) => console.error('tooth_chart ensure failed:', err.message))
     .then(() => ensureAppointmentsSchema())
     .catch((err) => console.error('appointments ensure failed:', err.message)),
-])
-  .finally(() => {
-    app.listen(PORT, () => console.log(`🚀 DentalCare API running on port ${PORT}`));
-  });
+]).catch((err) => console.error('schema ensure batch failed:', err.message));
+
+const server = app.listen(PORT, () => {
+  console.log(`🚀 DentalCare API running on port ${PORT}`);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use — stop the other backend process first.`);
+    process.exit(1);
+  }
+  console.error('Server failed to start:', err);
+  process.exit(1);
+});
 
 module.exports = app;

@@ -6,6 +6,7 @@ const { withTenantClient } = require('../db/pool');
 const { nextAccountCode } = require('../settings/numbering');
 const { syncPartyAccountName } = require('../parties/syncAccountName');
 const { parseBirthDate, mapPatientRow } = require('../parties/patientDemographics');
+const { insertChartAccount } = require('../accounting/chartAccounts');
 
 function parseGender(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -46,14 +47,15 @@ router.post(
     try {
       const result = await withTenantClient(req.user.tenantId, async (client) => {
         const accountCode = await nextAccountCode(client, req.user.tenantId, 'patients');
-        const accountResult = await client.query(
-          `INSERT INTO chart_of_accounts
-             (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type)
-           VALUES ($1, $2, $3, $3, $4, $5, 'RECEIVABLE')
-           RETURNING id`,
-          [req.user.tenantId, accountCode, `ذمة: ${name}`, `Balance: ${name}`, `יתרת: ${name}`]
-        );
-        const accountId = accountResult.rows[0].id;
+        const accountId = await insertChartAccount(client, req.user.tenantId, {
+          accountCode,
+          accountName: `ذمة: ${name}`,
+          accountNameAr: `ذمة: ${name}`,
+          accountNameEn: `Balance: ${name}`,
+          accountNameHe: `יתרת: ${name}`,
+          accountType: 'RECEIVABLE',
+          currencyId: req.body.currencyId || null,
+        });
 
         const partyResult = await client.query(
           `INSERT INTO parties

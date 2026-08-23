@@ -10,6 +10,7 @@ const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { nextAccountCode } = require('../settings/numbering');
 const { syncPartyAccountName } = require('../parties/syncAccountName');
+const { insertChartAccount } = require('../accounting/chartAccounts');
 
 router.post(
   '/doctors',
@@ -40,14 +41,15 @@ router.post(
     try {
       const result = await withTenantClient(req.user.tenantId, async (client) => {
         const accountCode = await nextAccountCode(client, req.user.tenantId, 'doctors');
-        const accountResult = await client.query(
-          `INSERT INTO chart_of_accounts
-             (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type)
-           VALUES ($1, $2, $3, $3, $4, $5, 'LIABILITY')
-           RETURNING id`,
-          [req.user.tenantId, accountCode, `ذمة الطبيب: ${name}`, `Doctor: ${name}`, `רופא: ${name}`]
-        );
-        const accountId = accountResult.rows[0].id;
+        const accountId = await insertChartAccount(client, req.user.tenantId, {
+          accountCode,
+          accountName: `ذمة الطبيب: ${name}`,
+          accountNameAr: `ذمة الطبيب: ${name}`,
+          accountNameEn: `Doctor: ${name}`,
+          accountNameHe: `רופא: ${name}`,
+          accountType: 'LIABILITY',
+          currencyId: req.body.currencyId || null,
+        });
 
         const partyResult = await client.query(
           `INSERT INTO parties (tenant_id, party_type, name, phone, account_id)

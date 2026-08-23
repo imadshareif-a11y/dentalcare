@@ -6,6 +6,7 @@ const router = express.Router();
 const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { dedupeChartRows } = require('../accounting/listDedupe');
+const { resolveAccountCurrencyId } = require('../accounting/accountCurrency');
 
 const LIST_ACCESS = requireAnyPermission([
   ['accounts', 'view'],
@@ -32,6 +33,9 @@ function mapRow(row) {
     has_children: Number(row.child_count || 0) > 0,
     is_linked: Boolean(row.is_linked),
     has_movements: Boolean(row.has_movements),
+    currency_id: row.currency_id || null,
+    currency_code: row.currency_code || null,
+    currency_symbol: row.currency_symbol || null,
   };
 }
 
@@ -56,8 +60,10 @@ async function assertNoCycle(client, accountId, newParentId) {
 async function loadAccount(client, id) {
   const result = await client.query(
     `SELECT a.*,
+            c.code AS currency_code,
+            c.symbol AS currency_symbol,
             p.party_type,
-            (SELECT COUNT(*)::int FROM chart_of_accounts c WHERE c.parent_id = a.id) AS child_count,
+            (SELECT COUNT(*)::int FROM chart_of_accounts ch WHERE ch.parent_id = a.id) AS child_count,
             EXISTS (
               SELECT 1 FROM parties x WHERE x.account_id = a.id
               UNION ALL SELECT 1 FROM cash_boxes x WHERE x.account_id = a.id
@@ -67,6 +73,7 @@ async function loadAccount(client, id) {
               SELECT 1 FROM journal_entry_lines l WHERE l.account_id = a.id LIMIT 1
             ) AS has_movements
      FROM chart_of_accounts a
+     LEFT JOIN currencies c ON c.id = a.currency_id
      LEFT JOIN LATERAL (
        SELECT party_type FROM parties p WHERE p.account_id = a.id LIMIT 1
      ) p ON TRUE
@@ -86,7 +93,8 @@ router.get(
       const rows = await withTenantClient(req.user.tenantId, async (client) => {
         const result = await client.query(
           `SELECT a.id, a.account_code, a.account_name, a.account_name_ar, a.account_name_en, a.account_name_he,
-                  a.account_type, a.parent_id, a.is_group, a.is_active, a.sort_order,
+                  a.account_type, a.parent_id, a.is_group, a.is_active, a.sort_order, a.currency_id,
+                  c.code AS currency_code, c.symbol AS currency_symbol,
                   p.party_type,
                   (SELECT COUNT(*)::int FROM chart_of_accounts c WHERE c.parent_id = a.id) AS child_count,
                   EXISTS (
@@ -98,6 +106,7 @@ router.get(
                     SELECT 1 FROM journal_entry_lines l WHERE l.account_id = a.id LIMIT 1
                   ) AS has_movements
            FROM chart_of_accounts a
+           LEFT JOIN currencies c ON c.id = a.currency_id
            LEFT JOIN LATERAL (
              SELECT party_type FROM parties p WHERE p.account_id = a.id LIMIT 1
            ) p ON TRUE
@@ -170,14 +179,19 @@ router.post(
 
         const { namesFromBody } = require('../i18n/localizeNames');
         const names = await namesFromBody(client, req.user.tenantId, req.body);
+        const currencyId = await resolveAccountCurrencyId(
+          client,
+          req.user.tenantId,
+          req.body.currencyId || null
+        );
 
         const result = await client.query(
           `INSERT INTO chart_of_accounts
              (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he,
-              account_type, parent_id, is_group, is_active, sort_order)
-           VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, TRUE, $9)
+              account_type, parent_id, is_group, is_active, sort_order, currency_id)
+           VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, TRUE, $9, $10)
            RETURNING id`,
-          [req.user.tenantId, accountCode, names.name, names.name_en, names.name_he, accountType, parentId, isGroup, order]
+          [req.user.tenantId, accountCode, names.name, names.name_en, names.name_he, accountType, parentId, isGroup, order, currencyId]
         );
 
         // إذا أُضيف ابن تحت حساب غير تجميعي، حوّله لتجميعي تلقائيًا إن لم تكن له حركات
@@ -263,6 +277,20 @@ router.patch(
         }
         if (req.body.sortOrder !== undefined) {
           push('sort_order', Number(req.body.sortOrder) || 0);
+        }
+        if (req.body.currencyId !== undefined) {
+          if (existing.is_linked) {
+            throw Object.assign(
+              new Error('لا يمكن تغيير عملة حساب مرتبط بذمة أو صندوق أو بنك'),
+              { statusCode: 400 }
+            );
+          }
+          const currencyId = await resolveAccountCurrencyId(
+            client,
+            req.user.tenantId,
+            req.body.currencyId || null
+          );
+          push('currency_id', currencyId);
         }
 
         if (req.body.parentId !== undefined || req.body.accountType !== undefined) {

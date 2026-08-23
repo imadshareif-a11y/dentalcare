@@ -99,7 +99,7 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
         label={t('party_account')}
         required
       />
-      <div>
+      <div className="dc-form-field dc-field-select-md">
         <label>{isCredit ? t('note_discount_allowed') : t('note_discount_earned')}</label>
         <select value={discountAccountId} onChange={(e) => setDiscountAccountId(e.target.value)} required>
           <option value="">{t('voucher_choose_account')}</option>
@@ -112,7 +112,7 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
         )}
       </div>
       <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
-      <div>
+      <div className="dc-form-field dc-field-amount">
         <label>{t('amount')}</label>
         <ClinicNumberInput
           showCurrency
@@ -124,7 +124,7 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
           required
         />
       </div>
-      <input type="text" placeholder={t('voucher_memo')} value={memo} onChange={(e) => setMemo(e.target.value)} />
+      <input type="text" className="dc-field-memo" placeholder={t('voucher_memo')} value={memo} onChange={(e) => setMemo(e.target.value)} />
       {error && <div className="dc-error">{error}</div>}
       <button type="submit" className="dc-success" disabled={submitting}>
         {submitting ? t('saving_voucher') : t('save_voucher')}

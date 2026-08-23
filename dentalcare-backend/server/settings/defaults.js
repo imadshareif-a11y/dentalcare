@@ -18,6 +18,35 @@ const DATE_FORMATS = ['DD/MM/YYYY', 'YYYY-MM-DD', 'DD-MM-YYYY', 'MM/DD/YYYY'];
 const NUMBER_DIGITS = ['western', 'eastern'];
 const TIME_FORMATS = ['12h', '24h'];
 
+const DOC_SERIES_PUBLIC = [
+  { key: 'receipts', db: 'receipts', defaultPrefix: 'RC' },
+  { key: 'payments', db: 'payments', defaultPrefix: 'PY' },
+  { key: 'journalDocs', db: 'journal_docs', defaultPrefix: 'JV' },
+  { key: 'bankEntries', db: 'bank_entries', defaultPrefix: 'BE' },
+  { key: 'purchaseInvoices', db: 'purchase_invoices', defaultPrefix: 'PI' },
+  { key: 'creditNotes', db: 'credit_notes', defaultPrefix: 'CN' },
+  { key: 'debitNotes', db: 'debit_notes', defaultPrefix: 'DN' },
+];
+
+function formatNumberSample(prefix, width, next) {
+  const pad = Math.min(8, Math.max(1, Number(width) || 5));
+  return `${prefix || ''}${String(Number(next) || 1).padStart(pad, '0')}`;
+}
+
+function docNumberingFromRow(row) {
+  const out = {};
+  for (const s of DOC_SERIES_PUBLIC) {
+    const prefix = row?.[`${s.db}_prefix`] || s.defaultPrefix;
+    const width = Number(row?.[`${s.db}_width`] || 5);
+    const next = Number(row?.[`${s.db}_next`] || 1);
+    out[`${s.key}Prefix`] = prefix;
+    out[`${s.key}Width`] = width;
+    out[`${s.key}Next`] = next;
+    out[`${s.key}Sample`] = formatNumberSample(prefix, width, next);
+  }
+  return out;
+}
+
 function publicSettings(row) {
   const numbering = {
     patientsPrefix: row?.patients_prefix || 'C',
@@ -33,7 +62,6 @@ function publicSettings(row) {
     employeesWidth: Number(row?.employees_width || 5),
     employeesNext: Number(row?.employees_next || 1),
   };
-  const sample = (prefix, width, next) => `${prefix || ''}${String(next || 1).padStart(Math.min(8, Math.max(1, width || 5)), '0')}`;
   if (!row) {
     return {
       dateFormat: 'DD/MM/YYYY',
@@ -48,10 +76,11 @@ function publicSettings(row) {
       ...publicAiSettings(null),
       ...publicWhatsappSettings(null),
       ...numbering,
-      patientsSample: sample('C', 5, 1),
-      suppliersSample: sample('S', 5, 1),
-      doctorsSample: sample('D', 5, 1),
-      employeesSample: sample('E', 5, 1),
+      patientsSample: formatNumberSample('C', 5, 1),
+      suppliersSample: formatNumberSample('S', 5, 1),
+      doctorsSample: formatNumberSample('D', 5, 1),
+      employeesSample: formatNumberSample('E', 5, 1),
+      ...docNumberingFromRow(null),
     };
   }
   const digits = NUMBER_DIGITS.includes(row.number_digits) ? row.number_digits : 'western';
@@ -70,10 +99,11 @@ function publicSettings(row) {
     ...publicAiSettings(row),
     ...publicWhatsappSettings(row),
     ...numbering,
-    patientsSample: sample(numbering.patientsPrefix, numbering.patientsWidth, numbering.patientsNext),
-    suppliersSample: sample(numbering.suppliersPrefix, numbering.suppliersWidth, numbering.suppliersNext),
-    doctorsSample: sample(numbering.doctorsPrefix, numbering.doctorsWidth, numbering.doctorsNext),
-    employeesSample: sample(numbering.employeesPrefix, numbering.employeesWidth, numbering.employeesNext),
+    patientsSample: formatNumberSample(numbering.patientsPrefix, numbering.patientsWidth, numbering.patientsNext),
+    suppliersSample: formatNumberSample(numbering.suppliersPrefix, numbering.suppliersWidth, numbering.suppliersNext),
+    doctorsSample: formatNumberSample(numbering.doctorsPrefix, numbering.doctorsWidth, numbering.doctorsNext),
+    employeesSample: formatNumberSample(numbering.employeesPrefix, numbering.employeesWidth, numbering.employeesNext),
+    ...docNumberingFromRow(row),
   };
 }
 
@@ -144,4 +174,12 @@ async function seedClinicExtras(client, tenantId) {
   });
 }
 
-module.exports = { DEFAULT_TREATMENTS, DATE_FORMATS, NUMBER_DIGITS, TIME_FORMATS, publicSettings, seedClinicExtras };
+module.exports = {
+  DEFAULT_TREATMENTS,
+  DATE_FORMATS,
+  NUMBER_DIGITS,
+  TIME_FORMATS,
+  DOC_SERIES_PUBLIC,
+  publicSettings,
+  seedClinicExtras,
+};

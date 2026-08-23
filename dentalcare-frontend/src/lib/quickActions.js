@@ -103,6 +103,15 @@ export const QUICK_ACTION_CATALOG = [
     can: (p) => p('clinical') !== 'none' || p('appointments') !== 'none',
   },
   {
+    id: 'admin',
+    kind: 'section',
+    section: 'admin',
+    tab: 'admin',
+    labelKey: 'nav_section_admin',
+    icon: 'fa-solid fa-gauge-high',
+    can: (p) => p('admin') !== 'none',
+  },
+  {
     id: 'patients',
     kind: 'section',
     section: 'patients',

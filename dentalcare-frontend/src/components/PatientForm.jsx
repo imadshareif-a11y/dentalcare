@@ -4,9 +4,12 @@ import FormattedDateInput from './FormattedDateInput';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import { ageFromBirthDate, todayIso } from '../lib/patientAge';
+import CurrencySelect from './CurrencySelect';
+import { useCurrencies } from '../hooks/useCurrencies';
 
 export default function PatientForm({ record, onSaved, onRegistered }) {
   const { t } = useTranslation();
+  const { currencies, baseCurrency } = useCurrencies();
   const isEdit = Boolean(record?.id);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -14,6 +17,7 @@ export default function PatientForm({ record, onSaved, onRegistered }) {
   const [gender, setGender] = useState('');
   const [address, setAddress] = useState('');
   const [medicalNotes, setMedicalNotes] = useState('');
+  const [currencyId, setCurrencyId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -34,9 +38,16 @@ export default function PatientForm({ record, onSaved, onRegistered }) {
       setGender('');
       setAddress('');
       setMedicalNotes('');
+      setCurrencyId(baseCurrency?.id || '');
     }
     setError(null);
-  }, [record]);
+  }, [record, baseCurrency?.id]);
+
+  useEffect(() => {
+    if (!isEdit && !currencyId && baseCurrency?.id) {
+      setCurrencyId(baseCurrency.id);
+    }
+  }, [baseCurrency, currencyId, isEdit]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -58,6 +69,7 @@ export default function PatientForm({ record, onSaved, onRegistered }) {
         gender: gender || null,
         address: address.trim() || null,
         medicalNotes: medicalNotes.trim() || null,
+        ...(isEdit ? {} : { currencyId: currencyId || null }),
       };
       const result = isEdit
         ? await api.patch(`/patients/${record.id}`, payload)
@@ -73,13 +85,15 @@ export default function PatientForm({ record, onSaved, onRegistered }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <input type="text" placeholder={t('patient_name')} value={name} onChange={(e) => setName(e.target.value)} required />
-      <input type="text" placeholder={t('patient_phone')} value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <input type="text" className="dc-field-name" placeholder={t('patient_name')} value={name} onChange={(e) => setName(e.target.value)} required />
+      <input type="text" className="dc-field-phone" placeholder={t('patient_phone')} value={phone} onChange={(e) => setPhone(e.target.value)} />
       <div className="dc-form-row">
-        <div className="dc-form-field">
+        <div className="dc-form-field dc-field-date">
+          <label>{t('patient_birth_date')}</label>
           <FormattedDateInput value={birthDate} onChange={setBirthDate} max={todayIso()} />
         </div>
-        <div className="dc-form-field">
+        <div className="dc-form-field dc-field-select-sm">
+          <label>{t('patient_gender')}</label>
           <select value={gender} onChange={(e) => setGender(e.target.value)}>
             <option value="">{t('patient_gender')}</option>
             <option value="MALE">{t('patient_gender_male')}</option>
@@ -90,12 +104,24 @@ export default function PatientForm({ record, onSaved, onRegistered }) {
       {computedAge != null && (
         <div className="dc-muted text-sm">{t('patient_age_auto', { age: computedAge })}</div>
       )}
-      <input type="text" placeholder={t('patient_address')} value={address} onChange={(e) => setAddress(e.target.value)} />
+      <input type="text" className="dc-field-grow" placeholder={t('patient_address')} value={address} onChange={(e) => setAddress(e.target.value)} />
       <textarea
+        className="dc-field-memo"
         placeholder={t('patient_medical_notes')}
         value={medicalNotes} onChange={(e) => setMedicalNotes(e.target.value)}
         rows={2}
       />
+      {!isEdit && (
+        <>
+          <CurrencySelect
+            label={t('account_currency')}
+            value={currencyId}
+            onChange={setCurrencyId}
+            currencies={currencies}
+          />
+          <p className="dc-muted text-sm">{t('account_currency_default_hint')}</p>
+        </>
+      )}
       {error && <div className="dc-error">{error}</div>}
       <button type="submit" disabled={submitting}>
         {submitting ? t('party_saving') : (isEdit ? t('party_save') : t('patient_register'))}

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import FormattedDateInput from './FormattedDateInput';
 import { localizedDisplay } from '../lib/localizedName';
 import { useSettings } from '../context/SettingsContext';
+import useEscapeClose from '../hooks/useEscapeClose';
 
 const ROOM_NAME_KEYS = {
   ar: ['name', 'room_name'],
@@ -88,6 +89,7 @@ export default function RoomTimelineModal({
   const { t, i18n } = useTranslation();
   const { time, timeRange } = useSettings();
   const trackRefs = useRef({});
+  useEscapeClose(open, onClose);
 
   const hourMarks = useMemo(() => {
     const marks = [];

@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client';
 import { useSettings } from '../context/SettingsContext';
 import PartyModal from './PartyModal';
 import DocumentPrintView from './DocumentPrintView';
+import DocumentNumberHint from './DocumentNumberHint';
 import FormattedDateInput from './FormattedDateInput';
 
 function todayIso() {
@@ -32,7 +33,7 @@ export default function DocumentWorkspace({
   children,
 }) {
   const { t } = useTranslation();
-  const { money, date } = useSettings();
+  const { money, date, reload: reloadSettings } = useSettings();
   const [browseOpen, setBrowseOpen] = useState(false);
   const [fromDate, setFromDate] = useState(monthStartIso);
   const [toDate, setToDate] = useState(todayIso);
@@ -68,6 +69,7 @@ export default function DocumentWorkspace({
     if (!q) return rows;
     return rows.filter((row) => {
       const hay = [
+        row.entryNumber,
         row.partyNames,
         row.memo,
         row.id,
@@ -127,6 +129,7 @@ export default function DocumentWorkspace({
 
   function handlePosted(result) {
     alert(t(successKey));
+    reloadSettings?.();
     const ids = collectEntryIds(result);
     if (ids.length === 0) return;
     const shouldPrint = window.confirm(t('doc_print_confirm'));
@@ -154,6 +157,8 @@ export default function DocumentWorkspace({
         <i className="fa-solid fa-folder-open" />
         <span>{t('doc_browse')}</span>
       </button>
+
+      <DocumentNumberHint sourceType={sourceType} />
 
       {child}
 
@@ -234,6 +239,7 @@ export default function DocumentWorkspace({
                   <table className="dc-doc-browse-table text-sm">
                     <thead>
                       <tr>
+                        <th>{t('doc_col_number')}</th>
                         <th>{t('voucher_date')}</th>
                         <th>{t('doc_col_summary')}</th>
                         <th>{t('amount')}</th>
@@ -249,6 +255,7 @@ export default function DocumentWorkspace({
                           className="dc-doc-browse-row"
                           onClick={() => loadDocument(row.id)}
                         >
+                          <td className="dc-doc-browse-number">{row.entryNumber || '—'}</td>
                           <td className="dc-doc-browse-date">{date(row.date)}</td>
                           <td className="dc-doc-browse-summary">
                             <div className="dc-doc-browse-summary-main">
@@ -257,7 +264,6 @@ export default function DocumentWorkspace({
                             {row.partyNames && row.memo && (
                               <div className="dc-muted text-sm">{row.memo}</div>
                             )}
-                            <div className="dc-muted text-sm">#{String(row.id).slice(0, 8)}</div>
                           </td>
                           <td className="dc-money">{money(row.amount)}</td>
                           <td>{row.createdByName || '—'}</td>

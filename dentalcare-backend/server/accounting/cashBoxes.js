@@ -55,6 +55,7 @@ async function nextCodeInRange(client, tenantId, start, end, preferredCodes = []
 }
 
 const { ensureChartAccount, findAccountByCode } = require('./chartAccounts');
+const { syncChartAccountCurrency } = require('./accountCurrency');
 
 async function insertBox(client, tenantId, {
   currencyId, boxKind, name, nameEn, nameHe, accountId, isSystem,
@@ -137,6 +138,7 @@ async function ensureSystemBoxesForCurrency(client, tenantId, currency) {
           accountNameEn: nameEn,
           accountNameHe: nameHe,
           accountType: meta.accountType,
+          currencyId,
         });
     } else {
       // حدّث اسم الحساب الافتراضي ليعكس العملة إن كان الاسم عامًا
@@ -150,6 +152,8 @@ async function ensureSystemBoxesForCurrency(client, tenantId, currency) {
         [accountId, nameAr, nameEn, nameHe]
       );
     }
+
+    await syncChartAccountCurrency(client, accountId, currencyId);
 
     const boxId = await insertBox(client, tenantId, {
       currencyId,
@@ -174,6 +178,8 @@ async function ensureBoxesForAllCurrencies(client, tenantId) {
   for (const row of currencies.rows) {
     await ensureSystemBoxesForCurrency(client, tenantId, row);
   }
+  const { repairLinkedAccountCurrencies } = require('../db/ensureChartAccountCurrency');
+  await repairLinkedAccountCurrencies(client);
 }
 
 async function createManualBox(client, tenantId, {
@@ -201,7 +207,10 @@ async function createManualBox(client, tenantId, {
     accountNameEn: nameEn || meta.en(currency.rows[0].code),
     accountNameHe: nameHe || meta.he(currency.rows[0].code),
     accountType: meta.accountType,
+    currencyId,
   });
+
+  await syncChartAccountCurrency(client, accountId, currencyId);
 
   return insertBox(client, tenantId, {
     currencyId,

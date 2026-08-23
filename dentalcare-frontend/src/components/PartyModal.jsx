@@ -1,9 +1,13 @@
-export default function PartyModal({ open, title, onClose, children, wide = false }) {
+import useEscapeClose from '../hooks/useEscapeClose';
+
+export default function PartyModal({ open, title, onClose, children, wide = false, className = '' }) {
+  useEscapeClose(open, onClose);
+
   if (!open) return null;
   return (
     <div className="dc-modal-backdrop" onClick={onClose}>
       <div
-        className={`dc-modal${wide ? ' is-wide' : ''}`}
+        className={`dc-modal${wide ? ' is-wide' : ''}${className ? ` ${className}` : ''}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

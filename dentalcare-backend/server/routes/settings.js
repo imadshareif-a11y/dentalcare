@@ -41,6 +41,13 @@ const SETTINGS_SELECT = `
          suppliers_prefix, suppliers_width, suppliers_next,
          doctors_prefix, doctors_width, doctors_next,
          employees_prefix, employees_width, employees_next,
+         receipts_prefix, receipts_width, receipts_next,
+         payments_prefix, payments_width, payments_next,
+         journal_docs_prefix, journal_docs_width, journal_docs_next,
+         bank_entries_prefix, bank_entries_width, bank_entries_next,
+         purchase_invoices_prefix, purchase_invoices_width, purchase_invoices_next,
+         credit_notes_prefix, credit_notes_width, credit_notes_next,
+         debit_notes_prefix, debit_notes_width, debit_notes_next,
          ai_enabled, ai_api_key, ai_base_url, ai_vision_model, ai_provider,
          wa_enabled, wa_provider, wa_api_token, wa_phone_number_id, wa_base_url,
          wa_default_country, wa_template_appointment, wa_template_reminder,
@@ -59,6 +66,13 @@ const SETTINGS_RETURNING = `
   suppliers_prefix, suppliers_width, suppliers_next,
   doctors_prefix, doctors_width, doctors_next,
   employees_prefix, employees_width, employees_next,
+  receipts_prefix, receipts_width, receipts_next,
+  payments_prefix, payments_width, payments_next,
+  journal_docs_prefix, journal_docs_width, journal_docs_next,
+  bank_entries_prefix, bank_entries_width, bank_entries_next,
+  purchase_invoices_prefix, purchase_invoices_width, purchase_invoices_next,
+  credit_notes_prefix, credit_notes_width, credit_notes_next,
+  debit_notes_prefix, debit_notes_width, debit_notes_next,
   ai_enabled, ai_api_key, ai_base_url, ai_vision_model, ai_provider,
   wa_enabled, wa_provider, wa_api_token, wa_phone_number_id, wa_base_url,
   wa_default_country, wa_template_appointment, wa_template_reminder,
@@ -114,6 +128,13 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
     suppliersPrefix, suppliersWidth, suppliersNext,
     doctorsPrefix, doctorsWidth, doctorsNext,
     employeesPrefix, employeesWidth, employeesNext,
+    receiptsPrefix, receiptsWidth, receiptsNext,
+    paymentsPrefix, paymentsWidth, paymentsNext,
+    journalDocsPrefix, journalDocsWidth, journalDocsNext,
+    bankEntriesPrefix, bankEntriesWidth, bankEntriesNext,
+    purchaseInvoicesPrefix, purchaseInvoicesWidth, purchaseInvoicesNext,
+    creditNotesPrefix, creditNotesWidth, creditNotesNext,
+    debitNotesPrefix, debitNotesWidth, debitNotesNext,
     baseCurrencyId,
   } = req.body;
 
@@ -149,10 +170,24 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
     const wS = clampWidth(suppliersWidth);
     const wD = clampWidth(doctorsWidth);
     const wE = clampWidth(employeesWidth);
+    const wRc = clampWidth(receiptsWidth);
+    const wPy = clampWidth(paymentsWidth);
+    const wJv = clampWidth(journalDocsWidth);
+    const wBe = clampWidth(bankEntriesWidth);
+    const wPi = clampWidth(purchaseInvoicesWidth);
+    const wCn = clampWidth(creditNotesWidth);
+    const wDn = clampWidth(debitNotesWidth);
     const nP = clampNext(patientsNext);
     const nS = clampNext(suppliersNext);
     const nD = clampNext(doctorsNext);
     const nE = clampNext(employeesNext);
+    const nRc = clampNext(receiptsNext);
+    const nPy = clampNext(paymentsNext);
+    const nJv = clampNext(journalDocsNext);
+    const nBe = clampNext(bankEntriesNext);
+    const nPi = clampNext(purchaseInvoicesNext);
+    const nCn = clampNext(creditNotesNext);
+    const nDn = clampNext(debitNotesNext);
 
     const row = await withTenantClient(req.user.tenantId, async (client) => {
       await client.query(
@@ -186,6 +221,27 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
            employees_prefix = COALESCE($19, employees_prefix),
            employees_width = COALESCE($20, employees_width),
            employees_next = COALESCE($21, employees_next),
+           receipts_prefix = COALESCE($22, receipts_prefix),
+           receipts_width = COALESCE($23, receipts_width),
+           receipts_next = COALESCE($24, receipts_next),
+           payments_prefix = COALESCE($25, payments_prefix),
+           payments_width = COALESCE($26, payments_width),
+           payments_next = COALESCE($27, payments_next),
+           journal_docs_prefix = COALESCE($28, journal_docs_prefix),
+           journal_docs_width = COALESCE($29, journal_docs_width),
+           journal_docs_next = COALESCE($30, journal_docs_next),
+           bank_entries_prefix = COALESCE($31, bank_entries_prefix),
+           bank_entries_width = COALESCE($32, bank_entries_width),
+           bank_entries_next = COALESCE($33, bank_entries_next),
+           purchase_invoices_prefix = COALESCE($34, purchase_invoices_prefix),
+           purchase_invoices_width = COALESCE($35, purchase_invoices_width),
+           purchase_invoices_next = COALESCE($36, purchase_invoices_next),
+           credit_notes_prefix = COALESCE($37, credit_notes_prefix),
+           credit_notes_width = COALESCE($38, credit_notes_width),
+           credit_notes_next = COALESCE($39, credit_notes_next),
+           debit_notes_prefix = COALESCE($40, debit_notes_prefix),
+           debit_notes_width = COALESCE($41, debit_notes_width),
+           debit_notes_next = COALESCE($42, debit_notes_next),
            updated_at = now()
          WHERE tenant_id = $1
          RETURNING ${SETTINGS_RETURNING}`,
@@ -207,6 +263,20 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
           wD, nD,
           employeesPrefix == null ? null : String(employeesPrefix).slice(0, 10),
           wE, nE,
+          receiptsPrefix == null ? null : String(receiptsPrefix).slice(0, 10),
+          wRc, nRc,
+          paymentsPrefix == null ? null : String(paymentsPrefix).slice(0, 10),
+          wPy, nPy,
+          journalDocsPrefix == null ? null : String(journalDocsPrefix).slice(0, 10),
+          wJv, nJv,
+          bankEntriesPrefix == null ? null : String(bankEntriesPrefix).slice(0, 10),
+          wBe, nBe,
+          purchaseInvoicesPrefix == null ? null : String(purchaseInvoicesPrefix).slice(0, 10),
+          wPi, nPi,
+          creditNotesPrefix == null ? null : String(creditNotesPrefix).slice(0, 10),
+          wCn, nCn,
+          debitNotesPrefix == null ? null : String(debitNotesPrefix).slice(0, 10),
+          wDn, nDn,
         ]
       );
       return result.rows[0];

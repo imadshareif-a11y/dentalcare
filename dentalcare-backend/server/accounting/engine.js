@@ -12,6 +12,7 @@
 
 const { withTenantClient } = require('../db/pool');
 const { assertEntryDateAllowed, ClosedFiscalYearError } = require('./fiscalYears');
+const { nextDocumentNumber } = require('../settings/numbering');
 
 class UnbalancedEntryError extends Error {
   constructor(totalDebit, totalCredit) {
@@ -54,13 +55,20 @@ async function postJournalEntry({
   if (idempotencyKey) {
     const existing = await withTenantClient(tenantId, async (client) => {
       const result = await client.query(
-        `SELECT journal_entry_id FROM idempotency_keys WHERE key = $1`,
+        `SELECT ik.journal_entry_id, je.entry_number
+         FROM idempotency_keys ik
+         JOIN journal_entries je ON je.id = ik.journal_entry_id
+         WHERE ik.key = $1`,
         [idempotencyKey]
       );
-      return result.rows[0]?.journal_entry_id || null;
+      return result.rows[0] || null;
     });
-    if (existing) {
-      return { journalEntryId: existing, deduplicated: true };
+    if (existing?.journal_entry_id) {
+      return {
+        journalEntryId: existing.journal_entry_id,
+        entryNumber: existing.entry_number || null,
+        deduplicated: true,
+      };
     }
   }
 
@@ -105,20 +113,35 @@ async function postJournalEntry({
   await assertEntryDateAllowed(tenantId, day || new Date().toISOString().slice(0, 10));
 
   return withTenantClient(tenantId, async (client) => {
+    const entryNumber = await nextDocumentNumber(client, tenantId, sourceType);
+
     const entryResult = await client.query(
       `INSERT INTO journal_entries
-         (tenant_id, source_type, source_ref_id, memo, created_by, currency_id, exchange_rate, entry_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::date, CURRENT_DATE))
-       RETURNING id`,
-      [tenantId, sourceType, sourceRefId || null, memo || null, userId, currencyId, rate, day]
+         (tenant_id, source_type, source_ref_id, memo, created_by, currency_id, exchange_rate, entry_date, entry_number)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::date, CURRENT_DATE), $9)
+       RETURNING id, entry_number`,
+      [tenantId, sourceType, sourceRefId || null, memo || null, userId, currencyId, rate, day, entryNumber]
     );
     const journalEntryId = entryResult.rows[0].id;
+    const assignedNumber = entryResult.rows[0].entry_number || entryNumber || null;
 
     for (const line of lines) {
       await client.query(
-        `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, line_memo)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [journalEntryId, line.accountId, line.debit || 0, line.credit || 0, line.lineMemo || null]
+        `INSERT INTO journal_entry_lines
+           (journal_entry_id, account_id, debit, credit, line_memo,
+            currency_id, exchange_rate, foreign_debit, foreign_credit)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          journalEntryId,
+          line.accountId,
+          line.debit || 0,
+          line.credit || 0,
+          line.lineMemo || null,
+          line.currencyId || null,
+          line.exchangeRate != null ? Number(line.exchangeRate) : 1,
+          line.foreignDebit || 0,
+          line.foreignCredit || 0,
+        ]
       );
     }
 
@@ -129,7 +152,7 @@ async function postJournalEntry({
       );
     }
 
-    return { journalEntryId };
+    return { journalEntryId, entryNumber: assignedNumber };
   });
 }
 

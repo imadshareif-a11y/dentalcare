@@ -209,7 +209,7 @@ export default function BankEntryForm({ accounts, onPosted }) {
       <p className="dc-muted text-sm">{t('bank_entry_hint')}</p>
 
       <div className="dc-form-row">
-        <div className="dc-form-field">
+        <div className="dc-form-field dc-field-select-md">
           <label>{t('bank_entry_operation')}</label>
           <select value={operation} onChange={(e) => setOperation(e.target.value)}>
             <option value="TRANSFER">{t('bank_entry_op_transfer')}</option>
@@ -218,7 +218,7 @@ export default function BankEntryForm({ accounts, onPosted }) {
             <option value="CHECK_DEPOSIT">{t('bank_entry_op_check_deposit')}</option>
           </select>
         </div>
-        <div className="dc-form-field">
+        <div className="dc-form-field dc-field-date">
           <label>{t('voucher_date')}</label>
           <FormattedDateInput value={docDate} onChange={setDocDate} required />
         </div>
@@ -226,7 +226,7 @@ export default function BankEntryForm({ accounts, onPosted }) {
 
       {operation === 'CHECK_DEPOSIT' ? (
         <>
-          <div className="dc-form-field">
+          <div className="dc-form-field dc-field-party">
             <label>{t('bank_entry_collection_bank')}</label>
             <select
               value={toBankAccountId}
@@ -273,10 +273,8 @@ export default function BankEntryForm({ accounts, onPosted }) {
       ) : (
         <>
           <div className="dc-form-row">
-            <div className="dc-form-field">
-              <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
-            </div>
-            <div className="dc-form-field">
+            <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
+            <div className="dc-form-field dc-field-amount">
               <label>{t('amount')}</label>
               <ClinicNumberInput
                 showCurrency
@@ -291,7 +289,7 @@ export default function BankEntryForm({ accounts, onPosted }) {
           </div>
 
           {(operation === 'TRANSFER' || operation === 'OUTGOING') && (
-            <div className="dc-form-field">
+            <div className="dc-form-field dc-field-party">
               <label>{t('bank_entry_from_bank')}</label>
               <select
                 value={fromBankAccountId}
@@ -307,7 +305,7 @@ export default function BankEntryForm({ accounts, onPosted }) {
           )}
 
           {(operation === 'TRANSFER' || operation === 'INCOMING') && (
-            <div className="dc-form-field">
+            <div className="dc-form-field dc-field-party">
               <label>{t('bank_entry_to_bank')}</label>
               <select
                 value={toBankAccountId}
@@ -329,6 +327,7 @@ export default function BankEntryForm({ accounts, onPosted }) {
               onChange={setCounterpartAccountId}
               label={t('bank_entry_counterpart')}
               required
+              pickerScope="extended"
             />
           )}
         </>
@@ -336,6 +335,7 @@ export default function BankEntryForm({ accounts, onPosted }) {
 
       <input
         type="text"
+        className="dc-field-memo"
         placeholder={t('voucher_memo')}
         value={memo}
         onChange={(e) => setMemo(e.target.value)}

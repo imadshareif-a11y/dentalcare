@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import { localizedEditValue, localizedPayload } from '../lib/localizedName';
+import CurrencySelect from './CurrencySelect';
+import { useCurrencies } from '../hooks/useCurrencies';
 
 const CHART_NAME_KEYS = {
   ar: ['account_name_ar', 'account_name', 'name'],
@@ -16,6 +18,7 @@ const EMPTY = {
   parentId: null,
   isGroup: false,
   isActive: true,
+  currencyId: '',
 };
 
 const TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'];
@@ -28,6 +31,7 @@ export default function ChartAccountForm({
   onCancel,
 }) {
   const { t, i18n } = useTranslation();
+  const { currencies, baseCurrency } = useCurrencies();
   const isEdit = Boolean(record?.id);
   const [form, setForm] = useState(EMPTY);
   const [submitting, setSubmitting] = useState(false);
@@ -42,6 +46,7 @@ export default function ChartAccountForm({
         parentId: record.parent_id || null,
         isGroup: Boolean(record.is_group),
         isActive: record.is_active !== false,
+        currencyId: record.currency_id || baseCurrency?.id || '',
       });
     } else {
       setForm({
@@ -49,10 +54,11 @@ export default function ChartAccountForm({
         accountType: parentHint?.account_type || defaultType || 'ASSET',
         parentId: parentHint?.id || null,
         isGroup: false,
+        currencyId: baseCurrency?.id || '',
       });
     }
     setError(null);
-  }, [record, parentHint, defaultType, i18n.language]);
+  }, [record, parentHint, defaultType, i18n.language, baseCurrency?.id]);
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -81,6 +87,7 @@ export default function ChartAccountForm({
           isActive: form.isActive,
           parentId: form.parentId,
           accountType: form.parentId ? undefined : form.accountType,
+          currencyId: form.currencyId || null,
         });
       } else {
         await api.post('/chart-tree', {
@@ -89,6 +96,7 @@ export default function ChartAccountForm({
           accountType: form.accountType,
           parentId: form.parentId,
           isGroup: form.isGroup,
+          currencyId: form.currencyId || null,
         });
       }
       onSaved?.();
@@ -100,6 +108,7 @@ export default function ChartAccountForm({
   }
 
   const lockedType = Boolean(form.parentId || parentHint?.id);
+  const currencyLocked = isEdit && Boolean(record?.is_linked);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
@@ -145,6 +154,17 @@ export default function ChartAccountForm({
         />
       </div>
       <p className="dc-muted text-sm">{t('localized_name_hint')}</p>
+
+      <CurrencySelect
+        label={t('account_currency')}
+        value={form.currencyId}
+        onChange={(id) => setField('currencyId', id)}
+        currencies={currencies}
+        disabled={currencyLocked}
+      />
+      {!currencyLocked && (
+        <p className="dc-muted text-sm">{t('account_currency_default_hint')}</p>
+      )}
 
       <label className="dc-check-row">
         <input

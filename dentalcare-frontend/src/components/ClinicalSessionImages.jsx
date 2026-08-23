@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import useEscapeClose from '../hooks/useEscapeClose';
 
 function Thumb({ sessionId, image, onOpen }) {
   const { t } = useTranslation();
@@ -51,6 +52,7 @@ export default function ClinicalSessionImages({
   const [lightbox, setLightbox] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [uploading, setUploading] = useState(false);
+  useEscapeClose(Boolean(lightbox), () => setLightbox(null));
 
   async function uploadMore(fileList) {
     const files = [...(fileList || [])].filter((f) => f.type.startsWith('image/'));

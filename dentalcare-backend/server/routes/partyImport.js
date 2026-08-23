@@ -6,6 +6,7 @@ const { requireAuth, requireRole, requireClinicContext } = require('../middlewar
 const { withTenantClient } = require('../db/pool');
 const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
 const { nextAccountCode, ensureBroughtForwardAccount } = require('../settings/numbering');
+const { insertChartAccount } = require('../accounting/chartAccounts');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 3 * 1024 * 1024 } });
 
@@ -106,14 +107,14 @@ router.post(
           }
 
           const accountCode = await nextAccountCode(client, req.user.tenantId, 'patients');
-          const account = await client.query(
-            `INSERT INTO chart_of_accounts
-               (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type)
-             VALUES ($1, $2, $3, $3, $4, $5, 'RECEIVABLE')
-             RETURNING id`,
-            [req.user.tenantId, accountCode, `ذمة: ${name}`, `Balance: ${name}`, `יתרת: ${name}`]
-          );
-          const accountId = account.rows[0].id;
+          const accountId = await insertChartAccount(client, req.user.tenantId, {
+            accountCode,
+            accountName: `ذمة: ${name}`,
+            accountNameAr: `ذمة: ${name}`,
+            accountNameEn: `Balance: ${name}`,
+            accountNameHe: `יתרת: ${name}`,
+            accountType: 'RECEIVABLE',
+          });
           await client.query(
             `INSERT INTO parties (tenant_id, party_type, name, phone, address, medical_notes, account_id)
              VALUES ($1, 'PATIENT', $2, $3, $4, $5, $6)`,
@@ -190,14 +191,14 @@ router.post(
           }
 
           const accountCode = await nextAccountCode(client, req.user.tenantId, 'suppliers');
-          const account = await client.query(
-            `INSERT INTO chart_of_accounts
-               (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type)
-             VALUES ($1, $2, $3, $3, $4, $5, 'LIABILITY')
-             RETURNING id`,
-            [req.user.tenantId, accountCode, `مورد: ${name}`, `Supplier: ${name}`, `ספק: ${name}`]
-          );
-          const accountId = account.rows[0].id;
+          const accountId = await insertChartAccount(client, req.user.tenantId, {
+            accountCode,
+            accountName: `مورد: ${name}`,
+            accountNameAr: `مورد: ${name}`,
+            accountNameEn: `Supplier: ${name}`,
+            accountNameHe: `ספק: ${name}`,
+            accountType: 'LIABILITY',
+          });
           await client.query(
             `INSERT INTO parties (tenant_id, party_type, name, phone, account_id)
              VALUES ($1, 'SUPPLIER', $2, $3, $4)`,

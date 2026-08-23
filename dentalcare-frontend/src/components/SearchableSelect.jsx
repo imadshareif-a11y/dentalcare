@@ -10,7 +10,9 @@ export default function SearchableSelect({
   required = false,
   disabled = false,
   className = '',
+  fieldClassName = '',
   compact = false,
+  inputRef: externalInputRef = null,
 }) {
   const { t } = useTranslation();
   const listId = useId();
@@ -112,6 +114,12 @@ export default function SearchableSelect({
 
   const displayValue = open ? query : (selected?.label || '');
 
+  function assignInputRef(el) {
+    inputRef.current = el;
+    if (typeof externalInputRef === 'function') externalInputRef(el);
+    else if (externalInputRef) externalInputRef.current = el;
+  }
+
   const field = (
     <div
       ref={rootRef}
@@ -119,7 +127,7 @@ export default function SearchableSelect({
     >
       <div className="dc-search-select-control">
         <input
-          ref={inputRef}
+          ref={assignInputRef}
           type="text"
           className="dc-search-select-input"
           value={displayValue}
@@ -198,7 +206,7 @@ export default function SearchableSelect({
 
   if (label) {
     return (
-      <div className="dc-form-field">
+      <div className={`dc-form-field${fieldClassName ? ` ${fieldClassName}` : ''}`.trim()}>
         <label>{label}</label>
         {field}
       </div>

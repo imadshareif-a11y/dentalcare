@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { DEFAULT_QUICK_ACTIONS, QUICK_ACTION_CATALOG, normalizeQuickActions } from '../lib/quickActions';
+import FavoritesSettings from '../components/FavoritesSettings';
 import PartyModal from '../components/PartyModal';
 import Doctors from './Doctors';
 import { localizedDisplay, localizedEditValue, localizedPayload } from '../lib/localizedName';
@@ -30,6 +31,23 @@ function codeSample(prefix, width, next) {
   return `${prefix || ''}${String(Number(next) || 1).padStart(pad, '0')}`;
 }
 
+const PARTY_NUMBERING_SERIES = [
+  { labelKey: 'settings_numbering_patients', icon: 'fa-solid fa-user-group', prefixKey: 'patientsPrefix', widthKey: 'patientsWidth', nextKey: 'patientsNext' },
+  { labelKey: 'settings_numbering_suppliers', icon: 'fa-solid fa-truck', prefixKey: 'suppliersPrefix', widthKey: 'suppliersWidth', nextKey: 'suppliersNext' },
+  { labelKey: 'settings_numbering_doctors', icon: 'fa-solid fa-user-doctor', prefixKey: 'doctorsPrefix', widthKey: 'doctorsWidth', nextKey: 'doctorsNext' },
+  { labelKey: 'settings_numbering_employees', icon: 'fa-solid fa-id-badge', prefixKey: 'employeesPrefix', widthKey: 'employeesWidth', nextKey: 'employeesNext' },
+];
+
+const DOC_NUMBERING_SERIES = [
+  { labelKey: 'settings_numbering_receipts', icon: 'fa-solid fa-hand-holding-dollar', prefixKey: 'receiptsPrefix', widthKey: 'receiptsWidth', nextKey: 'receiptsNext' },
+  { labelKey: 'settings_numbering_payments', icon: 'fa-solid fa-money-bill-transfer', prefixKey: 'paymentsPrefix', widthKey: 'paymentsWidth', nextKey: 'paymentsNext' },
+  { labelKey: 'settings_numbering_journal', icon: 'fa-solid fa-book', prefixKey: 'journalDocsPrefix', widthKey: 'journalDocsWidth', nextKey: 'journalDocsNext' },
+  { labelKey: 'settings_numbering_bank_entries', icon: 'fa-solid fa-building-columns', prefixKey: 'bankEntriesPrefix', widthKey: 'bankEntriesWidth', nextKey: 'bankEntriesNext' },
+  { labelKey: 'settings_numbering_purchase_invoices', icon: 'fa-solid fa-file-invoice', prefixKey: 'purchaseInvoicesPrefix', widthKey: 'purchaseInvoicesWidth', nextKey: 'purchaseInvoicesNext' },
+  { labelKey: 'settings_numbering_credit_notes', icon: 'fa-solid fa-file-circle-plus', prefixKey: 'creditNotesPrefix', widthKey: 'creditNotesWidth', nextKey: 'creditNotesNext' },
+  { labelKey: 'settings_numbering_debit_notes', icon: 'fa-solid fa-file-circle-minus', prefixKey: 'debitNotesPrefix', widthKey: 'debitNotesWidth', nextKey: 'debitNotesNext' },
+];
+
 export default function SettingsPage({ onAccountsChanged }) {
   const { t, i18n } = useTranslation();
   const { user, refreshUser, avatarUrl, bumpAvatar } = useAuth();
@@ -37,6 +55,7 @@ export default function SettingsPage({ onAccountsChanged }) {
   const { currencies, reload: reloadCurrencies } = useCurrencies();
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [formatForm, setFormatForm] = useState(null);
+  const [numberingSection, setNumberingSection] = useState('parties');
   const [treatments, setTreatments] = useState([]);
   const [toothConditions, setToothConditions] = useState([]);
   const [treatmentForm, setTreatmentForm] = useState({ name: '', price: '', conditionCode: '' });
@@ -164,6 +183,27 @@ export default function SettingsPage({ onAccountsChanged }) {
       employeesPrefix: settings.employeesPrefix || 'E',
       employeesWidth: settings.employeesWidth || 5,
       employeesNext: settings.employeesNext || 1,
+      receiptsPrefix: settings.receiptsPrefix || 'RC',
+      receiptsWidth: settings.receiptsWidth || 5,
+      receiptsNext: settings.receiptsNext || 1,
+      paymentsPrefix: settings.paymentsPrefix || 'PY',
+      paymentsWidth: settings.paymentsWidth || 5,
+      paymentsNext: settings.paymentsNext || 1,
+      journalDocsPrefix: settings.journalDocsPrefix || 'JV',
+      journalDocsWidth: settings.journalDocsWidth || 5,
+      journalDocsNext: settings.journalDocsNext || 1,
+      bankEntriesPrefix: settings.bankEntriesPrefix || 'BE',
+      bankEntriesWidth: settings.bankEntriesWidth || 5,
+      bankEntriesNext: settings.bankEntriesNext || 1,
+      purchaseInvoicesPrefix: settings.purchaseInvoicesPrefix || 'PI',
+      purchaseInvoicesWidth: settings.purchaseInvoicesWidth || 5,
+      purchaseInvoicesNext: settings.purchaseInvoicesNext || 1,
+      creditNotesPrefix: settings.creditNotesPrefix || 'CN',
+      creditNotesWidth: settings.creditNotesWidth || 5,
+      creditNotesNext: settings.creditNotesNext || 1,
+      debitNotesPrefix: settings.debitNotesPrefix || 'DN',
+      debitNotesWidth: settings.debitNotesWidth || 5,
+      debitNotesNext: settings.debitNotesNext || 1,
     });
   }, [settings]);
 
@@ -327,12 +367,6 @@ export default function SettingsPage({ onAccountsChanged }) {
     } catch (err) {
       setError(err instanceof ApiError ? err.body?.error || err.message : t('error_network'));
     }
-  }
-
-  function toggleQuickAction(id) {
-    setQuickActions((prev) => (
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    ));
   }
 
   async function saveFavorites(e) {
@@ -741,36 +775,61 @@ export default function SettingsPage({ onAccountsChanged }) {
     e.target.value = '';
   }
 
-  function numberingBlock(label, prefixKey, widthKey, nextKey) {
+  function numberingSeriesCard({ labelKey, icon, prefixKey, widthKey, nextKey }) {
+    const prefix = formatForm[prefixKey];
+    const width = formatForm[widthKey];
+    const next = formatForm[nextKey];
+    const sample = codeSample(prefix, width, next);
+    const pad = Math.min(8, Math.max(1, Number(width) || 5));
+    const padded = String(Number(next) || 1).padStart(pad, '0');
+
     return (
-      <div className="dc-settings-block">
-        <div>
-          {label} — {t('settings_numbering_sample')}:{' '}
-          {codeSample(formatForm[prefixKey], formatForm[widthKey], formatForm[nextKey])}
+      <article key={prefixKey} className="dc-numbering-card">
+        <header className="dc-numbering-card-head">
+          <span className="dc-numbering-card-icon" aria-hidden="true">
+            <i className={icon} />
+          </span>
+          <div className="dc-numbering-card-title">
+            <h5>{t(labelKey)}</h5>
+            <div className="dc-numbering-formula" aria-label={t('settings_numbering_formula_label')}>
+              <span className="dc-numbering-part dc-numbering-part-prefix">{prefix || '—'}</span>
+              <span className="dc-numbering-part dc-numbering-part-seq">{padded}</span>
+            </div>
+          </div>
+          <output className="dc-numbering-preview" htmlFor={`${prefixKey}-fields`}>
+            {sample}
+          </output>
+        </header>
+        <div className="dc-numbering-fields" id={`${prefixKey}-fields`}>
+          <label>
+            <span>{t('settings_prefix')}</span>
+            <input
+              value={prefix}
+              maxLength={10}
+              onChange={(e) => setFormatForm((p) => ({ ...p, [prefixKey]: e.target.value }))}
+            />
+          </label>
+          <label>
+            <span>{t('settings_width')}</span>
+            <input
+              type="number"
+              min="1"
+              max="8"
+              value={width}
+              onChange={(e) => setFormatForm((p) => ({ ...p, [widthKey]: Number(e.target.value) }))}
+            />
+          </label>
+          <label>
+            <span>{t('settings_next')}</span>
+            <input
+              type="number"
+              min="1"
+              value={next}
+              onChange={(e) => setFormatForm((p) => ({ ...p, [nextKey]: Number(e.target.value) }))}
+            />
+          </label>
         </div>
-        <div className="dc-form-row">
-          <input
-            placeholder={t('settings_prefix')}
-            value={formatForm[prefixKey]}
-            onChange={(e) => setFormatForm((p) => ({ ...p, [prefixKey]: e.target.value }))}
-          />
-          <input
-            type="number"
-            min="1"
-            max="8"
-            placeholder={t('settings_width')}
-            value={formatForm[widthKey]}
-            onChange={(e) => setFormatForm((p) => ({ ...p, [widthKey]: Number(e.target.value) }))}
-          />
-          <input
-            type="number"
-            min="1"
-            placeholder={t('settings_next')}
-            value={formatForm[nextKey]}
-            onChange={(e) => setFormatForm((p) => ({ ...p, [nextKey]: Number(e.target.value) }))}
-          />
-        </div>
-      </div>
+      </article>
     );
   }
 
@@ -857,30 +916,21 @@ export default function SettingsPage({ onAccountsChanged }) {
       )}
 
       {activeTab === 'favorites' && (
-        <section className="dc-settings-panel">
+        <section className="dc-settings-panel dc-fav-settings-panel">
           <h4>{t('settings_favorites_title')}</h4>
           <p className="dc-muted text-sm">{t('settings_favorites_hint')}</p>
-          <form onSubmit={saveFavorites} className="dc-settings-form" style={{ maxWidth: 560 }}>
-            <div className="dc-fav-settings-list">
-              {availableQuickActions.map((action) => (
-                <label key={action.id} className="dc-check-row dc-fav-settings-row">
-                  <input
-                    type="checkbox"
-                    checked={quickActions.includes(action.id)}
-                    onChange={() => toggleQuickAction(action.id)}
-                  />
-                  <i className={action.icon} />
-                  <span>{t(action.labelKey)}</span>
-                </label>
-              ))}
-            </div>
-            {availableQuickActions.length === 0 && (
-              <div className="dc-muted">{t('favorites_empty')}</div>
-            )}
-            <button type="submit" disabled={savingFav || quickActions.length === 0}>
-              {savingFav ? t('party_saving') : t('settings_favorites_save')}
-            </button>
-          </form>
+          {availableQuickActions.length === 0 ? (
+            <div className="dc-muted">{t('favorites_empty')}</div>
+          ) : (
+            <FavoritesSettings
+              quickActions={quickActions}
+              onChange={setQuickActions}
+              availableActions={availableQuickActions}
+              permissions={user?.permissions}
+              onSave={saveFavorites}
+              saving={savingFav}
+            />
+          )}
         </section>
       )}
 
@@ -968,26 +1018,54 @@ export default function SettingsPage({ onAccountsChanged }) {
       )}
 
       {activeTab === 'numbering' && isOwner && formatForm && (
-        <section className="dc-settings-panel">
-          <h4>{t('settings_numbering_title')}</h4>
-          <p className="dc-muted text-sm">{t('settings_numbering_hint')}</p>
-          <form onSubmit={saveFormat} className="dc-settings-form" style={{ maxWidth: 560 }}>
-            <label>
-              {t('settings_number_digits')}
-              <select
-                value={formatForm.numberDigits || 'western'}
-                onChange={(e) => setFormatForm((p) => ({ ...p, numberDigits: e.target.value }))}
-              >
-                <option value="western">{t('settings_number_digits_western')}</option>
-                <option value="eastern">{t('settings_number_digits_eastern')}</option>
-              </select>
-            </label>
-            <p className="dc-muted text-sm">{t('settings_number_digits_hint')}</p>
-            {numberingBlock(t('settings_numbering_patients'), 'patientsPrefix', 'patientsWidth', 'patientsNext')}
-            {numberingBlock(t('settings_numbering_suppliers'), 'suppliersPrefix', 'suppliersWidth', 'suppliersNext')}
-            {numberingBlock(t('settings_numbering_doctors'), 'doctorsPrefix', 'doctorsWidth', 'doctorsNext')}
-            {numberingBlock(t('settings_numbering_employees'), 'employeesPrefix', 'employeesWidth', 'employeesNext')}
-            <button type="submit" disabled={saving}>{t('settings_save_format')}</button>
+        <section className="dc-settings-panel dc-numbering-panel">
+          <div className="dc-numbering-intro">
+            <h4>{t('settings_numbering_title')}</h4>
+            <p className="dc-muted text-sm">{t('settings_numbering_hint')}</p>
+            <div className="dc-numbering-formula-banner">
+              <span className="dc-numbering-formula-banner-label">{t('settings_numbering_formula_label')}</span>
+              <code className="dc-numbering-formula-banner-code">{t('settings_numbering_formula_example')}</code>
+            </div>
+          </div>
+
+          <div className="dc-numbering-section-tabs" role="tablist" aria-label={t('settings_numbering_title')}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={numberingSection === 'parties'}
+              className={`dc-numbering-section-tab${numberingSection === 'parties' ? ' is-active' : ''}`}
+              onClick={() => setNumberingSection('parties')}
+            >
+              <i className="fa-solid fa-address-book" aria-hidden="true" />
+              <span>{t('settings_numbering_section_parties')}</span>
+              <span className="dc-numbering-section-count">{PARTY_NUMBERING_SERIES.length}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={numberingSection === 'documents'}
+              className={`dc-numbering-section-tab${numberingSection === 'documents' ? ' is-active' : ''}`}
+              onClick={() => setNumberingSection('documents')}
+            >
+              <i className="fa-solid fa-file-lines" aria-hidden="true" />
+              <span>{t('settings_numbering_section_documents')}</span>
+              <span className="dc-numbering-section-count">{DOC_NUMBERING_SERIES.length}</span>
+            </button>
+          </div>
+
+          <form onSubmit={saveFormat} className="dc-numbering-form">
+            <p className="dc-muted text-sm dc-numbering-section-hint">
+              {numberingSection === 'parties'
+                ? t('settings_numbering_parties_hint')
+                : t('settings_numbering_docs_hint')}
+            </p>
+            <div className="dc-numbering-grid" role="tabpanel">
+              {(numberingSection === 'parties' ? PARTY_NUMBERING_SERIES : DOC_NUMBERING_SERIES)
+                .map((series) => numberingSeriesCard(series))}
+            </div>
+            <div className="dc-numbering-form-footer">
+              <button type="submit" disabled={saving}>{t('settings_save_numbering')}</button>
+            </div>
           </form>
         </section>
       )}

@@ -20,6 +20,7 @@ import TrialBalance from './pages/TrialBalance';
 import ProfitLoss from './pages/ProfitLoss';
 import Expenses from './pages/Expenses';
 import Clinical from './pages/Clinical';
+import AdminDashboard from './pages/AdminDashboard';
 import ClinicalReport from './pages/ClinicalReport';
 import Users from './pages/Users';
 import JournalBook from './pages/JournalBook';
@@ -87,14 +88,17 @@ function buildTabs({
   quickActionIds,
   onFavoriteAction,
   clinicalFocusPatientId,
-  onClinicalFocusConsumed,
+  clinicalFocusNonce,
   onOpenPatientClinical,
 }) {
   const level = (key) => permissions?.[key] || 'none';
   const canEdit = (key) => level(key) === 'edit';
   const canSee = (key) => level(key) !== 'none';
+  const canSeeAdmin = canSee('admin');
 
   return [
+    { key: 'admin', label: t('nav_section_admin'), visible: canSeeAdmin,
+      render: () => <AdminDashboard /> },
     { key: 'favorites', label: t('nav_favorites'), visible: true,
       render: () => (
         <Favorites
@@ -112,7 +116,7 @@ function buildTabs({
           canEditAppointments={canEdit('appointments') || canEdit('clinical')}
           canEditPatients={canEdit('patients')}
           focusPatientId={clinicalFocusPatientId}
-          onFocusPatientConsumed={onClinicalFocusConsumed}
+          focusPatientNonce={clinicalFocusNonce}
         />
       ) },
     { key: 'receipt', label: t('nav_receipt'), visible: canEdit('receipts'),
@@ -162,7 +166,7 @@ function buildTabs({
         <Patients
           canEdit={canEdit('patients')}
           onAccountsChanged={loadAccounts}
-          onOpenClinical={onOpenPatientClinical}
+          onOpenClinical={onOpenPatientClinical || undefined}
         />
       ) },
     { key: 'suppliers', label: t('nav_suppliers'), visible: canSee('payments'),
@@ -214,7 +218,7 @@ export default function App() {
   const [tab, setTab] = useState(null);
   const [showCurrencyDaily, setShowCurrencyDaily] = useState(false);
   const [quickModal, setQuickModal] = useState(null); // 'patient' | 'supplier' | null
-  const [clinicalFocusPatientId, setClinicalFocusPatientId] = useState(null);
+  const [clinicalFocus, setClinicalFocus] = useState({ patientId: null, nonce: 0 });
 
   const loadAccounts = useCallback(() => {
     if (!user || user.role === 'SUPER_ADMIN') return;
@@ -265,20 +269,18 @@ export default function App() {
     }
   }, [navigateAccountingTab]);
 
-  const openPatientInClinical = useCallback((patientId) => {
-    if (!patientId) return;
+  const canOpenClinical = useMemo(() => {
     const perms = user?.permissions || {};
-    const canClinicalPanel = (perms.clinical || 'none') !== 'none'
+    return (perms.clinical || 'none') !== 'none'
       || (perms.appointments || 'none') !== 'none';
-    if (!canClinicalPanel) return;
-    setClinicalFocusPatientId(patientId);
-    setSection('clinical');
-    setTab('clinical');
   }, [user]);
 
-  const clearClinicalFocusPatient = useCallback(() => {
-    setClinicalFocusPatientId(null);
-  }, []);
+  const openPatientInClinical = useCallback((patientId) => {
+    if (!patientId || !canOpenClinical) return;
+    setClinicalFocus((prev) => ({ patientId, nonce: prev.nonce + 1 }));
+    setSection('clinical');
+    setTab('clinical');
+  }, [canOpenClinical]);
 
   const allTabs = useMemo(
     () => buildTabs({
@@ -288,9 +290,9 @@ export default function App() {
       permissions: user?.permissions,
       quickActionIds,
       onFavoriteAction: handleFavoriteAction,
-      clinicalFocusPatientId,
-      onClinicalFocusConsumed: clearClinicalFocusPatient,
-      onOpenPatientClinical: openPatientInClinical,
+      clinicalFocusPatientId: clinicalFocus.patientId,
+      clinicalFocusNonce: clinicalFocus.nonce,
+      onOpenPatientClinical: canOpenClinical ? openPatientInClinical : null,
     }),
     [
       t,
@@ -299,14 +301,15 @@ export default function App() {
       user,
       quickActionIds,
       handleFavoriteAction,
-      clinicalFocusPatientId,
-      clearClinicalFocusPatient,
+      clinicalFocus,
+      canOpenClinical,
       openPatientInClinical,
     ]
   );
   const visibleTabs = useMemo(() => allTabs.filter((tb) => tb.visible), [allTabs]);
 
   const canClinical = visibleTabs.some((tb) => tb.key === 'clinical');
+  const canAdmin = visibleTabs.some((tb) => tb.key === 'admin');
   const accGroupsVisible = ACC_GROUPS.map((group) => {
     const directItems = visibleTabs.filter((tb) => group.keys.includes(tb.key));
     const subgroups = (group.subgroups || [])
@@ -327,6 +330,7 @@ export default function App() {
   const adminTabs = visibleTabs.filter((tb) => tb.key === 'users' || tb.key === 'settings');
 
   const topSections = [
+    { id: 'admin', label: t('nav_section_admin'), show: canAdmin, icon: 'fa-solid fa-gauge-high', tone: 'indigo' },
     { id: 'clinical', label: t('nav_section_clinical'), show: canClinical, icon: 'fa-solid fa-user-doctor', tone: 'teal' },
     { id: 'patients', label: t('nav_section_patients'), show: canPatients, icon: 'fa-solid fa-users', tone: 'teal' },
     { id: 'accounting', label: t('nav_section_accounting'), show: canAccounting, icon: 'fa-solid fa-calculator', tone: 'teal' },
@@ -335,6 +339,10 @@ export default function App() {
 
   function openSection(id) {
     setSection(id);
+    if (id === 'admin') {
+      setTab('admin');
+      return;
+    }
     if (id === 'clinical') {
       setTab('clinical');
       return;
@@ -391,11 +399,12 @@ export default function App() {
     const allowed = new Set(visibleTabs.map((tb) => tb.key));
     if (tab && allowed.has(tab)) return;
     const preferred = firstKey(
-      ['clinical', 'receipt', 'payment', 'voucher', 'patients', 'settings'],
+      ['admin', 'clinical', 'receipt', 'payment', 'voucher', 'patients', 'settings'],
       visibleTabs
     );
     if (!preferred) return;
-    if (preferred === 'clinical') openSection('clinical');
+    if (preferred === 'admin') openSection('admin');
+    else if (preferred === 'clinical') openSection('clinical');
     else if (preferred === 'settings') openSection('settings');
     else if (preferred === 'patients') openSection('patients');
     else openSection('accounting');

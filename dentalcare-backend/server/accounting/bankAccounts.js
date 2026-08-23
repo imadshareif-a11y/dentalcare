@@ -1,4 +1,6 @@
 // accounting/bankAccounts.js
+const { insertChartAccount } = require('./chartAccounts');
+const { syncChartAccountCurrency } = require('./accountCurrency');
 const KIND_META = {
   CURRENT: {
     accountType: 'ASSET',
@@ -60,19 +62,6 @@ async function nextCodeInRange(client, tenantId, start, end, preferredCodes = []
   throw Object.assign(new Error(`لا يوجد رقم حساب متاح في النطاق ${start}-${end}`), { statusCode: 400 });
 }
 
-async function createChartAccount(client, tenantId, {
-  accountCode, accountType, nameAr, nameEn, nameHe,
-}) {
-  const result = await client.query(
-    `INSERT INTO chart_of_accounts
-       (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type)
-     VALUES ($1, $2, $3, $3, $4, $5, $6)
-     RETURNING id`,
-    [tenantId, accountCode, nameAr, nameEn, nameHe, accountType]
-  );
-  return result.rows[0].id;
-}
-
 async function createBankAccount(client, tenantId, {
   bankId, accountKind, name, nameEn, nameHe, accountNumber, currencyId, reusePreferred = false,
 }) {
@@ -123,14 +112,20 @@ async function createBankAccount(client, tenantId, {
       if (linked.rowCount === 0) chartAccountId = existing.rows[0].id;
     }
     if (!chartAccountId) {
-      chartAccountId = await createChartAccount(client, tenantId, {
+      chartAccountId = await insertChartAccount(client, tenantId, {
         accountCode,
+        accountName: nameAr,
+        accountNameAr: nameAr,
+        accountNameEn: nameEn || meta.en(),
+        accountNameHe: nameHe || meta.he(),
         accountType: meta.accountType,
-        nameAr,
-        nameEn: nameEn || meta.en(),
-        nameHe: nameHe || meta.he(),
+        currencyId: currencyId || null,
       });
     }
+  }
+
+  if (currencyId) {
+    await syncChartAccountCurrency(client, chartAccountId, currencyId);
   }
 
   const result = await client.query(

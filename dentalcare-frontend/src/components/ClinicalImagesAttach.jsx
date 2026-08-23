@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import useEscapeClose from '../hooks/useEscapeClose';
 
 function newItemKey() {
   return `xray-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -16,6 +17,7 @@ export default function ClinicalImagesAttach({
   const [previews, setPreviews] = useState([]);
   const [lightboxIndex, setLightboxIndex] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
+  useEscapeClose(lightboxIndex != null, () => setLightboxIndex(null));
 
   useEffect(() => {
     const urls = items.map((item) => URL.createObjectURL(item.file));

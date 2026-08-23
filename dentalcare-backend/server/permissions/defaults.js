@@ -2,27 +2,32 @@
 
 const VALID_ROLES = ['OWNER', 'ACCOUNTANT', 'DOCTOR', 'RECEPTIONIST'];
 const PERMISSION_KEYS = [
-  'clinical', 'appointments', 'receipts', 'payments', 'journal', 'openingBalance',
-  'patients', 'doctors', 'employees', 'checks', 'reports', 'accounts', 'users',
+  'clinical', 'appointments', 'patients', 'doctors',
+  'receipts', 'payments', 'journal', 'openingBalance', 'checks',
+  'accounts', 'reports', 'admin', 'employees', 'users',
 ];
 const VALID_LEVELS = ['none', 'view', 'edit'];
 
 const BUILTIN_DEFAULTS = {
   OWNER: {
     clinical: 'edit', appointments: 'edit', receipts: 'edit', payments: 'edit', journal: 'edit', openingBalance: 'edit',
-    patients: 'edit', doctors: 'edit', employees: 'edit', checks: 'edit', reports: 'view', accounts: 'edit', users: 'edit',
+    patients: 'edit', doctors: 'edit', employees: 'edit', checks: 'edit', reports: 'view', accounts: 'edit',
+    admin: 'edit', users: 'edit',
   },
   ACCOUNTANT: {
     clinical: 'none', appointments: 'none', receipts: 'edit', payments: 'edit', journal: 'edit', openingBalance: 'none',
-    patients: 'edit', doctors: 'view', employees: 'edit', checks: 'edit', reports: 'view', accounts: 'edit', users: 'none',
+    patients: 'edit', doctors: 'view', employees: 'edit', checks: 'edit', reports: 'view', accounts: 'edit',
+    admin: 'view', users: 'none',
   },
   DOCTOR: {
     clinical: 'edit', appointments: 'edit', receipts: 'none', payments: 'none', journal: 'none', openingBalance: 'none',
-    patients: 'view', doctors: 'none', employees: 'none', checks: 'none', reports: 'view', accounts: 'none', users: 'none',
+    patients: 'view', doctors: 'none', employees: 'none', checks: 'none', reports: 'view', accounts: 'none',
+    admin: 'none', users: 'none',
   },
   RECEPTIONIST: {
     clinical: 'none', appointments: 'edit', receipts: 'edit', payments: 'none', journal: 'none', openingBalance: 'none',
-    patients: 'edit', doctors: 'none', employees: 'none', checks: 'view', reports: 'view', accounts: 'none', users: 'none',
+    patients: 'edit', doctors: 'none', employees: 'none', checks: 'view', reports: 'view', accounts: 'none',
+    admin: 'view', users: 'none',
   },
 };
 

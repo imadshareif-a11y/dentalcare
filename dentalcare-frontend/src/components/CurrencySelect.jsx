@@ -7,10 +7,11 @@ export default function CurrencySelect({
   required = true,
   label,
   disabled = false,
+  fieldClassName = 'dc-field-currency',
 }) {
   const { t } = useTranslation();
   return (
-    <div className="dc-form-field">
+    <div className={`dc-form-field ${fieldClassName}`.trim()}>
       <label>{label || t('doc_currency')}</label>
       <select
         value={value || ''}

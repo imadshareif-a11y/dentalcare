@@ -21,6 +21,10 @@ export default function DocumentPrintView({ document: doc, showPrintButton = tru
 
   const title = t(SOURCE_TITLE_KEY[doc.sourceType] || 'nav_voucher');
   const canAttachPurchase = doc.sourceType === 'PURCHASE_INVOICE';
+  const showForeignCols = doc.lines.some(
+    (line) => (line.foreignDebit > 0 || line.foreignCredit > 0)
+      && (line.currencyCode || line.exchangeRate > 1)
+  );
 
   return (
     <div className="print-document dc-doc-print">
@@ -36,7 +40,7 @@ export default function DocumentPrintView({ document: doc, showPrintButton = tru
         {doc.currencyCode && (
           <div><strong>{t('currency_symbol')}:</strong> {doc.currencySymbol || doc.currencyCode}</div>
         )}
-        <div><strong>{t('doc_ref')}:</strong> {String(doc.id).slice(0, 8)}</div>
+        <div><strong>{t('doc_number')}:</strong> {doc.entryNumber || `#${String(doc.id).slice(0, 8)}`}</div>
       </div>
 
       <table className="w-full text-sm print-table">
@@ -45,6 +49,14 @@ export default function DocumentPrintView({ document: doc, showPrintButton = tru
             <th>{t('trial_balance_col_code')}</th>
             <th>{t('trial_balance_col_name')}</th>
             <th>{t('ledger_col_details')}</th>
+            {showForeignCols && (
+              <>
+                <th>{t('voucher_debit_foreign')}</th>
+                <th>{t('voucher_credit_foreign')}</th>
+                <th>{t('voucher_line_currency')}</th>
+                <th>{t('voucher_exchange_rate')}</th>
+              </>
+            )}
             <th>{t('voucher_debit')}</th>
             <th>{t('voucher_credit')}</th>
           </tr>
@@ -58,6 +70,22 @@ export default function DocumentPrintView({ document: doc, showPrintButton = tru
                 {line.partyName ? ` (${line.partyName})` : ''}
               </td>
               <td>{line.lineMemo || '—'}</td>
+              {showForeignCols && (
+                <>
+                  <td className="dc-money">
+                    {line.foreignDebit > 0
+                      ? `${Number(line.foreignDebit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${line.currencySymbol || line.currencyCode || ''}`.trim()
+                      : '—'}
+                  </td>
+                  <td className="dc-money">
+                    {line.foreignCredit > 0
+                      ? `${Number(line.foreignCredit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${line.currencySymbol || line.currencyCode || ''}`.trim()
+                      : '—'}
+                  </td>
+                  <td>{line.currencyCode || '—'}</td>
+                  <td className="dc-num">{line.exchangeRate != null ? Number(line.exchangeRate).toFixed(4) : '—'}</td>
+                </>
+              )}
               <td className="dc-money">{line.debit > 0 ? money(line.debit) : '—'}</td>
               <td className="dc-money">{line.credit > 0 ? money(line.credit) : '—'}</td>
             </tr>
@@ -65,7 +93,7 @@ export default function DocumentPrintView({ document: doc, showPrintButton = tru
         </tbody>
         <tfoot>
           <tr className="font-bold">
-            <td colSpan={3}>{t('trial_balance_totals')}</td>
+            <td colSpan={showForeignCols ? 7 : 3}>{t('trial_balance_totals')}</td>
             <td className="dc-money">{money(doc.totalDebit)}</td>
             <td className="dc-money">{money(doc.totalCredit)}</td>
           </tr>

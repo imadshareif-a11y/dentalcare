@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import CurrencySelect from './CurrencySelect';
+import { useCurrencies } from '../hooks/useCurrencies';
 
 export default function SupplierForm({ record, onSaved }) {
   const { t } = useTranslation();
+  const { currencies, baseCurrency } = useCurrencies();
   const isEdit = Boolean(record?.id);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [currencyId, setCurrencyId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -17,9 +21,16 @@ export default function SupplierForm({ record, onSaved }) {
     } else {
       setName('');
       setPhone('');
+      setCurrencyId(baseCurrency?.id || '');
     }
     setError(null);
-  }, [record]);
+  }, [record, baseCurrency?.id]);
+
+  useEffect(() => {
+    if (!isEdit && !currencyId && baseCurrency?.id) {
+      setCurrencyId(baseCurrency.id);
+    }
+  }, [baseCurrency, currencyId, isEdit]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -30,7 +41,11 @@ export default function SupplierForm({ record, onSaved }) {
     }
     setSubmitting(true);
     try {
-      const payload = { name: name.trim(), phone };
+      const payload = {
+        name: name.trim(),
+        phone,
+        ...(isEdit ? {} : { currencyId: currencyId || null }),
+      };
       const result = isEdit
         ? await api.patch(`/suppliers/${record.id}`, payload)
         : await api.post('/suppliers', payload);
@@ -44,8 +59,19 @@ export default function SupplierForm({ record, onSaved }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <input type="text" placeholder={t('supplier_name')} value={name} onChange={(e) => setName(e.target.value)} required />
-      <input type="text" placeholder={t('patient_phone')} value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <input type="text" className="dc-field-name" placeholder={t('supplier_name')} value={name} onChange={(e) => setName(e.target.value)} required />
+      <input type="text" className="dc-field-phone" placeholder={t('patient_phone')} value={phone} onChange={(e) => setPhone(e.target.value)} />
+      {!isEdit && (
+        <>
+          <CurrencySelect
+            label={t('account_currency')}
+            value={currencyId}
+            onChange={setCurrencyId}
+            currencies={currencies}
+          />
+          <p className="dc-muted text-sm">{t('account_currency_default_hint')}</p>
+        </>
+      )}
       {error && <div className="dc-error">{error}</div>}
       <button type="submit" disabled={submitting}>
         {submitting ? t('party_saving') : (isEdit ? t('party_save') : t('supplier_register'))}

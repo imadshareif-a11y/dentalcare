@@ -3,15 +3,19 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import ClinicNumberInput from './ClinicNumberInput';
+import CurrencySelect from './CurrencySelect';
+import { useCurrencies } from '../hooks/useCurrencies';
 
 export default function DoctorForm({ record, onSaved }) {
   const { t } = useTranslation();
+  const { currencies, baseCurrency } = useCurrencies();
   const isEdit = Boolean(record?.id);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [compensationType, setCompensationType] = useState('SALARY');
   const [percentageRate, setPercentageRate] = useState('');
   const [monthlySalary, setMonthlySalary] = useState('');
+  const [currencyId, setCurrencyId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -28,9 +32,16 @@ export default function DoctorForm({ record, onSaved }) {
       setCompensationType('SALARY');
       setPercentageRate('');
       setMonthlySalary('');
+      setCurrencyId(baseCurrency?.id || '');
     }
     setError(null);
-  }, [record]);
+  }, [record, baseCurrency?.id]);
+
+  useEffect(() => {
+    if (!isEdit && !currencyId && baseCurrency?.id) {
+      setCurrencyId(baseCurrency.id);
+    }
+  }, [baseCurrency, currencyId, isEdit]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -61,6 +72,7 @@ export default function DoctorForm({ record, onSaved }) {
         compensationType,
         percentageRate: compensationType === 'PERCENTAGE' ? Number(percentageRate) : undefined,
         monthlySalary: compensationType === 'SALARY' ? Number(monthlySalary) : undefined,
+        ...(isEdit ? {} : { currencyId: currencyId || null }),
       };
       const result = isEdit
         ? await api.patch(`/doctors/${record.id}`, payload)
@@ -75,9 +87,9 @@ export default function DoctorForm({ record, onSaved }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <input type="text" placeholder={t('doctor_name')} value={name} onChange={(e) => setName(e.target.value)} required />
-      <input type="text" placeholder={t('doctor_phone')} value={phone} onChange={(e) => setPhone(e.target.value)} />
-      <div>
+      <input type="text" className="dc-field-name" placeholder={t('doctor_name')} value={name} onChange={(e) => setName(e.target.value)} required />
+      <input type="text" className="dc-field-phone" placeholder={t('doctor_phone')} value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <div className="dc-form-field dc-field-select-md">
         <label>{t('doctor_compensation_type')}</label>
         <select value={compensationType} onChange={(e) => setCompensationType(e.target.value)}>
           <option value="SALARY">{t('doctor_compensation_salary')}</option>
@@ -87,6 +99,7 @@ export default function DoctorForm({ record, onSaved }) {
       </div>
       {compensationType === 'PERCENTAGE' && (
         <ClinicNumberInput
+          className="dc-field-percent"
           min="0"
           max="100"
           step="0.5"
@@ -99,6 +112,7 @@ export default function DoctorForm({ record, onSaved }) {
       {compensationType === 'SALARY' && (
         <ClinicNumberInput
           showCurrency
+          className="dc-field-amount"
           min="0"
           step="0.01"
           placeholder={t('doctor_monthly_salary')}
@@ -106,6 +120,17 @@ export default function DoctorForm({ record, onSaved }) {
           onChange={setMonthlySalary}
           required
         />
+      )}
+      {!isEdit && (
+        <>
+          <CurrencySelect
+            label={t('account_currency')}
+            value={currencyId}
+            onChange={setCurrencyId}
+            currencies={currencies}
+          />
+          <p className="dc-muted text-sm">{t('account_currency_default_hint')}</p>
+        </>
       )}
       {error && <div className="dc-error">{error}</div>}
       <button type="submit" disabled={submitting}>
