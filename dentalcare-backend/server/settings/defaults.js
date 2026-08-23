@@ -1,5 +1,6 @@
 const { publicAiSettings } = require('./aiConfig');
 const { publicWhatsappSettings } = require('../whatsapp/config');
+const { letterheadLayoutFromRow } = require('./letterheadLayout');
 
 const DEFAULT_TREATMENTS = [
   ['كشف', 50, 1],
@@ -72,6 +73,7 @@ function publicSettings(row) {
       numberDigits: 'western',
       timeFormat: '12h',
       printHeaderText: '',
+      letterheadLayout: letterheadLayoutFromRow(null),
       hasLetterhead: false,
       ...publicAiSettings(null),
       ...publicWhatsappSettings(null),
@@ -94,6 +96,7 @@ function publicSettings(row) {
     numberDigits: digits,
     timeFormat: timeFmt,
     printHeaderText: row.print_header_text || '',
+    letterheadLayout: letterheadLayoutFromRow(row),
     hasLetterhead: Boolean(row.has_letterhead || row.letterhead_bytes),
     letterheadMime: row.letterhead_mime || null,
     ...publicAiSettings(row),

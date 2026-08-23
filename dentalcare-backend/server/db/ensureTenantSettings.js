@@ -61,7 +61,8 @@ ALTER TABLE tenant_settings
   ADD COLUMN IF NOT EXISTS currency_rates_confirmed_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS role_permission_defaults JSONB,
   ADD COLUMN IF NOT EXISTS number_digits VARCHAR(16) NOT NULL DEFAULT 'western',
-  ADD COLUMN IF NOT EXISTS time_format VARCHAR(8) NOT NULL DEFAULT '12h';
+  ADD COLUMN IF NOT EXISTS time_format VARCHAR(8) NOT NULL DEFAULT '12h',
+  ADD COLUMN IF NOT EXISTS letterhead_layout JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 DROP POLICY IF EXISTS tenant_isolation_settings ON tenant_settings;
 CREATE POLICY tenant_isolation_settings ON tenant_settings

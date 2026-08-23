@@ -6,6 +6,8 @@ import { useSettings } from '../context/SettingsContext';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { DEFAULT_QUICK_ACTIONS, QUICK_ACTION_CATALOG, normalizeQuickActions } from '../lib/quickActions';
 import FavoritesSettings from '../components/FavoritesSettings';
+import FormatSettings from '../components/FormatSettings';
+import LetterheadSettings from '../components/LetterheadSettings';
 import PartyModal from '../components/PartyModal';
 import Doctors from './Doctors';
 import { localizedDisplay, localizedEditValue, localizedPayload } from '../lib/localizedName';
@@ -51,7 +53,7 @@ const DOC_NUMBERING_SERIES = [
 export default function SettingsPage({ onAccountsChanged }) {
   const { t, i18n } = useTranslation();
   const { user, refreshUser, avatarUrl, bumpAvatar } = useAuth();
-  const { settings, reload, isOwner, letterheadUrl, money } = useSettings();
+  const { settings, reload, isOwner, letterheadUrl, money, date } = useSettings();
   const { currencies, reload: reloadCurrencies } = useCurrencies();
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [formatForm, setFormatForm] = useState(null);
@@ -171,6 +173,7 @@ export default function SettingsPage({ onAccountsChanged }) {
       numberDigits: settings.numberDigits || 'western',
       timeFormat: settings.timeFormat || '12h',
       printHeaderText: settings.printHeaderText,
+      letterheadLayout: settings.letterheadLayout,
       patientsPrefix: settings.patientsPrefix || 'C',
       patientsWidth: settings.patientsWidth || 5,
       patientsNext: settings.patientsNext || 1,
@@ -935,86 +938,15 @@ export default function SettingsPage({ onAccountsChanged }) {
       )}
 
       {activeTab === 'format' && isOwner && formatForm && (
-        <section className="dc-settings-panel">
-          <h4>{t('settings_format_title')}</h4>
-          <p className="dc-muted text-sm">{t('settings_format_hint')}</p>
-          <form onSubmit={saveFormat} className="dc-settings-form">
-            <label>
-              {t('settings_number_digits')}
-              <select
-                value={formatForm.numberDigits || 'western'}
-                onChange={(e) => setFormatForm((p) => ({ ...p, numberDigits: e.target.value }))}
-              >
-                <option value="western">{t('settings_number_digits_western')}</option>
-                <option value="eastern">{t('settings_number_digits_eastern')}</option>
-              </select>
-            </label>
-            <p className="dc-muted text-sm">{t('settings_number_digits_hint')}</p>
-            <label>
-              {t('settings_time_format')}
-              <select
-                value={formatForm.timeFormat || '12h'}
-                onChange={(e) => setFormatForm((p) => ({ ...p, timeFormat: e.target.value }))}
-              >
-                <option value="12h">{t('settings_time_format_12h')}</option>
-                <option value="24h">{t('settings_time_format_24h')}</option>
-              </select>
-            </label>
-            <p className="dc-muted text-sm">{t('settings_time_format_hint')}</p>
-            <label>
-              {t('settings_date_format')}
-              <select
-                value={formatForm.dateFormat}
-                onChange={(e) => setFormatForm((p) => ({ ...p, dateFormat: e.target.value }))}
-              >
-                {(settings.dateFormats || []).map((fmt) => (
-                  <option key={fmt} value={fmt}>{fmt}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t('settings_base_currency')}
-              <select
-                value={formatForm.baseCurrencyId || ''}
-                onChange={(e) => setFormatForm((p) => ({ ...p, baseCurrencyId: e.target.value }))}
-                required
-              >
-                <option value="">{t('doc_currency_choose')}</option>
-                {currencies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code} — {c.symbol} — {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="dc-muted text-sm">{t('settings_base_currency_hint')}</p>
-            <label>
-              {t('settings_decimals')}
-              <input
-                type="number"
-                min="0"
-                max="4"
-                value={formatForm.decimalPlaces}
-                onChange={(e) => setFormatForm((p) => ({ ...p, decimalPlaces: Number(e.target.value) }))}
-              />
-            </label>
-            <label>
-              {t('settings_thousands')}
-              <input
-                value={formatForm.thousandsSeparator}
-                onChange={(e) => setFormatForm((p) => ({ ...p, thousandsSeparator: e.target.value }))}
-              />
-            </label>
-            <label>
-              {t('settings_decimal_sep')}
-              <input
-                value={formatForm.decimalSeparator}
-                onChange={(e) => setFormatForm((p) => ({ ...p, decimalSeparator: e.target.value }))}
-              />
-            </label>
-            <button type="submit" disabled={saving}>{t('settings_save_format')}</button>
-          </form>
-        </section>
+        <FormatSettings
+          formatForm={formatForm}
+          setFormatForm={setFormatForm}
+          dateFormats={settings.dateFormats || []}
+          currencies={currencies}
+          onSave={saveFormat}
+          saving={saving}
+          locale={i18n.language}
+        />
       )}
 
       {activeTab === 'numbering' && isOwner && formatForm && (
@@ -1070,78 +1002,23 @@ export default function SettingsPage({ onAccountsChanged }) {
         </section>
       )}
 
-      {activeTab === 'letterhead' && isOwner && (
-        <section className="dc-settings-panel">
-          <h4>{t('settings_letterhead_title')}</h4>
-          <p className="dc-muted text-sm">{t('settings_letterhead_hint')}</p>
-
-          <div className="dc-letterhead-preview">
-            <div className="dc-letterhead-preview-label">{t('settings_letterhead_preview')}</div>
-            {(formatForm?.printHeaderText || '').trim() && (
-              <div className="dc-letterhead-preview-text">
-                {(formatForm.printHeaderText || '').split('\n').map((line, i) => (
-                  <div key={i}>{line || '\u00A0'}</div>
-                ))}
-              </div>
-            )}
-            {settings.hasLetterhead && letterheadUrl && !(settings.letterheadMime || '').includes('pdf') && (
-              <img
-                className="dc-letterhead-preview-img"
-                src={letterheadUrl}
-                alt={t('settings_letterhead_title')}
-              />
-            )}
-            {settings.hasLetterhead && letterheadUrl && (settings.letterheadMime || '').includes('pdf') && (
-              <div className="dc-letterhead-preview-pdf">
-                <i className="fa-solid fa-file-pdf" />
-                <span>{t('print_pdf_letterhead_note')}</span>
-                <a href={letterheadUrl} target="_blank" rel="noreferrer">
-                  {t('settings_letterhead_open_pdf')}
-                </a>
-              </div>
-            )}
-            {!settings.hasLetterhead && !(formatForm?.printHeaderText || '').trim() && (
-              <div className="dc-muted text-sm">{t('settings_letterhead_empty')}</div>
-            )}
-          </div>
-
-          <label className="dc-settings-form" style={{ maxWidth: 560 }}>
-            {t('settings_letterhead_text')}
-            <textarea
-              rows={4}
-              placeholder={t('settings_letterhead_text')}
-              value={formatForm?.printHeaderText || ''}
-              onChange={(e) => setFormatForm((p) => ({ ...p, printHeaderText: e.target.value }))}
-            />
-          </label>
-          <div>
-            <button type="button" onClick={saveFormat} disabled={saving}>
-              {t('settings_save_letterhead_text')}
-            </button>
-          </div>
-
-          <div className="dc-letterhead-file-actions">
-            <label className="dc-letterhead-upload">
-              <i className="fa-solid fa-camera" />
-              <span>
-                {settings.hasLetterhead
-                  ? t('settings_letterhead_replace')
-                  : t('settings_letterhead_file')}
-              </span>
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp,application/pdf"
-                className="dc-sr-only"
-                onChange={uploadLetterhead}
-              />
-            </label>
-            {settings.hasLetterhead && (
-              <button type="button" className="dc-danger" onClick={removeLetterhead}>
-                {t('settings_letterhead_remove')}
-              </button>
-            )}
-          </div>
-        </section>
+      {activeTab === 'letterhead' && isOwner && formatForm && (
+        <LetterheadSettings
+          headerText={formatForm.printHeaderText || ''}
+          onHeaderTextChange={(text) => setFormatForm((p) => ({ ...p, printHeaderText: text }))}
+          letterheadLayout={formatForm.letterheadLayout}
+          onLayoutChange={(letterheadLayout) => setFormatForm((p) => ({ ...p, letterheadLayout }))}
+          onSave={saveFormat}
+          saving={saving}
+          hasLetterhead={settings.hasLetterhead}
+          letterheadUrl={letterheadUrl}
+          letterheadMime={settings.letterheadMime}
+          onUpload={uploadLetterhead}
+          onRemove={removeLetterhead}
+          formatMoney={money}
+          formatDate={date}
+          clinicName={user?.clinicName || user?.name || ''}
+        />
       )}
 
       {activeTab === 'ai' && isOwner && (

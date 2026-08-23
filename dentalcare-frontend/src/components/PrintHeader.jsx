@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useSettings } from '../context/SettingsContext';
+import LetterheadHeaderBlock from './LetterheadHeaderBlock';
 
 export default function PrintHeader({ title, subtitle }) {
   const { t } = useTranslation();
@@ -7,20 +8,17 @@ export default function PrintHeader({ title, subtitle }) {
   const isPdf = (settings.letterheadMime || '').includes('pdf');
 
   return (
-    <div className="print-header">
-      {letterheadUrl && !isPdf && (
-        <img className="print-letterhead-img" src={letterheadUrl} alt="" />
-      )}
-      {letterheadUrl && isPdf && (
-        <div className="print-muted">{t('print_pdf_letterhead_note')}</div>
-      )}
-      {settings.printHeaderText && (
-        <div className="print-header-text">{settings.printHeaderText}</div>
-      )}
-      <h2 className="print-title">{title}</h2>
-      {subtitle ? <div className="print-subtitle">{subtitle}</div> : null}
-      <div className="print-muted">{date(new Date().toISOString().slice(0, 10))}</div>
-    </div>
+    <LetterheadHeaderBlock
+      layout={settings.letterheadLayout}
+      letterheadUrl={letterheadUrl}
+      isPdf={isPdf}
+      hasLetterhead={settings.hasLetterhead}
+      headerText={settings.printHeaderText}
+      title={title}
+      subtitle={subtitle}
+      dateLabel={date(new Date().toISOString().slice(0, 10))}
+      pdfNoteLabel={t('print_pdf_letterhead_note')}
+    />
   );
 }
 
