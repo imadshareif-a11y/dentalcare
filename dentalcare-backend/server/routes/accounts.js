@@ -100,14 +100,14 @@ router.get('/accounts/picker', requireAuth, requireClinicContext, VOUCHER_CONTEX
           COALESCE(SUM(l.debit), 0) AS total_debit,
           COALESCE(SUM(l.credit), 0) AS total_credit
         FROM chart_of_accounts a
-        INNER JOIN parties p ON p.account_id = a.id
+        INNER JOIN parties p ON p.account_id = a.id AND p.tenant_id = a.tenant_id
         LEFT JOIN journal_entry_lines l ON l.account_id = a.id
-        WHERE a.is_active = TRUE
+        WHERE a.tenant_id = $1 AND a.is_active = TRUE
         GROUP BY a.id, a.account_code, a.account_type,
                  a.account_name_ar, a.account_name_en, a.account_name_he,
                  p.party_type, p.name
         ORDER BY p.party_type ASC, p.name ASC
-      `);
+      `, [req.user.tenantId]);
 
       const parties = dedupeChartRows(partiesResult.rows)
         .map((row) => mapPickerRow(row, locale));
@@ -122,15 +122,15 @@ router.get('/accounts/picker', requireAuth, requireClinicContext, VOUCHER_CONTEX
             COALESCE(SUM(l.debit), 0) AS total_debit,
             COALESCE(SUM(l.credit), 0) AS total_credit
           FROM chart_of_accounts a
-          LEFT JOIN parties p ON p.account_id = a.id
+          LEFT JOIN parties p ON p.account_id = a.id AND p.tenant_id = a.tenant_id
           LEFT JOIN journal_entry_lines l ON l.account_id = a.id
-          WHERE a.is_active = TRUE
+          WHERE a.tenant_id = $1 AND a.is_active = TRUE
             AND p.id IS NULL
             AND a.account_type IN ('EXPENSE', 'REVENUE', 'ASSET')
           GROUP BY a.id, a.account_code, a.account_type,
                    a.account_name_ar, a.account_name_en, a.account_name_he
           ORDER BY a.account_code ASC
-        `);
+        `, [req.user.tenantId]);
         others = dedupeChartRows(othersResult.rows)
           .map((row) => mapPickerRow(row, locale));
       }
@@ -155,9 +155,9 @@ router.get('/accounts/:accountId/voucher-context', requireAuth, requireClinicCon
                 a.account_name_ar, a.account_name_en, a.account_name_he,
                 p.party_type, p.name AS party_name
          FROM chart_of_accounts a
-         LEFT JOIN parties p ON p.account_id = a.id
-         WHERE a.id = $1 AND a.is_active = TRUE`,
-        [accountId]
+         LEFT JOIN parties p ON p.account_id = a.id AND p.tenant_id = a.tenant_id
+         WHERE a.id = $1 AND a.tenant_id = $2 AND a.is_active = TRUE`,
+        [accountId, req.user.tenantId]
       );
       if (accountResult.rowCount === 0) {
         throw Object.assign(new Error('الحساب غير موجود'), { statusCode: 404 });
@@ -170,8 +170,8 @@ router.get('/accounts/:accountId/voucher-context', requireAuth, requireClinicCon
                 COALESCE(SUM(l.credit), 0) AS total_credit
          FROM journal_entry_lines l
          JOIN journal_entries e ON e.id = l.journal_entry_id
-         WHERE l.account_id = $1`,
-        [accountId]
+         WHERE l.account_id = $1 AND e.tenant_id = $2`,
+        [accountId, req.user.tenantId]
       );
       const { total_debit: totalDebit, total_credit: totalCredit } = balanceResult.rows[0];
 

@@ -6,21 +6,21 @@ const {
 } = require('../lib/toothConditions');
 const { listToothConditions } = require('../db/ensureToothConditions');
 
-async function assertPatient(client, patientId) {
+async function assertPatient(client, tenantId, patientId) {
   const result = await client.query(
-    `SELECT id FROM parties WHERE id = $1 AND party_type = 'PATIENT'`,
-    [patientId]
+    `SELECT id FROM parties WHERE id = $1 AND tenant_id = $2 AND party_type = 'PATIENT'`,
+    [patientId, tenantId]
   );
   if (result.rowCount === 0) {
     throw Object.assign(new Error('المريض غير موجود'), { statusCode: 404 });
   }
 }
 
-async function assertDoctor(client, doctorId) {
+async function assertDoctor(client, tenantId, doctorId) {
   if (!doctorId) return null;
   const result = await client.query(
-    `SELECT id FROM parties WHERE id = $1::uuid AND party_type = 'DOCTOR'`,
-    [doctorId]
+    `SELECT id FROM parties WHERE id = $1::uuid AND tenant_id = $2 AND party_type = 'DOCTOR'`,
+    [doctorId, tenantId]
   );
   if (result.rowCount === 0) {
     throw Object.assign(new Error('الطبيب غير موجود'), { statusCode: 400 });
@@ -305,7 +305,7 @@ async function saveTreatmentPlan(client, tenantId, patientId, body) {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId);
     const costValue = Number.isFinite(cost) ? cost : 0;
     const catalogId = item.catalogId || null;
-    const doctorId = await assertDoctor(client, item.doctorId || item.doctor_id || null);
+    const doctorId = await assertDoctor(client, tenantId, item.doctorId || item.doctor_id || null);
     if (!doctorId) {
       throw Object.assign(new Error('يجب تحديد الطبيب لكل بند في الخطة العلاجية'), { statusCode: 400 });
     }
@@ -356,7 +356,7 @@ async function saveTreatmentPlan(client, tenantId, patientId, body) {
 }
 
 async function updatePlanItemDoctor(client, tenantId, patientId, itemId, doctorIdRaw) {
-  const doctorId = await assertDoctor(client, doctorIdRaw);
+  const doctorId = await assertDoctor(client, tenantId, doctorIdRaw);
   if (!doctorId) {
     throw Object.assign(new Error('يجب تحديد الطبيب'), { statusCode: 400 });
   }

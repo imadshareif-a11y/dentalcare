@@ -62,7 +62,7 @@ router.get(
     try {
       await ensureToothChartSchema();
       const data = await withTenantClient(req.user.tenantId, async (client) => {
-        await assertPatient(client, req.params.patientId);
+        await assertPatient(client, req.user.tenantId, req.params.patientId);
         return loadToothChart(client, req.user.tenantId, req.params.patientId);
       });
       res.json(data);
@@ -82,7 +82,7 @@ router.put(
     try {
       await ensureToothChartSchema();
       const result = await withTenantClient(req.user.tenantId, async (client) => {
-        await assertPatient(client, req.params.patientId);
+        await assertPatient(client, req.user.tenantId, req.params.patientId);
         await setToothCurrent(
           client,
           req.user.tenantId,
@@ -112,7 +112,7 @@ router.get(
     try {
       await ensureToothChartSchema();
       const data = await withTenantClient(req.user.tenantId, async (client) => {
-        await assertPatient(client, req.params.patientId);
+        await assertPatient(client, req.user.tenantId, req.params.patientId);
         return loadTreatmentPlan(client, req.user.tenantId, req.params.patientId);
       });
       res.json(data);
@@ -132,7 +132,7 @@ router.put(
     try {
       await ensureToothChartSchema();
       const data = await withTenantClient(req.user.tenantId, async (client) => {
-        await assertPatient(client, req.params.patientId);
+        await assertPatient(client, req.user.tenantId, req.params.patientId);
         return saveTreatmentPlan(client, req.user.tenantId, req.params.patientId, req.body);
       });
       res.json(data);
@@ -153,7 +153,7 @@ router.patch(
     try {
       await ensureToothChartSchema();
       const data = await withTenantClient(req.user.tenantId, async (client) => {
-        await assertPatient(client, req.params.patientId);
+        await assertPatient(client, req.user.tenantId, req.params.patientId);
         return updatePlanItemDoctor(
           client,
           req.user.tenantId,
@@ -180,7 +180,7 @@ router.post(
     try {
       await ensureToothChartSchema();
       const data = await withTenantClient(req.user.tenantId, async (client) => {
-        await assertPatient(client, req.params.patientId);
+        await assertPatient(client, req.user.tenantId, req.params.patientId);
         return completePlanItemAndChart(
           client,
           req.user.tenantId,
@@ -206,7 +206,7 @@ router.get(
     try {
       await ensureToothChartSchema();
       const data = await withTenantClient(req.user.tenantId, async (client) => {
-        await assertPatient(client, req.params.patientId);
+        await assertPatient(client, req.user.tenantId, req.params.patientId);
         return loadPlanReport(client, req.user.tenantId, req.params.patientId);
       });
       res.json(data);
@@ -256,8 +256,8 @@ router.post(
 
       const patientAccountId = await withTenantClient(req.user.tenantId, async (client) => {
         const result = await client.query(
-          `SELECT account_id FROM parties WHERE id = $1 AND party_type = 'PATIENT'`,
-          [patientId]
+          `SELECT account_id FROM parties WHERE id = $1 AND tenant_id = $2 AND party_type = 'PATIENT'`,
+          [patientId, req.user.tenantId]
         );
         if (result.rows.length === 0 || !result.rows[0].account_id) {
           throw new Error('لا يوجد حساب ذمة مرتبط بهذا المريض');

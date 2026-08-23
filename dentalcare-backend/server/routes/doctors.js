@@ -152,12 +152,12 @@ router.get('/doctors', requireAuth, requirePermission('doctors', 'view'), async 
           d.compensation_type, d.percentage_rate, d.monthly_salary,
           COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS balance
         FROM doctors d
-        JOIN parties p ON p.id = d.party_id
+        JOIN parties p ON p.id = d.party_id AND p.tenant_id = d.tenant_id
         LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
-        WHERE p.party_type = 'DOCTOR'
+        WHERE d.tenant_id = $1 AND p.party_type = 'DOCTOR'
         GROUP BY p.id, p.name, p.phone, d.compensation_type, d.percentage_rate, d.monthly_salary
         ORDER BY p.name ASC
-      `);
+      `, [req.user.tenantId]);
       return result.rows;
     });
     res.json(doctors);

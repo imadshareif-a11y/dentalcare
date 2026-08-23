@@ -88,10 +88,10 @@ router.get('/employees', requireAuth, requirePermission('employees', 'view'), as
           COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS balance
         FROM parties p
         LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
-        WHERE p.party_type = 'EMPLOYEE'
+        WHERE p.tenant_id = $1 AND p.party_type = 'EMPLOYEE'
         GROUP BY p.id, p.name, p.phone, p.account_id
         ORDER BY p.name ASC
-      `);
+      `, [req.user.tenantId]);
       return result.rows;
     });
     res.json(employees);

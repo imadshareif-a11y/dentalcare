@@ -36,8 +36,8 @@ async function resolvePatientId(tenantId, { patientId, patientAccountId }) {
   if (!patientAccountId) return null;
   return withTenantClient(tenantId, async (client) => {
     const r = await client.query(
-      `SELECT id FROM parties WHERE account_id = $1 AND party_type = 'PATIENT' LIMIT 1`,
-      [patientAccountId]
+      `SELECT id FROM parties WHERE account_id = $1 AND tenant_id = $2 AND party_type = 'PATIENT' LIMIT 1`,
+      [patientAccountId, tenantId]
     );
     return r.rows[0]?.id || null;
   });
@@ -102,8 +102,8 @@ async function loadPatient(tenantId, patientId) {
   return withTenantClient(tenantId, async (client) => {
     const r = await client.query(
       `SELECT id, name, phone, account_id FROM parties
-       WHERE id = $1 AND party_type = 'PATIENT'`,
-      [patientId]
+       WHERE id = $1 AND tenant_id = $2 AND party_type = 'PATIENT'`,
+      [patientId, tenantId]
     );
     return r.rows[0] || null;
   });
@@ -115,9 +115,9 @@ async function loadAppointment(tenantId, appointmentId) {
       `SELECT a.id, a.patient_id, a.appointment_date, a.slot, a.status,
               p.name AS patient_name, p.phone
        FROM appointments a
-       JOIN parties p ON p.id = a.patient_id
-       WHERE a.id = $1`,
-      [appointmentId]
+       JOIN parties p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
+       WHERE a.id = $1 AND a.tenant_id = $2`,
+      [appointmentId, tenantId]
     );
     return r.rows[0] || null;
   });

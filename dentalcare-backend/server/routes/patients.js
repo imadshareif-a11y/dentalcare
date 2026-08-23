@@ -101,8 +101,9 @@ router.patch(
     try {
       await withTenantClient(req.user.tenantId, async (client) => {
         const existing = await client.query(
-          `SELECT id, account_id FROM parties WHERE id = $1 AND party_type = 'PATIENT'`,
-          [req.params.id]
+          `SELECT id, account_id FROM parties
+           WHERE id = $1 AND tenant_id = $2 AND party_type = 'PATIENT'`,
+          [req.params.id, req.user.tenantId]
         );
         if (existing.rowCount === 0) {
           throw Object.assign(new Error('المريض غير موجود'), { statusCode: 404 });
@@ -111,10 +112,10 @@ router.patch(
         await client.query(
           `UPDATE parties
            SET name = $2, phone = $3, address = $4, medical_notes = $5, birth_date = $6, gender = $7
-           WHERE id = $1`,
+           WHERE id = $1 AND tenant_id = $8`,
           [
             req.params.id, name.trim(), phone || null, address || null,
-            medicalNotes || null, birthDate, gender,
+            medicalNotes || null, birthDate, gender, req.user.tenantId,
           ]
         );
         await syncPartyAccountName(client, accountId, 'PATIENT', name.trim());

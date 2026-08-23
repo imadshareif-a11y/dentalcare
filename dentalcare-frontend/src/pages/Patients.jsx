@@ -4,10 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import PatientForm from '../components/PatientForm';
 import PartyModal from '../components/PartyModal';
+import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 
 export default function Patients({ canEdit = true, onAccountsChanged, onOpenClinical }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const { money } = useSettings();
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -43,11 +45,12 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, user?.id, user?.tenantId]);
 
   useEffect(() => {
+    setPatients([]);
     loadPatients();
-  }, [loadPatients]);
+  }, [loadPatients, user?.id, user?.tenantId]);
 
   function openAdd() {
     setEditing(null);

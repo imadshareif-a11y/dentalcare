@@ -40,10 +40,10 @@ function rangesOverlap(startA, endA, startB, endB) {
   return a0 <= b1 && b0 <= a1;
 }
 
-async function assertDoctor(client, doctorId) {
+async function assertDoctor(client, tenantId, doctorId) {
   const result = await client.query(
-    `SELECT id FROM parties WHERE id = $1 AND party_type = 'DOCTOR'`,
-    [doctorId]
+    `SELECT id FROM parties WHERE id = $1 AND tenant_id = $2 AND party_type = 'DOCTOR'`,
+    [doctorId, tenantId]
   );
   if (result.rowCount === 0) {
     throw Object.assign(new Error('الطبيب غير موجود'), { statusCode: 400 });
@@ -60,12 +60,12 @@ async function assertRoom(client, tenantId, roomId) {
   }
 }
 
-async function assertNoOverlap(client, { day, doctorId, roomId, slot, endSlot, excludeId = null }) {
+async function assertNoOverlap(client, tenantId, { day, doctorId, roomId, slot, endSlot, excludeId = null }) {
   const existing = await client.query(
     `SELECT id, slot, end_slot, doctor_id, room_id
      FROM appointments
-     WHERE appointment_date = $1::date AND status <> 'CANCELLED'`,
-    [day]
+     WHERE tenant_id = $1 AND appointment_date = $2::date AND status <> 'CANCELLED'`,
+    [tenantId, day]
   );
   for (const row of existing.rows) {
     if (excludeId && String(row.id) === String(excludeId)) continue;
@@ -90,8 +90,8 @@ router.get(
     try {
       await ensureAppointmentsSchema();
       const rows = await withTenantClient(req.user.tenantId, async (client) => {
-        const params = [day];
-        let extraFilter = '';
+        const params = [req.user.tenantId, day];
+        let extraFilter = ' AND a.tenant_id = $1';
         if (doctorId) {
           params.push(doctorId);
           extraFilter += ` AND a.doctor_id = $${params.length}`;
@@ -116,9 +116,9 @@ router.get(
                   tpi.condition_code AS plan_condition_code,
                   pending.pending_plan
              FROM appointments a
-             JOIN parties p ON p.id = a.patient_id
-             LEFT JOIN parties d ON d.id = a.doctor_id
-             LEFT JOIN rooms r ON r.id = a.room_id
+             JOIN parties p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
+             LEFT JOIN parties d ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id
+             LEFT JOIN rooms r ON r.id = a.room_id AND r.tenant_id = a.tenant_id
              LEFT JOIN treatment_plan_items tpi ON tpi.id = a.plan_item_id
              LEFT JOIN LATERAL (
                SELECT string_agg('#' || tpi2.tooth_fdi || ' ' || tpi2.name, ' · ' ORDER BY tpi2.sort_order) AS pending_plan
@@ -129,7 +129,7 @@ router.get(
                  AND tp.status = 'ACTIVE'
                  AND tpi2.status IN ('PLANNED', 'IN_PROGRESS')
              ) pending ON TRUE
-             WHERE a.appointment_date = $1::date${extraFilter}
+             WHERE a.appointment_date = $2::date${extraFilter}
              ORDER BY a.slot ASC, d.name ASC NULLS LAST, r.name ASC NULLS LAST`
           : `SELECT a.id, a.patient_id, a.doctor_id, a.room_id, a.starts_at, a.notes, a.status,
                   a.appointment_date::text AS appointment_date, a.slot, COALESCE(a.end_slot, a.slot) AS end_slot,
@@ -140,10 +140,10 @@ router.get(
                   NULL::varchar AS plan_condition_code,
                   NULL::text AS pending_plan
              FROM appointments a
-             JOIN parties p ON p.id = a.patient_id
-             LEFT JOIN parties d ON d.id = a.doctor_id
-             LEFT JOIN rooms r ON r.id = a.room_id
-             WHERE a.appointment_date = $1::date${extraFilter}
+             JOIN parties p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
+             LEFT JOIN parties d ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id
+             LEFT JOIN rooms r ON r.id = a.room_id AND r.tenant_id = a.tenant_id
+             WHERE a.appointment_date = $2::date${extraFilter}
              ORDER BY a.slot ASC, d.name ASC NULLS LAST, r.name ASC NULLS LAST`;
 
         const result = await client.query(sql, params);
@@ -174,9 +174,9 @@ router.post(
     try {
       await ensureAppointmentsSchema();
       const row = await withTenantClient(req.user.tenantId, async (client) => {
-        await assertDoctor(client, doctorId);
+        await assertDoctor(client, req.user.tenantId, doctorId);
         await assertRoom(client, req.user.tenantId, roomId);
-        await assertNoOverlap(client, { day, doctorId, roomId, slot, endSlot });
+        await assertNoOverlap(client, req.user.tenantId, { day, doctorId, roomId, slot, endSlot });
 
         let linkedPlanItemId = null;
         if (planItemId) {
@@ -323,10 +323,10 @@ router.patch(
         }
 
         if (wantsReschedule) {
-          await assertDoctor(client, nextDoctorId);
+          await assertDoctor(client, req.user.tenantId, nextDoctorId);
           await assertRoom(client, req.user.tenantId, nextRoomId);
           if (nextStatus !== 'CANCELLED') {
-            await assertNoOverlap(client, {
+            await assertNoOverlap(client, req.user.tenantId, {
               day: nextDay,
               doctorId: nextDoctorId,
               roomId: nextRoomId,

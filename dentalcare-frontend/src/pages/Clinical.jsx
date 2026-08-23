@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import { useSettings } from '../context/SettingsContext';
+import { useAuth } from '../context/AuthContext';
 import PrintHeader from '../components/PrintHeader';
 import PatientForm from '../components/PatientForm';
 import DentalChart from '../components/DentalChart';
@@ -207,6 +208,7 @@ export default function Clinical({
   focusPatientNonce = 0,
 }) {
   const { t, i18n } = useTranslation();
+  const { user } = useAuth();
   const { money, date, time, timeRange, settings } = useSettings();
   const waEnabled = Boolean(settings?.waEnabled);
   const revenueAccounts = accounts.filter((a) => a.account_type === 'REVENUE');
@@ -304,8 +306,9 @@ export default function Clinical({
   }, [focusPatientId, focusPatientNonce]);
 
   useEffect(() => {
+    setPatients([]);
     api.get('/patients').then(setPatients).catch(() => setPatients([]));
-  }, []);
+  }, [user?.id, user?.tenantId]);
 
   useEffect(() => {
     api.get('/tooth-conditions', { activeOnly: 1 })
