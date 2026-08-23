@@ -10,6 +10,7 @@ const { withSystemClient } = require('../db/pool');
 const { bootstrapClinic, slugifyClinicName, OWNER_PERMISSIONS } = require('../tenants/bootstrap');
 const { purgeTenant, mapDeleteError } = require('../tenants/purgeTenant');
 const { parseDateInput, todayUTC, defaultActiveUntil } = require('../tenants/access');
+const { startLoginSession } = require('../services/userSessions');
 
 router.use('/platform', requireAuth, requireSuperAdmin);
 
@@ -43,6 +44,17 @@ router.get('/platform/tenants', async (req, res) => {
   } catch (err) {
     console.error('Listing tenants failed:', err);
     res.status(500).json({ error: 'تعذّر جلب قائمة العيادات' });
+  }
+});
+
+router.get('/platform/monitoring', async (req, res) => {
+  try {
+    const { fetchPlatformMonitoring } = require('../services/userSessions');
+    const data = await withSystemClient(async (client) => fetchPlatformMonitoring(client));
+    res.json(data);
+  } catch (err) {
+    console.error('Platform monitoring failed:', err);
+    res.status(500).json({ error: 'تعذّر تحميل شاشة المراقبة' });
   }
 });
 
@@ -224,6 +236,13 @@ router.post('/platform/tenants/:id/support-access', async (req, res) => {
       }
 
       const supportUser = userResult.rows[0];
+      const sessionId = await startLoginSession(client, {
+        user: { id: supportUser.id, tenant_id: tenant.id },
+        req,
+        expiresInMs: 4 * 60 * 60 * 1000,
+        sessionKind: 'SUPPORT',
+      });
+
       const token = jwt.sign(
         {
           userId: supportUser.id,
@@ -233,6 +252,7 @@ router.post('/platform/tenants/:id/support-access', async (req, res) => {
           supportMode: true,
           supportAdminId: req.user.userId,
           clinicName: tenant.name,
+          sessionId,
         },
         process.env.JWT_SECRET,
         { expiresIn: '4h' }

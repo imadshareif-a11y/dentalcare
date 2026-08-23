@@ -14,6 +14,24 @@ const SOURCE_LABEL_KEYS = {
   OPENING: 'admin_source_opening',
 };
 
+const AUTH_EVENT_KEYS = {
+  LOGIN_SUCCESS: 'admin_auth_login',
+  LOGOUT: 'admin_auth_logout',
+  LOGIN_FAILED: 'admin_auth_login_failed',
+};
+
+const ROLE_KEYS = {
+  OWNER: 'user_role_owner',
+  ACCOUNTANT: 'user_role_accountant',
+  DOCTOR: 'user_role_doctor',
+  RECEPTIONIST: 'user_role_receptionist',
+};
+
+function roleLabel(role, t) {
+  const key = ROLE_KEYS[role];
+  return key ? t(key) : (role || '—');
+}
+
 function formatTime(slot) {
   return String(slot || '').slice(0, 5) || '—';
 }
@@ -125,6 +143,13 @@ export default function AdminDashboard() {
             </span>
           </div>
         </article>
+        <article className="dc-admin-kpi is-users">
+          <span className="dc-admin-kpi-icon"><i className="fa-solid fa-users" /></span>
+          <div>
+            <span className="dc-admin-kpi-label">{t('admin_kpi_online_users')}</span>
+            <strong>{summary.onlineUsers ?? 0}</strong>
+          </div>
+        </article>
       </div>
 
       <div className="dc-admin-main-grid">
@@ -218,6 +243,65 @@ export default function AdminDashboard() {
                   <span className="dc-muted">
                     {dateTime(row.createdAt)}
                   </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="dc-admin-main-grid">
+        <section className="dc-admin-panel">
+          <div className="dc-admin-panel-head">
+            <h3><i className="fa-solid fa-circle-dot" /> {t('admin_online_users_title')}</h3>
+            <span className="dc-badge dc-badge-emerald">
+              {t('admin_live_now_count', { count: data?.activeUsers?.length || 0 })}
+            </span>
+          </div>
+          {(data?.activeUsers?.length || 0) === 0 ? (
+            <div className="dc-admin-empty">{t('admin_online_users_empty')}</div>
+          ) : (
+            <div className="dc-admin-online-list">
+              {data.activeUsers.map((u) => (
+                <article key={u.sessionId} className="dc-admin-online-row">
+                  <div className="dc-admin-online-main">
+                    <strong>{u.userName}</strong>
+                    <span className="dc-muted">@{u.username}</span>
+                  </div>
+                  <div className="dc-admin-online-meta">
+                    <span>{roleLabel(u.role, t)}</span>
+                    <span className="dc-muted">{dateTime(u.lastSeenAt)}</span>
+                    {u.ipAddress && <span className="dc-muted">{u.ipAddress}</span>}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="dc-admin-panel">
+          <div className="dc-admin-panel-head">
+            <h3><i className="fa-solid fa-right-to-bracket" /> {t('admin_auth_activity_title')}</h3>
+          </div>
+          <div className="dc-admin-activity-list">
+            {(data?.authEvents?.length || 0) === 0 && (
+              <div className="dc-admin-empty is-compact">{t('admin_auth_empty')}</div>
+            )}
+            {(data?.authEvents || []).map((row) => (
+              <article
+                key={row.id}
+                className={`dc-admin-activity-row dc-auth-event is-${String(row.eventType || '').toLowerCase()}`}
+              >
+                <div className="dc-admin-activity-main">
+                  <span className="dc-admin-activity-type">
+                    {t(AUTH_EVENT_KEYS[row.eventType] || row.eventType || '—')}
+                  </span>
+                  <span>{row.userName || row.username || '—'}</span>
+                </div>
+                <div className="dc-admin-activity-meta">
+                  {row.role && <span>{roleLabel(row.role, t)}</span>}
+                  {row.ipAddress && <span>{row.ipAddress}</span>}
+                  <span className="dc-muted">{dateTime(row.createdAt)}</span>
                 </div>
               </article>
             ))}

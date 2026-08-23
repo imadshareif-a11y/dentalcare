@@ -14,6 +14,12 @@ const { withSystemClient } = require('../db/pool');
 const { clinicAccessDeniedReason } = require('../tenants/access');
 const { requireAuth } = require('../middleware/auth');
 const { ensureUsersAvatarSchema } = require('../db/ensureUsersAvatar');
+const { ensureUserDoctorLinkSchema } = require('../db/ensureUserDoctorLink');
+const {
+  startLoginSession,
+  recordFailedLogin,
+  endSession,
+} = require('../services/userSessions');
 
 const avatarUpload = multer({
   storage: multer.memoryStorage(),
@@ -33,9 +39,19 @@ function publicUser(row, extras = {}) {
     permissions: row.permissions || {},
     preferences: row.preferences || {},
     hasAvatar: Boolean(row.has_avatar),
+    doctorPartyId: row.doctor_party_id || null,
+    doctorName: row.doctor_party_name || null,
     ...extras,
   };
 }
+
+const USER_PUBLIC_SELECT = `
+  u.id, u.tenant_id, u.name, u.username, u.role, u.locale, u.permissions,
+  COALESCE(u.preferences, '{}'::jsonb) AS preferences,
+  (u.avatar_bytes IS NOT NULL) AS has_avatar,
+  u.doctor_party_id,
+  dp.name AS doctor_party_name
+`;
 
 router.post('/auth/login', async (req, res) => {
   const { username, password } = req.body;
@@ -46,14 +62,14 @@ router.post('/auth/login', async (req, res) => {
 
   try {
     await ensureUsersAvatarSchema();
+    await ensureUserDoctorLinkSchema();
     const candidates = await withSystemClient(async (client) => {
       const result = await client.query(
-        `SELECT u.id, u.tenant_id, u.name, u.username, u.password_hash, u.role, u.locale, u.permissions,
-                COALESCE(u.preferences, '{}'::jsonb) AS preferences,
-                (u.avatar_bytes IS NOT NULL) AS has_avatar,
+        `SELECT ${USER_PUBLIC_SELECT}, u.password_hash,
                 t.status AS tenant_status, t.active_from, t.active_until
          FROM users u
          LEFT JOIN tenants t ON t.id = u.tenant_id
+         LEFT JOIN parties dp ON dp.id = u.doctor_party_id
          WHERE LOWER(u.username) = LOWER($1) AND u.is_active = TRUE`,
         [username.trim()]
       );
@@ -67,6 +83,9 @@ router.post('/auth/login', async (req, res) => {
     }
 
     if (matches.length === 0) {
+      await withSystemClient(async (client) => {
+        await recordFailedLogin(client, { username: username.trim(), req });
+      });
       return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
     }
     if (matches.length > 1) {
@@ -84,8 +103,17 @@ router.post('/auth/login', async (req, res) => {
       if (denied) return res.status(403).json({ error: denied });
     }
 
+    const sessionId = await withSystemClient(async (client) => {
+      return startLoginSession(client, {
+        user,
+        req,
+        expiresInMs: 12 * 60 * 60 * 1000,
+        sessionKind: 'NORMAL',
+      });
+    });
+
     const token = jwt.sign(
-      { userId: user.id, tenantId: user.tenant_id || null, role: user.role, locale: user.locale },
+      { userId: user.id, tenantId: user.tenant_id || null, role: user.role, locale: user.locale, sessionId },
       process.env.JWT_SECRET,
       { expiresIn: '12h' }
     );
@@ -100,18 +128,37 @@ router.post('/auth/login', async (req, res) => {
   }
 });
 
+router.post('/auth/logout', requireAuth, async (req, res) => {
+  try {
+    if (req.user.sessionId) {
+      await withSystemClient(async (client) => {
+        await endSession(client, {
+          sessionId: req.user.sessionId,
+          userId: req.user.userId,
+          tenantId: req.user.tenantId || null,
+          req,
+        });
+      });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Logout failed:', err);
+    res.status(500).json({ error: 'تعذّر تسجيل الخروج' });
+  }
+});
+
 // يحدّث صلاحيات الجلسة من قاعدة البيانات (بعد تعديل المدير أو migration)
 router.get('/auth/me', requireAuth, async (req, res) => {
   try {
     await ensureUsersAvatarSchema();
+    await ensureUserDoctorLinkSchema();
     const row = await withSystemClient(async (client) => {
       const result = await client.query(
-        `SELECT u.id, u.tenant_id, u.name, u.username, u.role, u.locale, u.permissions, u.is_active,
-                COALESCE(u.preferences, '{}'::jsonb) AS preferences,
-                (u.avatar_bytes IS NOT NULL) AS has_avatar,
+        `SELECT ${USER_PUBLIC_SELECT}, u.is_active,
                 t.status AS tenant_status, t.active_from, t.active_until
          FROM users u
          LEFT JOIN tenants t ON t.id = u.tenant_id
+         LEFT JOIN parties dp ON dp.id = u.doctor_party_id
          WHERE u.id = $1`,
         [req.user.userId]
       );

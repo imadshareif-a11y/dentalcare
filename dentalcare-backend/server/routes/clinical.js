@@ -229,7 +229,19 @@ router.post(
       ? appointmentId.trim()
       : null;
 
-    if (!patientId || !revenueAccountId || !Array.isArray(treatments) || treatments.length === 0) {
+    if (!patientId || !Array.isArray(treatments) || treatments.length === 0) {
+      return res.status(400).json({ error: 'بيانات الجلسة غير مكتملة' });
+    }
+
+    const sessionTotal = treatments.reduce((sum, t) => sum + Number(t.cost || 0), 0);
+    const stageProgressOnly = sessionTotal <= 0
+      && treatments.every((t) => t.stageId || t.stage_id);
+
+    if (sessionTotal <= 0 && !stageProgressOnly) {
+      return res.status(400).json({ error: 'إجمالي الجلسة يجب أن يكون أكبر من صفر' });
+    }
+
+    if (sessionTotal > 0 && !revenueAccountId) {
       return res.status(400).json({ error: 'بيانات الجلسة غير مكتملة' });
     }
 
@@ -254,20 +266,18 @@ router.post(
         });
       }
 
-      const patientAccountId = await withTenantClient(req.user.tenantId, async (client) => {
-        const result = await client.query(
-          `SELECT account_id FROM parties WHERE id = $1 AND tenant_id = $2 AND party_type = 'PATIENT'`,
-          [patientId, req.user.tenantId]
-        );
-        if (result.rows.length === 0 || !result.rows[0].account_id) {
-          throw new Error('لا يوجد حساب ذمة مرتبط بهذا المريض');
-        }
-        return result.rows[0].account_id;
-      });
-
-      const sessionTotal = treatments.reduce((sum, t) => sum + Number(t.cost || 0), 0);
-      if (sessionTotal <= 0) {
-        return res.status(400).json({ error: 'إجمالي الجلسة يجب أن يكون أكبر من صفر' });
+      let patientAccountId = null;
+      if (sessionTotal > 0) {
+        patientAccountId = await withTenantClient(req.user.tenantId, async (client) => {
+          const result = await client.query(
+            `SELECT account_id FROM parties WHERE id = $1 AND tenant_id = $2 AND party_type = 'PATIENT'`,
+            [patientId, req.user.tenantId]
+          );
+          if (result.rows.length === 0 || !result.rows[0].account_id) {
+            throw new Error('لا يوجد حساب ذمة مرتبط بهذا المريض');
+          }
+          return result.rows[0].account_id;
+        });
       }
 
       let doctorLines = [];
@@ -307,23 +317,26 @@ router.post(
         }
       }
 
-      const posted = await postJournalEntry({
-        tenantId: req.user.tenantId,
-        userId: req.user.userId,
-        sourceType: 'CLINICAL_SESSION',
-        sourceRefId: patientId,
-        memo: `جلسة عالجية — ${treatments.length} إجراء${doctorNameForMemo ? ` — د. ${doctorNameForMemo}` : ''}`,
-        idempotencyKey,
-        lines: [
-          { accountId: patientAccountId, debit: sessionTotal, lineMemo: 'ترحيل تكلفة الجلسة لذمة المريض' },
-          ...treatments.map((t) => ({
-            accountId: revenueAccountId,
-            credit: Number(t.cost),
-            lineMemo: `السن #${t.tooth} - ${t.name}`,
-          })),
-          ...doctorLines,
-        ],
-      });
+      let posted = { deduplicated: false, journalEntryId: null };
+      if (sessionTotal > 0) {
+        posted = await postJournalEntry({
+          tenantId: req.user.tenantId,
+          userId: req.user.userId,
+          sourceType: 'CLINICAL_SESSION',
+          sourceRefId: patientId,
+          memo: `جلسة عالجية — ${treatments.length} إجراء${doctorNameForMemo ? ` — د. ${doctorNameForMemo}` : ''}`,
+          idempotencyKey,
+          lines: [
+            { accountId: patientAccountId, debit: sessionTotal, lineMemo: 'ترحيل تكلفة الجلسة لذمة المريض' },
+            ...treatments.filter((t) => Number(t.cost) > 0).map((t) => ({
+              accountId: revenueAccountId,
+              credit: Number(t.cost),
+              lineMemo: `السن #${t.tooth} - ${t.name}`,
+            })),
+            ...doctorLines,
+          ],
+        });
+      }
 
       let sessionId = null;
       if (!posted.deduplicated) {
@@ -347,8 +360,8 @@ router.post(
           const newId = session.rows[0].id;
           for (const item of treatments) {
             await client.query(
-              `INSERT INTO clinical_session_items (session_id, tenant_id, tooth, name, cost, plan_item_id)
-               VALUES ($1, $2, $3, $4, $5, $6)`,
+              `INSERT INTO clinical_session_items (session_id, tenant_id, tooth, name, cost, plan_item_id, stage_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
               [
                 newId,
                 req.user.tenantId,
@@ -356,6 +369,7 @@ router.post(
                 item.name,
                 Number(item.cost),
                 item.planItemId || item.plan_item_id || null,
+                item.stageId || item.stage_id || null,
               ]
             );
           }
@@ -382,7 +396,7 @@ router.post(
           );
           return newId;
         });
-      } else {
+      } else if (posted.journalEntryId) {
         sessionId = await withTenantClient(req.user.tenantId, async (client) => {
           const result = await client.query(
             `SELECT id FROM clinical_sessions WHERE journal_entry_id = $1 LIMIT 1`,

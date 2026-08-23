@@ -33,6 +33,8 @@ export default function Users() {
   const [editingUserId, setEditingUserId] = useState(null);
   const [editingPermissions, setEditingPermissions] = useState({});
   const [saving, setSaving] = useState(false);
+  const [doctors, setDoctors] = useState([]);
+  const [linkSavingId, setLinkSavingId] = useState(null);
 
   const [defaultsOpen, setDefaultsOpen] = useState(false);
   const [defaultsRole, setDefaultsRole] = useState('RECEPTIONIST');
@@ -66,6 +68,7 @@ export default function Users() {
   useEffect(() => {
     loadUsers();
     loadDefaultsMeta();
+    api.get('/doctors').then((rows) => setDoctors(Array.isArray(rows) ? rows : [])).catch(() => setDoctors([]));
   }, [loadUsers, loadDefaultsMeta]);
 
   function openAddModal() {
@@ -150,6 +153,20 @@ export default function Users() {
     }
   }
 
+  async function saveDoctorLink(userId, doctorPartyId) {
+    setLinkSavingId(userId);
+    try {
+      await api.patch(`/users/${userId}`, {
+        doctorPartyId: doctorPartyId || null,
+      });
+      await loadUsers();
+    } catch (err) {
+      alert(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
+    } finally {
+      setLinkSavingId(null);
+    }
+  }
+
   const roles = defaultsMeta?.roles || ROLE_ORDER;
 
   return (
@@ -210,6 +227,24 @@ export default function Users() {
                       )}
                     </div>
                   </div>
+
+                  {u.role === 'DOCTOR' && (
+                    <div className="dc-user-doctor-link-row">
+                      <label className="dc-user-doctor-link">
+                        <span className="dc-muted text-sm">{t('user_doctor_link')}</span>
+                        <select
+                          value={u.doctor_party_id || ''}
+                          disabled={linkSavingId === u.id}
+                          onChange={(e) => saveDoctorLink(u.id, e.target.value || null)}
+                        >
+                          <option value="">{t('user_doctor_link_placeholder')}</option>
+                          {doctors.map((d) => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  )}
 
                   {editing && defaultsMeta && (
                     <div className="dc-user-perms-panel">

@@ -21,6 +21,7 @@ import ProfitLoss from './pages/ProfitLoss';
 import Expenses from './pages/Expenses';
 import Clinical from './pages/Clinical';
 import AdminDashboard from './pages/AdminDashboard';
+import DoctorDashboard from './pages/DoctorDashboard';
 import ClinicalReport from './pages/ClinicalReport';
 import Users from './pages/Users';
 import JournalBook from './pages/JournalBook';
@@ -36,6 +37,7 @@ import Favorites from './pages/Favorites';
 import DocumentWorkspace from './components/DocumentWorkspace';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import CurrencyDailyConfirm from './components/CurrencyDailyConfirm';
+import DoctorTodayBriefModal from './components/DoctorTodayBriefModal';
 import PartyModal from './components/PartyModal';
 import PatientForm from './components/PatientForm';
 import SupplierForm from './components/SupplierForm';
@@ -85,6 +87,7 @@ function buildTabs({
   accounts,
   loadAccounts,
   permissions,
+  user,
   quickActionIds,
   onFavoriteAction,
   clinicalFocusPatientId,
@@ -95,8 +98,16 @@ function buildTabs({
   const canEdit = (key) => level(key) === 'edit';
   const canSee = (key) => level(key) !== 'none';
   const canSeeAdmin = canSee('admin');
+  const canSeeDoctorBoard = user?.role === 'DOCTOR' || Boolean(user?.doctorPartyId);
 
   return [
+    { key: 'doctorDashboard', label: t('nav_section_doctor'), visible: canSeeDoctorBoard,
+      render: () => (
+        <DoctorDashboard
+          user={user}
+          onOpenPatient={onOpenPatientClinical}
+        />
+      ) },
     { key: 'admin', label: t('nav_section_admin'), visible: canSeeAdmin,
       render: () => <AdminDashboard /> },
     { key: 'favorites', label: t('nav_favorites'), visible: true,
@@ -217,6 +228,7 @@ export default function App() {
   const [accSubGroup, setAccSubGroup] = useState(null); // e.g. 'parties' under accounts
   const [tab, setTab] = useState(null);
   const [showCurrencyDaily, setShowCurrencyDaily] = useState(false);
+  const [showDoctorBrief, setShowDoctorBrief] = useState(false);
   const [quickModal, setQuickModal] = useState(null); // 'patient' | 'supplier' | null
   const [clinicalFocus, setClinicalFocus] = useState({ patientId: null, nonce: 0 });
 
@@ -236,6 +248,28 @@ export default function App() {
   useEffect(() => {
     setShowCurrencyDaily(needsDailyRateConfirm(user));
   }, [user]);
+
+  useEffect(() => {
+    if (!user?.doctorPartyId || user.role === 'SUPER_ADMIN' || showCurrencyDaily) {
+      setShowDoctorBrief(false);
+      return;
+    }
+    const day = new Date().toISOString().slice(0, 10);
+    const key = `doctor_brief_${user.id}_${day}`;
+    if (sessionStorage.getItem(key)) {
+      setShowDoctorBrief(false);
+      return;
+    }
+    setShowDoctorBrief(true);
+  }, [user?.id, user?.doctorPartyId, user?.role, showCurrencyDaily]);
+
+  const dismissDoctorBrief = useCallback(() => {
+    if (user?.id) {
+      const day = new Date().toISOString().slice(0, 10);
+      sessionStorage.setItem(`doctor_brief_${user.id}_${day}`, '1');
+    }
+    setShowDoctorBrief(false);
+  }, [user?.id]);
 
   const quickActionIds = user?.preferences?.quickActions || DEFAULT_QUICK_ACTIONS;
 
@@ -288,6 +322,7 @@ export default function App() {
       accounts,
       loadAccounts,
       permissions: user?.permissions,
+      user,
       quickActionIds,
       onFavoriteAction: handleFavoriteAction,
       clinicalFocusPatientId: clinicalFocus.patientId,
@@ -310,6 +345,7 @@ export default function App() {
 
   const canClinical = visibleTabs.some((tb) => tb.key === 'clinical');
   const canAdmin = visibleTabs.some((tb) => tb.key === 'admin');
+  const canDoctorBoard = visibleTabs.some((tb) => tb.key === 'doctorDashboard');
   const accGroupsVisible = ACC_GROUPS.map((group) => {
     const directItems = visibleTabs.filter((tb) => group.keys.includes(tb.key));
     const subgroups = (group.subgroups || [])
@@ -330,6 +366,7 @@ export default function App() {
   const adminTabs = visibleTabs.filter((tb) => tb.key === 'users' || tb.key === 'settings');
 
   const topSections = [
+    { id: 'doctor', label: t('nav_section_doctor'), show: canDoctorBoard, icon: 'fa-solid fa-stethoscope', tone: 'teal' },
     { id: 'admin', label: t('nav_section_admin'), show: canAdmin, icon: 'fa-solid fa-gauge-high', tone: 'indigo' },
     { id: 'clinical', label: t('nav_section_clinical'), show: canClinical, icon: 'fa-solid fa-user-doctor', tone: 'teal' },
     { id: 'patients', label: t('nav_section_patients'), show: canPatients, icon: 'fa-solid fa-users', tone: 'teal' },
@@ -339,6 +376,10 @@ export default function App() {
 
   function openSection(id) {
     setSection(id);
+    if (id === 'doctor') {
+      setTab('doctorDashboard');
+      return;
+    }
     if (id === 'admin') {
       setTab('admin');
       return;
@@ -399,11 +440,14 @@ export default function App() {
     const allowed = new Set(visibleTabs.map((tb) => tb.key));
     if (tab && allowed.has(tab)) return;
     const preferred = firstKey(
-      ['admin', 'clinical', 'receipt', 'payment', 'voucher', 'patients', 'settings'],
+      user?.role === 'DOCTOR' || user?.doctorPartyId
+        ? ['doctorDashboard', 'admin', 'clinical', 'receipt', 'payment', 'voucher', 'patients', 'settings']
+        : ['admin', 'clinical', 'receipt', 'payment', 'voucher', 'patients', 'settings'],
       visibleTabs
     );
     if (!preferred) return;
-    if (preferred === 'admin') openSection('admin');
+    if (preferred === 'doctorDashboard') openSection('doctor');
+    else if (preferred === 'admin') openSection('admin');
     else if (preferred === 'clinical') openSection('clinical');
     else if (preferred === 'settings') openSection('settings');
     else if (preferred === 'patients') openSection('patients');
@@ -427,6 +471,9 @@ export default function App() {
           user={user}
           onConfirmed={() => setShowCurrencyDaily(false)}
         />
+      )}
+      {showDoctorBrief && !showCurrencyDaily && (
+        <DoctorTodayBriefModal user={user} onClose={dismissDoctorBrief} />
       )}
       <header className={`dc-chrome no-print${isPlatform ? ' is-simple' : ''}`}>
         <div className="dc-hello">

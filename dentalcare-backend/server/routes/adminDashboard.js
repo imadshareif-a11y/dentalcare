@@ -4,6 +4,10 @@ const { requireAuth, requireAnyPermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { displayBalance } = require('../accounting/balanceDisplay');
 const { ensureAppointmentsSchema } = require('../db/ensureAppointments');
+const {
+  fetchTenantActiveUsers,
+  fetchTenantAuthEvents,
+} = require('../services/userSessions');
 
 const ADMIN_ACCESS = requireAnyPermission([
   ['admin', 'view'],
@@ -191,6 +195,9 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
         activeNow.filter((a) => a.roomId).map((a) => [a.roomId, a])
       ).values()];
 
+      const activeUsers = await fetchTenantActiveUsers(client, req.user.tenantId);
+      const authEvents = await fetchTenantAuthEvents(client, req.user.tenantId, 30);
+
       return {
         generatedAt: new Date().toISOString(),
         today,
@@ -202,6 +209,7 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
           patientsWithDebt: Number(patientsWithDebt.rows[0]?.cnt) || 0,
           appointmentsToday: appointments.filter((a) => a.status === 'SCHEDULED').length,
           activeNow: activeNow.length,
+          onlineUsers: activeUsers.length,
         },
         cashBoxes,
         activity: activityResult.rows.map((row) => ({
@@ -222,6 +230,8 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
           all: appointments,
           roomsInUse,
         },
+        activeUsers,
+        authEvents,
       };
     });
 

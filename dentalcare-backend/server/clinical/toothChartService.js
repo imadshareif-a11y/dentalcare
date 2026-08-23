@@ -195,10 +195,49 @@ async function loadPlanItemBilledMap(client, tenantId, itemIds) {
   return new Map(billed.rows.map((r) => [String(r.plan_item_id), Number(r.billed) || 0]));
 }
 
-function mapPlanItemRow(row, billedMap) {
+function mapStageRow(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    sortOrder: row.sort_order,
+    isOptional: Boolean(row.is_optional),
+    status: row.status,
+  };
+}
+
+async function loadStagesByPlanItemIds(client, itemIds) {
+  if (!itemIds.length) return new Map();
+  const result = await client.query(
+    `SELECT id, plan_item_id, name, cost, sort_order, is_optional, status
+     FROM treatment_plan_stages
+     WHERE plan_item_id = ANY($1::uuid[])
+     ORDER BY sort_order ASC, created_at ASC`,
+    [itemIds]
+  );
+  const map = new Map();
+  for (const row of result.rows) {
+    const key = String(row.plan_item_id);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(mapStageRow(row));
+  }
+  return map;
+}
+
+function stageProgressLabel(stages) {
+  if (!stages?.length) return null;
+  const done = stages.filter((s) => s.status === 'COMPLETED' || s.status === 'SKIPPED').length;
+  return { done, total: stages.length };
+}
+
+function mapPlanItemRow(row, billedMap, stages = []) {
+  const hasStages = stages.length > 0;
   const cost = Number(row.cost) || 0;
   const billedAmount = billedMap.get(String(row.id)) || 0;
-  const remainingCost = Math.max(0, Math.round((cost - billedAmount) * 100) / 100);
+  const isCompleted = String(row.status) === 'COMPLETED';
+  const remainingCost = isCompleted
+    ? 0
+    : Math.max(0, Math.round((cost - billedAmount) * 100) / 100);
+  const progress = stageProgressLabel(stages);
   return {
     id: row.id,
     tooth: row.tooth_fdi,
@@ -212,6 +251,9 @@ function mapPlanItemRow(row, billedMap) {
     status: row.status,
     doctorId: row.doctor_id || null,
     doctorName: row.doctor_name || null,
+    stages,
+    hasStages,
+    stageProgress: progress,
   };
 }
 
@@ -244,11 +286,16 @@ async function loadTreatmentPlan(client, tenantId, patientId) {
     tenantId,
     items.rows.map((r) => r.id)
   );
+  const stagesMap = await loadStagesByPlanItemIds(client, items.rows.map((r) => r.id));
 
   return {
     planId,
     notes: plan.rows[0].notes || '',
-    items: items.rows.map((row) => mapPlanItemRow(row, billedMap)),
+    items: items.rows.map((row) => mapPlanItemRow(
+      row,
+      billedMap,
+      stagesMap.get(String(row.id)) || []
+    )),
   };
 }
 
@@ -324,6 +371,9 @@ async function saveTreatmentPlan(client, tenantId, patientId, body) {
          WHERE id = $1 AND plan_id = $9 AND status IN ('PLANNED', 'IN_PROGRESS')`,
         [rawId, tooth, conditionCode, catalogId, name, costValue, order, doctorId, planId]
       );
+      if (Array.isArray(item.stages) && item.stages.length > 0) {
+        await savePlanItemStages(client, tenantId, rawId, item.stages);
+      }
       keepIds.push(rawId);
     } else {
       const inserted = await client.query(
@@ -333,7 +383,13 @@ async function saveTreatmentPlan(client, tenantId, patientId, body) {
          RETURNING id`,
         [tenantId, planId, tooth, conditionCode, catalogId, name, costValue, order, doctorId]
       );
-      keepIds.push(String(inserted.rows[0].id));
+      const newItemId = String(inserted.rows[0].id);
+      if (Array.isArray(item.stages) && item.stages.length > 0) {
+        await savePlanItemStages(client, tenantId, newItemId, item.stages);
+      } else if (catalogId) {
+        await copyCatalogStagesToPlanItem(client, tenantId, newItemId, catalogId);
+      }
+      keepIds.push(newItemId);
     }
     order += 1;
   }
@@ -409,6 +465,157 @@ async function resolveTreatmentCondition(client, item) {
   return inferConditionFromTreatmentName(item.name);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+async function copyCatalogStagesToPlanItem(client, tenantId, planItemId, catalogId) {
+  const templates = await client.query(
+    `SELECT name, cost, sort_order, is_optional
+     FROM treatment_catalog_stages
+     WHERE catalog_id = $1 AND tenant_id = $2
+     ORDER BY sort_order ASC, created_at ASC`,
+    [catalogId, tenantId]
+  );
+  for (const row of templates.rows) {
+    await client.query(
+      `INSERT INTO treatment_plan_stages
+         (tenant_id, plan_item_id, name, cost, sort_order, is_optional, status)
+       VALUES ($1, $2, $3, 0, $4, $5, 'PLANNED')`,
+      [tenantId, planItemId, row.name, row.sort_order, row.is_optional]
+    );
+  }
+  return templates.rowCount;
+}
+
+async function savePlanItemStages(client, tenantId, planItemId, stagesInput) {
+  const stages = Array.isArray(stagesInput) ? stagesInput : [];
+  const existing = await client.query(
+    `SELECT id, status FROM treatment_plan_stages WHERE plan_item_id = $1`,
+    [planItemId]
+  );
+  const existingMap = new Map(existing.rows.map((r) => [String(r.id), r.status]));
+  const keepIds = [];
+
+  let order = 0;
+  for (const st of stages) {
+    const status = String(st.status || 'PLANNED').toUpperCase();
+    if (status === 'COMPLETED' || status === 'SKIPPED') {
+      const rawId = typeof st.id === 'string' ? st.id.trim() : '';
+      if (UUID_RE.test(rawId) && existingMap.has(rawId)) keepIds.push(rawId);
+      order += 1;
+      continue;
+    }
+
+    const name = String(st.name || '').trim();
+    if (!name) continue;
+    const isOptional = Boolean(st.isOptional ?? st.is_optional);
+    const rawId = typeof st.id === 'string' ? st.id.trim() : '';
+
+    if (UUID_RE.test(rawId) && existingMap.has(rawId)) {
+      await client.query(
+        `UPDATE treatment_plan_stages
+         SET name = $2, sort_order = $3, is_optional = $4, updated_at = now()
+         WHERE id = $1 AND plan_item_id = $5 AND status IN ('PLANNED', 'IN_PROGRESS')`,
+        [rawId, name, order, isOptional, planItemId]
+      );
+      keepIds.push(rawId);
+    } else {
+      const inserted = await client.query(
+        `INSERT INTO treatment_plan_stages
+           (tenant_id, plan_item_id, name, cost, sort_order, is_optional, status)
+         VALUES ($1, $2, $3, 0, $4, $5, 'PLANNED')
+         RETURNING id`,
+        [tenantId, planItemId, name, order, isOptional]
+      );
+      keepIds.push(String(inserted.rows[0].id));
+    }
+    order += 1;
+  }
+
+  if (keepIds.length === 0) {
+    await client.query(
+      `DELETE FROM treatment_plan_stages
+       WHERE plan_item_id = $1 AND status IN ('PLANNED', 'IN_PROGRESS')`,
+      [planItemId]
+    );
+  } else {
+    await client.query(
+      `DELETE FROM treatment_plan_stages
+       WHERE plan_item_id = $1
+         AND status IN ('PLANNED', 'IN_PROGRESS')
+         AND NOT (id = ANY($2::uuid[]))`,
+      [planItemId, keepIds]
+    );
+  }
+}
+
+async function planItemHasStages(client, planItemId) {
+  const result = await client.query(
+    `SELECT 1 FROM treatment_plan_stages WHERE plan_item_id = $1 LIMIT 1`,
+    [planItemId]
+  );
+  return result.rowCount > 0;
+}
+
+async function getNextOpenStage(client, planItemId) {
+  const result = await client.query(
+    `SELECT id, name, cost, sort_order, is_optional, status
+     FROM treatment_plan_stages
+     WHERE plan_item_id = $1 AND status IN ('PLANNED', 'IN_PROGRESS')
+     ORDER BY sort_order ASC, created_at ASC
+     LIMIT 1`,
+    [planItemId]
+  );
+  return result.rows[0] || null;
+}
+
+async function completePlanStage(client, stageId) {
+  await client.query(
+    `UPDATE treatment_plan_stages
+     SET status = 'COMPLETED', updated_at = now()
+     WHERE id = $1 AND status IN ('PLANNED', 'IN_PROGRESS')`,
+    [stageId]
+  );
+}
+
+async function areRequiredStagesComplete(client, planItemId) {
+  const result = await client.query(
+    `SELECT COUNT(*)::int AS pending
+     FROM treatment_plan_stages
+     WHERE plan_item_id = $1
+       AND is_optional = FALSE
+       AND status NOT IN ('COMPLETED', 'SKIPPED')`,
+    [planItemId]
+  );
+  return Number(result.rows[0]?.pending) === 0;
+}
+
+async function finishPlanItemWithChart(client, tenantId, patientId, planItemId, treatmentMeta) {
+  const row = await client.query(
+    `SELECT tpi.tooth_fdi, tpi.condition_code, tpi.name, tpi.catalog_id
+     FROM treatment_plan_items tpi
+     WHERE tpi.id = $1 AND tpi.tenant_id = $2`,
+    [planItemId, tenantId]
+  );
+  const item = row.rows[0];
+  if (!item) return;
+
+  const tooth = normalizeToothFdi(treatmentMeta?.tooth || item.tooth_fdi);
+  const conditionCode = await resolveTreatmentCondition(client, {
+    conditionCode: treatmentMeta?.conditionCode || item.condition_code,
+    catalogId: treatmentMeta?.catalogId || item.catalog_id,
+    name: treatmentMeta?.name || item.name,
+  });
+
+  if (tooth && conditionCode && conditionCode !== 'HEALTHY') {
+    await setToothCurrent(client, tenantId, patientId, tooth, conditionCode, null);
+  }
+  await completePlanItem(client, tenantId, patientId, {
+    planItemId,
+    tooth,
+    conditionCode,
+  });
+}
+
 async function completePlanItem(client, tenantId, patientId, { planItemId, tooth, conditionCode }) {
   if (planItemId) {
     await client.query(
@@ -468,6 +675,12 @@ async function completePlanItemAndChart(client, tenantId, patientId, itemId) {
     throw Object.assign(new Error('بند الخطة غير موجود أو مكتمل مسبقاً'), { statusCode: 404 });
   }
   const item = row.rows[0];
+  await client.query(
+    `UPDATE treatment_plan_stages
+     SET status = 'COMPLETED', updated_at = now()
+     WHERE plan_item_id = $1 AND status IN ('PLANNED', 'IN_PROGRESS')`,
+    [itemId]
+  );
   const conditionCode = await resolveTreatmentCondition(client, {
     conditionCode: item.condition_code,
     catalogId: item.catalog_id,
@@ -488,27 +701,55 @@ async function completePlanItemAndChart(client, tenantId, patientId, itemId) {
 async function applySessionTreatmentsToChart(client, tenantId, patientId, treatments) {
   for (const item of treatments) {
     const planItemId = item.planItemId || item.plan_item_id || null;
+    const stageId = item.stageId || item.stage_id || null;
     const completeItem = item.completeItem !== false && item.complete_item !== false;
+
+    if (planItemId && stageId) {
+      await completePlanStage(client, stageId);
+      const allRequiredDone = await areRequiredStagesComplete(client, planItemId);
+      if (allRequiredDone) {
+        await finishPlanItemWithChart(client, tenantId, patientId, planItemId, item);
+      } else {
+        await markPlanItemInProgress(client, tenantId, patientId, planItemId);
+      }
+      continue;
+    }
+
+    if (planItemId && await planItemHasStages(client, planItemId)) {
+      const nextStage = await getNextOpenStage(client, planItemId);
+      if (nextStage) {
+        await completePlanStage(client, nextStage.id);
+        const allRequiredDone = await areRequiredStagesComplete(client, planItemId);
+        if (allRequiredDone) {
+          await finishPlanItemWithChart(client, tenantId, patientId, planItemId, item);
+        } else {
+          await markPlanItemInProgress(client, tenantId, patientId, planItemId);
+        }
+      } else {
+        await finishPlanItemWithChart(client, tenantId, patientId, planItemId, item);
+      }
+      continue;
+    }
 
     if (planItemId && !completeItem) {
       await markPlanItemInProgress(client, tenantId, patientId, planItemId);
       continue;
     }
 
-    const tooth = normalizeToothFdi(item.tooth);
-    if (!tooth) {
-      if (planItemId) {
-        await completePlanItem(client, tenantId, patientId, { planItemId });
-      }
+    if (planItemId) {
+      await finishPlanItemWithChart(client, tenantId, patientId, planItemId, item);
       continue;
     }
+
+    const tooth = normalizeToothFdi(item.tooth);
+    if (!tooth) continue;
 
     const conditionCode = await resolveTreatmentCondition(client, item);
     if (conditionCode && conditionCode !== 'HEALTHY') {
       await setToothCurrent(client, tenantId, patientId, tooth, conditionCode, null);
     }
     await completePlanItem(client, tenantId, patientId, {
-      planItemId,
+      planItemId: null,
       tooth,
       conditionCode,
     });

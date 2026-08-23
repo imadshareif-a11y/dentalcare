@@ -14,6 +14,7 @@ const bcrypt = require('bcryptjs');
 const { requireAuth, requireRole, requireClinicContext } = require('../middleware/auth');
 const { withTenantClient, withSystemClient } = require('../db/pool');
 const { assertUsernameAvailable } = require('../tenants/bootstrap');
+const { ensureUserDoctorLinkSchema } = require('../db/ensureUserDoctorLink');
 const {
   VALID_ROLES,
   PERMISSION_KEYS,
@@ -23,6 +24,23 @@ const {
   sanitizeRoleDefaultsMap,
   mergeTenantDefaults,
 } = require('../permissions/defaults');
+
+async function validateDoctorPartyLink(client, tenantId, doctorPartyId) {
+  if (doctorPartyId == null || doctorPartyId === '') return null;
+  const result = await client.query(
+    `SELECT p.id
+     FROM parties p
+     JOIN doctors d ON d.party_id = p.id AND d.tenant_id = p.tenant_id
+     WHERE p.id = $1 AND p.tenant_id = $2 AND p.party_type = 'DOCTOR'`,
+    [doctorPartyId, tenantId]
+  );
+  if (result.rowCount === 0) {
+    const err = new Error('الطبيب المختار غير موجود في هذه العيادة');
+    err.statusCode = 400;
+    throw err;
+  }
+  return doctorPartyId;
+}
 
 async function loadRoleDefaults(tenantId) {
   return withTenantClient(tenantId, async (client) => {
@@ -123,7 +141,7 @@ router.post(
   requireClinicContext,
   requireRole(['OWNER']),
   async (req, res) => {
-    const { name, username, password, role, permissions } = req.body;
+    const { name, username, password, role, permissions, doctorPartyId } = req.body;
 
     if (!name || !username || !password) {
       return res.status(400).json({ error: 'الاسم واسم المستخدم وكلمة المرور مطلوبة' });
@@ -136,6 +154,7 @@ router.post(
     }
 
     try {
+      await ensureUserDoctorLinkSchema();
       const roleDefaults = await loadRoleDefaults(req.user.tenantId);
       const finalPermissions = {
         ...roleDefaults[role],
@@ -164,11 +183,20 @@ router.post(
           throw err;
         }
 
+        const linkedDoctorId = role === 'DOCTOR'
+          ? await validateDoctorPartyLink(client, req.user.tenantId, doctorPartyId)
+          : null;
+        if (role === 'DOCTOR' && !linkedDoctorId) {
+          const err = new Error('يجب اختيار الطبيب المرتبط بحساب المستخدم');
+          err.statusCode = 400;
+          throw err;
+        }
+
         const result = await client.query(
-          `INSERT INTO users (tenant_id, name, username, password_hash, role, permissions)
-           VALUES ($1, $2, $3, $4, $5, $6)
+          `INSERT INTO users (tenant_id, name, username, password_hash, role, permissions, doctor_party_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            RETURNING id`,
-          [req.user.tenantId, name.trim(), username.trim(), passwordHash, role, JSON.stringify(finalPermissions)]
+          [req.user.tenantId, name.trim(), username.trim(), passwordHash, role, JSON.stringify(finalPermissions), linkedDoctorId]
         );
         return result.rows[0].id;
       });
@@ -177,6 +205,9 @@ router.post(
     } catch (err) {
       if (err.statusCode === 400) return res.status(400).json({ error: err.message });
       if (err.code === '23505') {
+        if (String(err.constraint || '').includes('doctor_party')) {
+          return res.status(409).json({ error: 'هذا الطبيب مربوط بمستخدم آخر في العيادة' });
+        }
         return res.status(409).json({ error: 'اسم المستخدم هذا مستخدم مسبقًا' });
       }
       console.error('User creation failed:', err);
@@ -193,12 +224,15 @@ router.get(
   async (req, res) => {
     try {
       const users = await withTenantClient(req.user.tenantId, async (client) => {
+        await ensureUserDoctorLinkSchema();
         const result = await client.query(
-          `SELECT id, name, username, role, is_active, permissions
-           FROM users
-           WHERE tenant_id = $1 AND role <> 'SUPER_ADMIN'
-             AND LOWER(username) NOT LIKE 'support.%'
-           ORDER BY name ASC`,
+          `SELECT u.id, u.name, u.username, u.role, u.is_active, u.permissions,
+                  u.doctor_party_id, dp.name AS doctor_name
+           FROM users u
+           LEFT JOIN parties dp ON dp.id = u.doctor_party_id AND dp.tenant_id = u.tenant_id
+           WHERE u.tenant_id = $1 AND u.role <> 'SUPER_ADMIN'
+             AND LOWER(u.username) NOT LIKE 'support.%'
+           ORDER BY u.name ASC`,
           [req.user.tenantId]
         );
         return result.rows;
@@ -207,6 +241,62 @@ router.get(
     } catch (err) {
       console.error('Fetching users failed:', err);
       res.status(500).json({ error: 'تعذّر جلب قائمة المستخدمين' });
+    }
+  }
+);
+
+router.patch(
+  '/users/:id',
+  requireAuth,
+  requireClinicContext,
+  requireRole(['OWNER']),
+  async (req, res) => {
+    const { id } = req.params;
+    const { doctorPartyId } = req.body;
+
+    if (doctorPartyId === undefined) {
+      return res.status(400).json({ error: 'لم يتم إرسال بيانات للتحديث' });
+    }
+
+    try {
+      await ensureUserDoctorLinkSchema();
+      const updated = await withTenantClient(req.user.tenantId, async (client) => {
+        const existing = await client.query(
+          `SELECT id, role FROM users
+           WHERE id = $1 AND tenant_id = $2 AND role <> 'SUPER_ADMIN'`,
+          [id, req.user.tenantId]
+        );
+        const userRow = existing.rows[0];
+        if (!userRow) return null;
+
+        let linkedDoctorId = null;
+        if (doctorPartyId) {
+          linkedDoctorId = await validateDoctorPartyLink(client, req.user.tenantId, doctorPartyId);
+          if (userRow.role !== 'DOCTOR') {
+            const err = new Error('ربط الطبيب متاح فقط لمستخدمي دور «طبيب»');
+            err.statusCode = 400;
+            throw err;
+          }
+        }
+
+        const result = await client.query(
+          `UPDATE users SET doctor_party_id = $1
+           WHERE id = $2 AND tenant_id = $3
+           RETURNING id, doctor_party_id`,
+          [linkedDoctorId, id, req.user.tenantId]
+        );
+        return result.rows[0] || null;
+      });
+
+      if (!updated) return res.status(404).json({ error: 'المستخدم غير موجود' });
+      res.json({ success: true, doctorPartyId: updated.doctor_party_id });
+    } catch (err) {
+      if (err.statusCode === 400) return res.status(400).json({ error: err.message });
+      if (err.code === '23505') {
+        return res.status(409).json({ error: 'هذا الطبيب مربوط بمستخدم آخر في العيادة' });
+      }
+      console.error('User update failed:', err);
+      res.status(500).json({ error: 'تعذّر تحديث المستخدم' });
     }
   }
 );

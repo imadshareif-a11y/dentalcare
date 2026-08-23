@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { requireAuth, requireAnyPermission } = require('../middleware/auth');
+const { requireAuth, requireAnyPermission, requireClinicContext } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { tryAutoSend } = require('../whatsapp/service');
 const { ensureAppointmentsSchema } = require('../db/ensureAppointments');
+const { ensureUserDoctorLinkSchema } = require('../db/ensureUserDoctorLink');
 
 const SLOT_RE = /^([01]\d|2[0-3]):(00|30)$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -78,6 +79,48 @@ async function assertNoOverlap(client, tenantId, { day, doctorId, roomId, slot, 
     }
   }
 }
+
+router.get(
+  '/appointments/my-today',
+  requireAuth,
+  requireClinicContext,
+  async (req, res) => {
+    const day = new Date().toISOString().slice(0, 10);
+    try {
+      await ensureAppointmentsSchema();
+      await ensureUserDoctorLinkSchema();
+      const rows = await withTenantClient(req.user.tenantId, async (client) => {
+        const userRow = await client.query(
+          `SELECT doctor_party_id FROM users WHERE id = $1 AND tenant_id = $2`,
+          [req.user.userId, req.user.tenantId]
+        );
+        const doctorId = userRow.rows[0]?.doctor_party_id;
+        if (!doctorId) return { linked: false, date: day, appointments: [] };
+
+        const result = await client.query(
+          `SELECT a.id, a.patient_id, a.room_id, a.slot, COALESCE(a.end_slot, a.slot) AS end_slot,
+                  a.status, a.notes,
+                  p.name AS patient_name,
+                  r.name AS room_name, r.name_en AS room_name_en, r.name_he AS room_name_he
+           FROM appointments a
+           JOIN parties p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
+           LEFT JOIN rooms r ON r.id = a.room_id AND r.tenant_id = a.tenant_id
+           WHERE a.tenant_id = $1
+             AND a.doctor_id = $2
+             AND a.appointment_date = $3::date
+             AND a.status = 'SCHEDULED'
+           ORDER BY a.slot ASC NULLS LAST, a.starts_at ASC NULLS LAST`,
+          [req.user.tenantId, doctorId, day]
+        );
+        return { linked: true, date: day, doctorId, appointments: result.rows };
+      });
+      res.json(rows);
+    } catch (err) {
+      console.error('Fetching doctor today brief failed:', err);
+      res.status(500).json({ error: 'تعذّر جلب مواعيد اليوم' });
+    }
+  }
+);
 
 router.get(
   '/appointments',

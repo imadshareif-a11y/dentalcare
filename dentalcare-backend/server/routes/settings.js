@@ -21,6 +21,7 @@ const {
   updateToothCondition,
   deleteToothCondition,
 } = require('../db/ensureToothConditions');
+const { ensureToothChartSchema } = require('../db/ensureToothChart');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -703,6 +704,51 @@ router.delete('/tooth-conditions/:id', requireAuth, requireClinicContext, requir
   }
 });
 
+async function loadCatalogStagesMap(client, tenantId) {
+  await ensureToothChartSchema();
+  const result = await client.query(
+    `SELECT id, catalog_id, name, cost, sort_order, is_optional
+     FROM treatment_catalog_stages
+     WHERE tenant_id = $1
+     ORDER BY sort_order ASC, created_at ASC`,
+    [tenantId]
+  );
+  const map = new Map();
+  for (const row of result.rows) {
+    const key = String(row.catalog_id);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push({
+      id: row.id,
+      name: row.name,
+      sortOrder: row.sort_order,
+      isOptional: Boolean(row.is_optional),
+    });
+  }
+  return map;
+}
+
+async function replaceCatalogStages(client, tenantId, catalogId, stagesInput) {
+  await ensureToothChartSchema();
+  const stages = Array.isArray(stagesInput) ? stagesInput : [];
+  await client.query(
+    `DELETE FROM treatment_catalog_stages WHERE catalog_id = $1 AND tenant_id = $2`,
+    [catalogId, tenantId]
+  );
+  let order = 0;
+  for (const st of stages) {
+    const name = String(st.name || '').trim();
+    if (!name) continue;
+    const isOptional = Boolean(st.isOptional ?? st.is_optional);
+    await client.query(
+      `INSERT INTO treatment_catalog_stages
+         (tenant_id, catalog_id, name, cost, sort_order, is_optional)
+       VALUES ($1, $2, $3, 0, $4, $5)`,
+      [tenantId, catalogId, name, order, isOptional]
+    );
+    order += 1;
+  }
+}
+
 router.get('/treatments', requireAuth, requireClinicContext, async (req, res) => {
   try {
     const rows = await withTenantClient(req.user.tenantId, async (client) => {
@@ -714,7 +760,12 @@ router.get('/treatments', requireAuth, requireClinicContext, async (req, res) =>
          ORDER BY sort_order ASC, name ASC`,
         [req.user.tenantId]
       );
-      return result.rows;
+      const stagesMap = await loadCatalogStagesMap(client, req.user.tenantId);
+      return result.rows.map((r) => ({
+        ...r,
+        stages: stagesMap.get(String(r.id)) || [],
+        hasStages: (stagesMap.get(String(r.id)) || []).length > 0,
+      }));
     });
     res.json(rows.map((r) => ({
       ...r,
@@ -728,7 +779,7 @@ router.get('/treatments', requireAuth, requireClinicContext, async (req, res) =>
 });
 
 router.post('/treatments', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
-  const { name, price, sortOrder, conditionCode } = req.body;
+  const { name, price, sortOrder, conditionCode, stages } = req.body;
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'اسم العلاج مطلوب' });
   const p = Number(price);
   if (!(p >= 0)) return res.status(400).json({ error: 'السعر غير صالح' });
@@ -744,12 +795,19 @@ router.post('/treatments', requireAuth, requireClinicContext, requireRole(['OWNE
          RETURNING id, name, price, is_active, sort_order, condition_code`,
         [req.user.tenantId, String(name).trim(), p, Number(sortOrder) || 0, code]
       );
-      return result.rows[0];
+      const row = result.rows[0];
+      if (Array.isArray(stages) && stages.length > 0) {
+        await replaceCatalogStages(client, req.user.tenantId, row.id, stages);
+      }
+      const stagesMap = await loadCatalogStagesMap(client, req.user.tenantId);
+      return { ...row, stages: stagesMap.get(String(row.id)) || [] };
     });
     res.status(201).json({
       ...created,
       price: Number(created.price),
       condition_code: created.condition_code || null,
+      stages: created.stages || [],
+      hasStages: (created.stages || []).length > 0,
     });
   } catch (err) {
     console.error('Creating treatment failed:', err);
@@ -758,7 +816,8 @@ router.post('/treatments', requireAuth, requireClinicContext, requireRole(['OWNE
 });
 
 router.patch('/treatments/:id', requireAuth, requireClinicContext, requireRole(['OWNER']), async (req, res) => {
-  const { name, price, isActive, sortOrder, conditionCode } = req.body;
+  const { name, price, isActive, sortOrder, conditionCode, stages } = req.body;
+  const hasStages = Object.prototype.hasOwnProperty.call(req.body, 'stages');
   const hasCondition = Object.prototype.hasOwnProperty.call(req.body, 'conditionCode');
   const nextCode = hasCondition
     ? (conditionCode ? normalizeConditionCode(conditionCode) : null)
@@ -786,13 +845,21 @@ router.patch('/treatments/:id', requireAuth, requireClinicContext, requireRole([
           nextCode,
         ]
       );
-      return result.rows[0] || null;
+      const row = result.rows[0] || null;
+      if (row && hasStages) {
+        await replaceCatalogStages(client, req.user.tenantId, row.id, stages);
+      }
+      if (!row) return null;
+      const stagesMap = await loadCatalogStagesMap(client, req.user.tenantId);
+      return { ...row, stages: stagesMap.get(String(row.id)) || [] };
     });
     if (!updated) return res.status(404).json({ error: 'العلاج غير موجود' });
     res.json({
       ...updated,
       price: Number(updated.price),
       condition_code: updated.condition_code || null,
+      stages: updated.stages || [],
+      hasStages: (updated.stages || []).length > 0,
     });
   } catch (err) {
     console.error('Updating treatment failed:', err);

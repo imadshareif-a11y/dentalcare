@@ -45,6 +45,7 @@ app.use('/api', require('./routes/expenseAccounts'));
 app.use('/api', require('./routes/assetAccounts'));
 app.use('/api', require('./routes/chartTree'));
 app.use('/api', require('./routes/adminDashboard'));
+app.use('/api', require('./routes/doctorDashboard'));
 app.use('/api', require('./routes/partyImport'));         // إعدادات، علاجات، استيراد
 app.use('/api', require('./routes/platform'));         // SUPER_ADMIN /api/platform/*
 

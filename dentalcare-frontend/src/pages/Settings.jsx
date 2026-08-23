@@ -60,7 +60,7 @@ export default function SettingsPage({ onAccountsChanged }) {
   const [numberingSection, setNumberingSection] = useState('parties');
   const [treatments, setTreatments] = useState([]);
   const [toothConditions, setToothConditions] = useState([]);
-  const [treatmentForm, setTreatmentForm] = useState({ name: '', price: '', conditionCode: '' });
+  const [treatmentForm, setTreatmentForm] = useState({ name: '', price: '', conditionCode: '', stages: [] });
   const [treatmentModalOpen, setTreatmentModalOpen] = useState(false);
   const [treatmentModalBusy, setTreatmentModalBusy] = useState(false);
   const [editingTreatmentId, setEditingTreatmentId] = useState(null);
@@ -553,7 +553,7 @@ export default function SettingsPage({ onAccountsChanged }) {
 
   function openTreatmentAddModal() {
     setEditingTreatmentId(null);
-    setTreatmentForm({ name: '', price: '', conditionCode: '' });
+    setTreatmentForm({ name: '', price: '', conditionCode: '', stages: [] });
     setTreatmentModalOpen(true);
   }
 
@@ -563,6 +563,11 @@ export default function SettingsPage({ onAccountsChanged }) {
       name: item.name || '',
       price: item.price != null ? String(item.price) : '',
       conditionCode: item.condition_code || '',
+      stages: (item.stages || []).map((s, i) => ({
+        id: s.id || `stage-${i}`,
+        name: s.name || '',
+        isOptional: Boolean(s.isOptional),
+      })),
     });
     setTreatmentModalOpen(true);
   }
@@ -570,24 +575,40 @@ export default function SettingsPage({ onAccountsChanged }) {
   function closeTreatmentModal() {
     setTreatmentModalOpen(false);
     setEditingTreatmentId(null);
-    setTreatmentForm({ name: '', price: '', conditionCode: '' });
+    setTreatmentForm({ name: '', price: '', conditionCode: '', stages: [] });
+  }
+
+  function updateTreatmentStage(index, patch) {
+    setTreatmentForm((prev) => {
+      const stages = [...(prev.stages || [])];
+      stages[index] = { ...stages[index], ...patch };
+      return { ...prev, stages };
+    });
   }
 
   async function submitTreatment(e) {
     e.preventDefault();
     setTreatmentModalBusy(true);
     try {
+      const stagesPayload = (treatmentForm.stages || [])
+        .filter((s) => String(s.name || '').trim())
+        .map((s, i) => ({
+          name: String(s.name).trim(),
+          sortOrder: i,
+          isOptional: Boolean(s.isOptional),
+        }));
+      const body = {
+        name: treatmentForm.name,
+        price: Number(treatmentForm.price),
+        conditionCode: treatmentForm.conditionCode || null,
+        stages: stagesPayload,
+      };
       if (editingTreatmentId) {
-        const updated = await api.patch(`/treatments/${editingTreatmentId}`, {
-          name: treatmentForm.name,
-          price: Number(treatmentForm.price),
-          conditionCode: treatmentForm.conditionCode || null,
-        });
+        const updated = await api.patch(`/treatments/${editingTreatmentId}`, body);
         setTreatments((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
       } else {
         const created = await api.post('/treatments', {
-          name: treatmentForm.name,
-          price: Number(treatmentForm.price),
+          ...body,
           sortOrder: treatments.length + 1,
           conditionCode: treatmentForm.conditionCode
             || inferConditionFromName(treatmentForm.name)
@@ -1552,6 +1573,7 @@ export default function SettingsPage({ onAccountsChanged }) {
                     <th>{t('clinical_treatment_name')}</th>
                     <th>{t('clinical_treatment_cost')}</th>
                     <th>{t('settings_treatment_condition')}</th>
+                    <th>{t('settings_treatment_stages')}</th>
                     <th />
                   </tr>
                 </thead>
@@ -1561,6 +1583,11 @@ export default function SettingsPage({ onAccountsChanged }) {
                       <td><strong>{item.name}</strong></td>
                       <td className="dc-money">{money(item.price)}</td>
                       <td>{item.condition_code ? conditionDisplayName(item.condition_code) : t('settings_treatment_condition_none')}</td>
+                      <td>
+                        {(item.stages || []).length > 0
+                          ? `${item.stages.length} — ${item.stages.map((s) => s.name).join(' · ')}`
+                          : '—'}
+                      </td>
                       <td>
                         <button type="button" onClick={() => openTreatmentEditModal(item)}>{t('party_edit')}</button>
                         <button type="button" className="dc-danger" onClick={() => removeTreatment(item.id)}>{t('platform_delete')}</button>
@@ -1846,6 +1873,58 @@ export default function SettingsPage({ onAccountsChanged }) {
                 </option>
               ))}
             </select>
+          </div>
+          <div className="dc-form-field">
+            <label>{t('settings_treatment_stages')}</label>
+            <p className="dc-muted text-sm">{t('settings_treatment_stages_hint')}</p>
+            {(treatmentForm.stages || []).map((stage, idx) => (
+              <div key={stage.id || idx} className="dc-plan-stage-edit-row">
+                <input
+                  type="text"
+                  placeholder={t('clinical_stage_new')}
+                  value={stage.name}
+                  onChange={(e) => updateTreatmentStage(idx, { name: e.target.value })}
+                  disabled={treatmentModalBusy}
+                />
+                <label className="dc-plan-stage-opt">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(stage.isOptional)}
+                    onChange={(e) => updateTreatmentStage(idx, { isOptional: e.target.checked })}
+                    disabled={treatmentModalBusy}
+                  />
+                  {t('clinical_stage_optional')}
+                </label>
+                <button
+                  type="button"
+                  className="dc-danger"
+                  disabled={treatmentModalBusy}
+                  onClick={() => {
+                    setTreatmentForm((prev) => ({
+                      ...prev,
+                      stages: (prev.stages || []).filter((_, i) => i !== idx),
+                    }));
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="dc-ghost-light"
+              disabled={treatmentModalBusy}
+              onClick={() => setTreatmentForm((prev) => ({
+                ...prev,
+                stages: [...(prev.stages || []), {
+                  id: `new-stage-${Date.now()}`,
+                  name: '',
+                  isOptional: false,
+                }],
+              }))}
+            >
+              + {t('clinical_stage_add')}
+            </button>
           </div>
           <div className="dc-doc-view-actions">
             <button type="submit" disabled={treatmentModalBusy}>

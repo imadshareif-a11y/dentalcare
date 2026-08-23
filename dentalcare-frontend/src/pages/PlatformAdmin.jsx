@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import PartyModal from '../components/PartyModal';
 import FormattedDateInput from '../components/FormattedDateInput';
+import PlatformMonitoring from './PlatformMonitoring';
 
 function emptyCreateForm() {
   const from = new Date().toISOString().slice(0, 10);
@@ -36,6 +37,7 @@ export default function PlatformAdmin() {
   const [backups, setBackups] = useState([]);
   const [backupMeta, setBackupMeta] = useState(null);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [tab, setTab] = useState('clinics');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -193,11 +195,34 @@ export default function PlatformAdmin() {
           <h2>{t('platform_title')}</h2>
           <p className="dc-muted">{t('platform_hint')}</p>
         </div>
+        {tab === 'clinics' && (
         <button type="button" className="dc-success" onClick={openCreate}>
           <i className="fa-solid fa-plus" /> {t('platform_add_clinic')}
         </button>
+        )}
       </div>
 
+      <div className="dc-platform-tabs">
+        <button
+          type="button"
+          className={`dc-chip${tab === 'clinics' ? ' is-active' : ''}`}
+          onClick={() => setTab('clinics')}
+        >
+          <i className="fa-solid fa-hospital" /> {t('platform_tab_clinics')}
+        </button>
+        <button
+          type="button"
+          className={`dc-chip${tab === 'monitoring' ? ' is-active' : ''}`}
+          onClick={() => setTab('monitoring')}
+        >
+          <i className="fa-solid fa-chart-line" /> {t('platform_tab_monitoring')}
+        </button>
+      </div>
+
+      {tab === 'monitoring' && <PlatformMonitoring />}
+
+      {tab === 'clinics' && (
+      <>
       <h3>{t('platform_list_title')}</h3>
       {loading && <div>{t('ledger_loading')}</div>}
       {error && <div className="dc-error">{error}</div>}
@@ -301,6 +326,8 @@ export default function PlatformAdmin() {
           </table>
         )}
       </section>
+      </>
+      )}
 
       <PartyModal
         open={createOpen}

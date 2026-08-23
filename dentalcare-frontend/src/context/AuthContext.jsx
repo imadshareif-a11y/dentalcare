@@ -57,7 +57,15 @@ export function AuthProvider({ children }) {
     setAvatarKey((k) => k + 1);
   }, [applyUser]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      try {
+        await api.post('/auth/logout', {});
+      } catch {
+        // ignore — still clear local session
+      }
+    }
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
     localStorage.removeItem('platform_admin_token');

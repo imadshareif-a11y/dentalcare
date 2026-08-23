@@ -24,9 +24,25 @@ function requireAuth(req, res, next) {
 
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    // payload المتوقع: { userId, tenantId, role }
     req.user = payload;
-    next();
+
+    if (!payload.sessionId) {
+      return next();
+    }
+
+    const { pool } = require('../db/pool');
+    const { isSessionActive, touchSession } = require('../services/userSessions');
+
+    isSessionActive(pool, payload.sessionId).then((active) => {
+      if (!active) {
+        return res.status(401).json({ error: 'انتهت الجلسة أو تم تسجيل الخروج' });
+      }
+      touchSession(pool, payload.sessionId).catch(() => {});
+      return next();
+    }).catch((err) => {
+      console.error('Session check failed:', err);
+      res.status(500).json({ error: 'تعذّر التحقق من الجلسة' });
+    });
   } catch (err) {
     return res.status(401).json({ error: 'جلسة الدخول غير صالحة أو منتهية' });
   }

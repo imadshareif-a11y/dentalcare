@@ -3429,6 +3429,62 @@ form.space-y-3 > div:not([class]) > input[type="text"] {
   margin: 0 0 6px;
 }
 
+.dc-doctor-brief-modal {
+  width: min(520px, 100%);
+}
+
+.dc-doctor-brief-modal h3 {
+  margin: 0 0 6px;
+}
+
+.dc-doctor-brief-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dc-doctor-brief-item {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.dc-doctor-brief-time {
+  font-weight: 600;
+  grid-row: span 2;
+  align-self: center;
+}
+
+.dc-doctor-brief-patient {
+  font-weight: 600;
+}
+
+.dc-doctor-brief-notes {
+  grid-column: 2;
+}
+
+.dc-user-doctor-link-row {
+  padding: 0 14px 12px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.dc-user-doctor-link {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.dc-user-doctor-link select {
+  max-width: 320px;
+}
+
 .dc-slot-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -6610,5 +6666,271 @@ tr.dc-check-row:hover {
   .dc-admin-upcoming-doctor,
   .dc-admin-upcoming-room {
     grid-column: 2;
+  }
+}
+
+.dc-admin-kpi.is-users .dc-admin-kpi-icon {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.dc-admin-online-list,
+.dc-platform-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dc-admin-online-row,
+.dc-platform-session-row {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.dc-admin-online-main,
+.dc-platform-session-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.dc-admin-online-meta,
+.dc-platform-session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12px;
+  color: #475569;
+}
+
+.dc-auth-event.is-login_success {
+  border-inline-start: 3px solid #16a34a;
+}
+
+.dc-auth-event.is-logout {
+  border-inline-start: 3px solid #64748b;
+}
+
+.dc-auth-event.is-login_failed {
+  border-inline-start: 3px solid #dc2626;
+}
+
+.dc-platform-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.dc-platform-monitor-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.dc-platform-monitor-filters select,
+.dc-platform-monitor-filters input[type="search"] {
+  min-width: 12rem;
+  max-width: 100%;
+}
+
+.dc-platform-users-table-wrap {
+  overflow-x: auto;
+}
+
+.dc-platform-users-table tr.is-online {
+  background: #ecfdf5;
+}
+
+.dc-badge-amber {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.dc-plan-stages-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dc-plan-stages-list.is-draft {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+}
+
+.dc-plan-stage-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.dc-plan-stage-row.is-completed {
+  opacity: 0.75;
+  background: #ecfdf5;
+}
+
+.dc-plan-stage-progress,
+.dc-plan-stage-status {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6366f1;
+}
+
+.dc-plan-stages-editor {
+  margin-top: 6px;
+}
+
+.dc-plan-stages-form,
+.dc-plan-stage-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.dc-plan-stage-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.dc-tooth-plan-item {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* ——— Doctor dashboard ——— */
+.dc-doctor-patient-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: #0f766e;
+  cursor: pointer;
+  text-align: inherit;
+}
+
+.dc-doctor-patient-link:hover {
+  text-decoration: underline;
+}
+
+.dc-doctor-appt-card .dc-doctor-open-btn {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.dc-doctor-plan-chip {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dc-doctor-plan-chip.is-inline {
+  margin-top: 0;
+}
+
+.dc-doctor-notes {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 13px;
+  color: #475569;
+}
+
+.dc-doctor-notes.is-row {
+  grid-column: 1 / -1;
+}
+
+.dc-doctor-upcoming-row {
+  width: 100%;
+  border: none;
+  background: #f8fafc;
+  cursor: pointer;
+  text-align: inherit;
+}
+
+.dc-doctor-upcoming-row:hover {
+  background: #eef2ff;
+}
+
+.dc-doctor-schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dc-doctor-schedule-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: 8px 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.dc-doctor-schedule-row.is-now {
+  border-color: #6ee7b7;
+  background: #ecfdf5;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.12);
+}
+
+.dc-doctor-schedule-row.is-done {
+  opacity: 0.72;
+}
+
+.dc-doctor-schedule-time {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dc-doctor-schedule-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+
+.dc-doctor-schedule-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+@media (max-width: 720px) {
+  .dc-doctor-schedule-row {
+    grid-template-columns: 1fr;
+  }
+  .dc-doctor-schedule-meta {
+    align-items: flex-start;
   }
 }

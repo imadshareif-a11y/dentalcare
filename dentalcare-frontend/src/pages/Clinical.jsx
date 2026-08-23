@@ -602,7 +602,9 @@ export default function Clinical({
       setError(t('clinical_cart_required'));
       return;
     }
-    if (!defaultRevenueAccountId) {
+    const cartTotal = cart.reduce((sum, c) => sum + Number(c.cost || 0), 0);
+    const stageProgressOnly = cartTotal <= 0 && cart.every((c) => c.stageId);
+    if (!defaultRevenueAccountId && !stageProgressOnly) {
       setError(t('accounts_required'));
       return;
     }
@@ -897,6 +899,21 @@ export default function Clinical({
     }
   }
 
+  function getNextOpenStage(stages) {
+    return (stages || []).find(
+      (s) => s.status === 'PLANNED' || s.status === 'IN_PROGRESS'
+    );
+  }
+
+  function willBillOnStageComplete(stages, stageId) {
+    const after = (stages || []).map((s) => (
+      String(s.id) === String(stageId) ? { ...s, status: 'COMPLETED' } : s
+    ));
+    return after.filter(
+      (s) => !s.isOptional && s.status !== 'COMPLETED' && s.status !== 'SKIPPED'
+    ).length === 0;
+  }
+
   function addPlannedItem(item) {
     setPlanDraftItems((prev) => [
       ...prev,
@@ -905,8 +922,18 @@ export default function Clinical({
         id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         sortOrder: prev.length,
         status: 'PLANNED',
+        hasStages: (item.stages || []).length > 0,
+        stages: item.stages || [],
       },
     ]);
+  }
+
+  function updatePlannedStages(itemId, stages) {
+    setPlanDraftItems((prev) => prev.map((item) => (
+      String(item.id) === String(itemId)
+        ? { ...item, stages, hasStages: (stages || []).length > 0 }
+        : item
+    )));
   }
 
   function removePlannedItem(id) {
@@ -1012,6 +1039,15 @@ export default function Clinical({
             doctorId: item.doctorId,
             sortOrder: index,
             status: item.status === 'IN_PROGRESS' ? 'IN_PROGRESS' : 'PLANNED',
+            ...((item.hasStages || (item.stages || []).length > 0) ? {
+              stages: (item.stages || []).map((stage, stageIndex) => ({
+                id: stage.id && !String(stage.id).startsWith('draft-stage-') ? stage.id : undefined,
+                name: stage.name,
+                sortOrder: stageIndex,
+                isOptional: Boolean(stage.isOptional),
+                status: stage.status || 'PLANNED',
+              })),
+            } : {}),
           })),
       });
       setPlanDraftItems(plan.items || []);
@@ -1059,12 +1095,34 @@ export default function Clinical({
     setError(null);
     setDoctorFieldAlert(false);
     setSelectedTooth(item.tooth);
+
+    const nextStage = item.hasStages ? getNextOpenStage(item.stages) : null;
+    if (nextStage) {
+      const billNow = willBillOnStageComplete(item.stages, nextStage.id);
+      setCart((prev) => {
+        if (prev.some((c) => String(c.stageId) === String(nextStage.id))) return prev;
+        return [...prev, {
+          tooth: item.tooth,
+          name: `${item.name} — ${nextStage.name}`,
+          cost: billNow ? (Number(item.cost) || 0) : 0,
+          conditionCode: item.conditionCode,
+          catalogId: item.catalogId || undefined,
+          planItemId: item.id,
+          stageId: nextStage.id,
+          hasStages: true,
+          stageName: nextStage.name,
+          billsOnComplete: billNow,
+        }];
+      });
+      return;
+    }
+
     const remaining = Number.isFinite(Number(item.remainingCost))
       ? Number(item.remainingCost)
       : Number(item.cost) || 0;
     const sessionCost = remaining > 0 ? remaining : Number(item.cost) || 0;
     setCart((prev) => {
-      if (prev.some((c) => String(c.planItemId) === String(item.id))) return prev;
+      if (prev.some((c) => String(c.planItemId) === String(item.id) && !c.stageId)) return prev;
       return [...prev, {
         tooth: item.tooth,
         name: item.name,
@@ -1457,6 +1515,7 @@ export default function Clinical({
               onAddPlanned={addPlannedItem}
               onRemovePlanned={removePlannedItem}
               onUpdatePlanned={updatePlannedItem}
+              onUpdatePlannedStages={updatePlannedStages}
               onBookPlanItem={canEditAppointments ? bookFromPlanItem : undefined}
               onCompletePlanned={canEditClinical ? completePlanItem : undefined}
               onSavePlan={saveTreatmentPlanDraft}
@@ -1584,6 +1643,12 @@ export default function Clinical({
                       onClick={() => addFromPlanItem(item)}
                     >
                       #{item.tooth} {item.name}
+                      {item.hasStages && item.stageProgress
+                        ? ` (${t('clinical_stage_progress', {
+                          done: item.stageProgress.done,
+                          total: item.stageProgress.total,
+                        })})`
+                        : ''}
                       {item.status === 'IN_PROGRESS' ? ` (${t('clinical_plan_status_in_progress')})` : ''}
                       {item.doctorName ? ` — ${item.doctorName}` : ''}
                       {' · '}
@@ -1614,7 +1679,7 @@ export default function Clinical({
                     <button type="button" className="dc-cart-remove" onClick={() => removeFromCart(i)} aria-label="×">×</button>
                   </span>
                 </div>
-                {c.planItemId && (
+                {c.planItemId && !c.stageId && !c.hasStages && (
                   <label className="dc-cart-complete-toggle">
                     <input
                       type="checkbox"
@@ -1623,6 +1688,13 @@ export default function Clinical({
                     />
                     <span>{t('clinical_cart_complete_item')}</span>
                   </label>
+                )}
+                {c.stageId && (
+                  <span className="dc-muted text-sm">
+                    {c.billsOnComplete
+                      ? t('clinical_cart_stage_bill_full')
+                      : t('clinical_cart_stage_no_charge')}
+                  </span>
                 )}
               </div>
             ))}

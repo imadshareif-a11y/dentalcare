@@ -10,6 +10,8 @@ export default function UserForm({ onRegistered, onCancel }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('RECEPTIONIST');
+  const [doctorPartyId, setDoctorPartyId] = useState('');
+  const [doctors, setDoctors] = useState([]);
   const [permissions, setPermissions] = useState({});
   const [defaultsMeta, setDefaultsMeta] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -17,7 +19,12 @@ export default function UserForm({ onRegistered, onCancel }) {
 
   useEffect(() => {
     api.get('/permission-defaults').then(setDefaultsMeta).catch(() => setDefaultsMeta(null));
+    api.get('/doctors').then((rows) => setDoctors(Array.isArray(rows) ? rows : [])).catch(() => setDoctors([]));
   }, []);
+
+  useEffect(() => {
+    if (role !== 'DOCTOR') setDoctorPartyId('');
+  }, [role]);
 
   useEffect(() => {
     if (defaultsMeta) setPermissions(defaultsMeta.defaults[role] || {});
@@ -36,10 +43,16 @@ export default function UserForm({ onRegistered, onCancel }) {
       return;
     }
 
+    if (role === 'DOCTOR' && !doctorPartyId) {
+      setError(t('user_doctor_link_required'));
+      return;
+    }
+
     setSubmitting(true);
     try {
       const result = await api.post('/users', {
         name: name.trim(), username: username.trim(), password, role, permissions,
+        doctorPartyId: role === 'DOCTOR' ? doctorPartyId : null,
       });
       onRegistered?.(result);
     } catch (err) {
@@ -91,6 +104,23 @@ export default function UserForm({ onRegistered, onCancel }) {
           </select>
         </label>
       </div>
+
+      {role === 'DOCTOR' && (
+        <label>
+          {t('user_doctor_link')}
+          <select
+            value={doctorPartyId}
+            onChange={(e) => setDoctorPartyId(e.target.value)}
+            required
+          >
+            <option value="">{t('user_doctor_link_placeholder')}</option>
+            {doctors.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+          <span className="dc-muted text-sm">{t('user_doctor_link_hint')}</span>
+        </label>
+      )}
 
       {defaultsMeta && (
         <div className="dc-user-perms-panel is-in-modal">
