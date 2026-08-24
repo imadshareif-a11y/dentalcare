@@ -95,7 +95,9 @@ router.get(
           `SELECT id, code, name, name_en, name_he, symbol, decimal_places,
                   rate_to_base, is_base, is_active, created_at
            FROM currencies
-           ORDER BY is_base DESC, code ASC`
+           WHERE tenant_id = $1
+           ORDER BY is_base DESC, code ASC`,
+          [req.user.tenantId]
         );
         return dedupeById(result.rows, 'id');
       });
@@ -145,8 +147,9 @@ router.get(
         const result = await client.query(
           `SELECT id, code, is_base, is_active, rate_to_base
            FROM currencies
-           WHERE is_active = TRUE
-           ORDER BY is_base DESC, code ASC`
+           WHERE tenant_id = $1 AND is_active = TRUE
+           ORDER BY is_base DESC, code ASC`,
+          [req.user.tenantId]
         );
         return result.rows;
       });
@@ -207,24 +210,39 @@ router.post(
     try {
       let confirmedAt = null;
       await withTenantClient(req.user.tenantId, async (client) => {
+        const tenantCurrencies = await client.query(
+          `SELECT id, code, is_base
+           FROM currencies
+           WHERE tenant_id = $1`,
+          [req.user.tenantId]
+        );
+        const byId = new Map(tenantCurrencies.rows.map((row) => [String(row.id), row]));
+        const byCode = new Map(
+          tenantCurrencies.rows.map((row) => [String(row.code || '').toUpperCase(), row])
+        );
+
         for (const row of rates) {
-          const currencyId = row.currencyId;
+          const currencyId = row.currencyId != null ? String(row.currencyId) : '';
+          const code = String(row.code || '').trim().toUpperCase();
           const rate = Number(row.rateToBase);
-          if (!currencyId) continue;
-          const existing = await client.query(
-            `SELECT id, is_base FROM currencies WHERE id = $1 AND tenant_id = $2`,
-            [currencyId, req.user.tenantId]
-          );
-          if (existing.rowCount === 0) {
-            throw Object.assign(new Error('عملة غير موجودة'), { statusCode: 404 });
+          const existing = (currencyId && byId.get(currencyId))
+            || (code && byCode.get(code))
+            || null;
+          if (!existing) {
+            throw Object.assign(
+              new Error(code ? `عملة غير موجودة (${code})` : 'عملة غير موجودة'),
+              { statusCode: 404 }
+            );
           }
-          if (existing.rows[0].is_base) continue;
+          if (existing.is_base) continue;
           if (!Number.isFinite(rate) || rate <= 0) {
             throw Object.assign(new Error('سعر الصرف يجب أن يكون أكبر من صفر'), { statusCode: 400 });
           }
           await client.query(
-            `UPDATE currencies SET rate_to_base = $2 WHERE id = $1 AND tenant_id = $3 AND is_base = FALSE`,
-            [currencyId, rate, req.user.tenantId]
+            `UPDATE currencies
+             SET rate_to_base = $2
+             WHERE id = $1 AND tenant_id = $3 AND is_base = FALSE`,
+            [existing.id, rate, req.user.tenantId]
           );
         }
         const stamp = await client.query(

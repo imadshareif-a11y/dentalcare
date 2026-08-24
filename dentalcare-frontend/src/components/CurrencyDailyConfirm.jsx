@@ -4,6 +4,12 @@ import { api, ApiError } from '../api/client';
 import { getLastRatesConfirmInfo, markRatesConfirmedToday } from '../lib/currencyDailyConfirm';
 import { dedupeByCode } from '../lib/dedupeList';
 import { useSettings } from '../context/SettingsContext';
+import { toWesternDigits } from '../utils/format';
+
+function parseRate(value) {
+  const n = Number(toWesternDigits(String(value ?? '')).trim());
+  return Number.isFinite(n) ? n : NaN;
+}
 
 export default function CurrencyDailyConfirm({ user, onConfirmed }) {
   const { t, i18n } = useTranslation();
@@ -89,7 +95,7 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
   }
 
   function setRate(id, value) {
-    setRates((prev) => ({ ...prev, [id]: value }));
+    setRates((prev) => ({ ...prev, [id]: toWesternDigits(String(value ?? '')) }));
   }
 
   async function reloadMarket() {
@@ -122,12 +128,12 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
     const payload = [];
     for (const row of rows) {
       if (row.is_base) continue;
-      const rate = Number(rates[row.id]);
+      const rate = parseRate(rates[row.id]);
       if (!Number.isFinite(rate) || rate <= 0) {
         setError(t('currency_daily_rate_invalid', { code: row.code }));
         return;
       }
-      payload.push({ currencyId: row.id, rateToBase: rate });
+      payload.push({ currencyId: row.id, code: row.code, rateToBase: rate });
     }
 
     setSaving(true);
@@ -135,7 +141,7 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
       const result = await api.post('/currencies/daily-confirm', { rates: payload });
       markRatesConfirmedToday(user.id, {
         rates: Object.fromEntries(
-          rows.map((r) => [r.code, r.is_base ? 1 : Number(rates[r.id])])
+          rows.map((r) => [r.code, r.is_base ? 1 : parseRate(rates[r.id])])
         ),
         source: marketMeta?.provider || null,
       });
