@@ -11,11 +11,22 @@ const SAMPLE_KEY = {
   DEBIT_NOTE: 'debitNotesSample',
 };
 
+/** احتياطي إذا فشل /settings — حتى لا يختفي حقل رقم المستند على الإنتاج */
+const FALLBACK_SAMPLE = {
+  RECEIPT: 'RC00001',
+  PAYMENT: 'PY00001',
+  JOURNAL: 'JV00001',
+  BANK_ENTRY: 'BE00001',
+  PURCHASE_INVOICE: 'PI00001',
+  CREDIT_NOTE: 'CN00001',
+  DEBIT_NOTE: 'DN00001',
+};
+
 export default function DocumentNumberHint({ sourceType }) {
   const { t } = useTranslation();
   const { settings } = useSettings();
   const sampleKey = SAMPLE_KEY[sourceType];
-  const sample = sampleKey ? settings?.[sampleKey] : null;
+  const sample = (sampleKey && settings?.[sampleKey]) || FALLBACK_SAMPLE[sourceType] || null;
   if (!sample) return null;
 
   return (

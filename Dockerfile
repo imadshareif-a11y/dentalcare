@@ -10,14 +10,15 @@ RUN npm --prefix dentalcare-frontend ci \
  && npm --prefix dentalcare-backend ci --omit=dev
 
 # CACHEBUST يفرض إعادة نسخ الكود وبناء الواجهة من الصفر عند كل نشر كامل
-ARG CACHEBUST=1
+ARG CACHEBUST=20260824-1645
 COPY schema.sql ./schema.sql
 COPY package.json ./package.json
 COPY dentalcare-frontend ./dentalcare-frontend
 COPY dentalcare-backend ./dentalcare-backend
 
 ENV VITE_API_BASE=/api
-RUN npm --prefix dentalcare-frontend run build
+RUN npm --prefix dentalcare-frontend run build \
+ && node -e "require('fs').writeFileSync('dentalcare-backend/BUILD_META.json', JSON.stringify({ builtAt: new Date().toISOString(), cachebust: process.env.CACHEBUST || '20260824-1645' }))"
 
 ENV NODE_ENV=production
 ENV SERVE_FRONTEND=1
