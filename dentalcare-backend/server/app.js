@@ -16,7 +16,15 @@ app.use(cors());
 app.use(express.json({ limit: '12mb' }));
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, service: 'dentalcare' });
+  res.json({
+    ok: true,
+    service: 'dentalcare',
+    // Railway يمرّر SHA تلقائيًا — يفيد للتأكد إن النشر وصل
+    commit: process.env.RAILWAY_GIT_COMMIT_SHA
+      || process.env.RAILWAY_DEPLOYMENT_ID
+      || null,
+    builtAt: process.env.RAILWAY_DEPLOYMENT_CREATED || null,
+  });
 });
 
 app.use('/api', require('./routes/auth'));           // POST /api/auth/login

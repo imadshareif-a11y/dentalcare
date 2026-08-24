@@ -74,6 +74,12 @@ router.post(
       res.status(201).json({ success: true, ...result });
     } catch (err) {
       console.error('Patient creation failed:', err);
+      if (err.code === '23502') {
+        return res.status(500).json({
+          error: 'تعذّر تسجيل المريض: حقل مطلوب ناقص في قاعدة البيانات',
+          column: err.column || null,
+        });
+      }
       res.status(500).json({ error: 'تعذّر تسجيل المريض' });
     }
   }
