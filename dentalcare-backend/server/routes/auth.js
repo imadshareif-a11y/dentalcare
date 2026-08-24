@@ -15,6 +15,7 @@ const { clinicAccessDeniedReason } = require('../tenants/access');
 const { requireAuth } = require('../middleware/auth');
 const { ensureUsersAvatarSchema } = require('../db/ensureUsersAvatar');
 const { ensureUserDoctorLinkSchema } = require('../db/ensureUserDoctorLink');
+const { ensureUserPreferencesSchema } = require('../db/ensureUserPreferences');
 const {
   startLoginSession,
   recordFailedLogin,
@@ -27,6 +28,25 @@ const avatarUpload = multer({
 });
 
 const AVATAR_MIME = ['image/png', 'image/jpeg', 'image/webp'];
+
+/** يجب أن يطابق معرفات QUICK_ACTION_CATALOG في الواجهة */
+const ALLOWED_QUICK = new Set([
+  'receipt',
+  'payment',
+  'purchase',
+  'currencyRates',
+  'newPatient',
+  'newSupplier',
+  'bankEntry',
+  'voucher',
+  'checks',
+  'ledger',
+  'clinical',
+  'admin',
+  'patients',
+  'creditNote',
+  'debitNote',
+]);
 
 function publicUser(row, extras = {}) {
   return {
@@ -63,6 +83,7 @@ router.post('/auth/login', async (req, res) => {
   try {
     await ensureUsersAvatarSchema();
     await ensureUserDoctorLinkSchema();
+    await ensureUserPreferencesSchema();
     const candidates = await withSystemClient(async (client) => {
       const result = await client.query(
         `SELECT ${USER_PUBLIC_SELECT}, u.password_hash,
@@ -152,6 +173,7 @@ router.get('/auth/me', requireAuth, async (req, res) => {
   try {
     await ensureUsersAvatarSchema();
     await ensureUserDoctorLinkSchema();
+    await ensureUserPreferencesSchema();
     const row = await withSystemClient(async (client) => {
       const result = await client.query(
         `SELECT ${USER_PUBLIC_SELECT}, u.is_active,
@@ -188,14 +210,9 @@ router.get('/auth/me', requireAuth, async (req, res) => {
   }
 });
 
-const ALLOWED_QUICK = new Set([
-  'receipt', 'payment', 'purchase', 'newPatient', 'newSupplier',
-  'bankEntry', 'voucher', 'checks', 'ledger', 'clinical', 'patients',
-  'creditNote', 'debitNote',
-]);
-
 router.patch('/auth/preferences', requireAuth, async (req, res) => {
   try {
+    await ensureUserPreferencesSchema();
     const quickActions = Array.isArray(req.body.quickActions)
       ? [...new Set(req.body.quickActions.map(String).filter((id) => ALLOWED_QUICK.has(id)))]
       : null;
@@ -210,10 +227,11 @@ router.patch('/auth/preferences', requireAuth, async (req, res) => {
     const preferences = await withSystemClient(async (client) => {
       const result = await client.query(
         `UPDATE users
-         SET preferences = COALESCE(preferences, '{}'::jsonb) || jsonb_build_object('quickActions', $1::jsonb)
+         SET preferences = COALESCE(preferences, '{}'::jsonb)
+           || jsonb_build_object('quickActions', to_jsonb($1::text[]))
          WHERE id = $2 AND is_active = TRUE
          RETURNING preferences`,
-        [JSON.stringify(quickActions), req.user.userId]
+        [quickActions, req.user.userId]
       );
       if (result.rowCount === 0) {
         throw Object.assign(new Error('الحساب غير موجود'), { statusCode: 404 });

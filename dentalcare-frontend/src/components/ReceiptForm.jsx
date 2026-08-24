@@ -6,6 +6,7 @@ import FormattedDateInput from './FormattedDateInput';
 import PartyAccountSelect from './PartyAccountSelect';
 import ClinicNumberInput from './ClinicNumberInput';
 import PartyVoucherInfo from './PartyVoucherInfo';
+import DocumentFormShell, { DocSection, DocToggle, DocTotalBar } from './DocumentFormShell';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useCashBoxes } from '../hooks/useCashBoxes';
 import { useSettings } from '../context/SettingsContext';
@@ -88,6 +89,8 @@ export default function ReceiptForm({ accounts, onPosted }) {
   const shekelCashNum = Number(shekelAmount) || 0;
   const foreignTotal = foreignPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
   const checksTotal = checkList.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+  const documentTotal = shekelCashNum + foreignTotal + checksTotal;
+  const showTotals = documentTotal > 0;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -147,7 +150,6 @@ export default function ReceiptForm({ accounts, onPosted }) {
 
     setSubmitting(true);
     try {
-      // لا تُرسل ملفات الصور مع JSON
       const checksPayload = hasChecks
         ? checkList.map(({ imageFront, imageBack, ...rest }) => rest)
         : undefined;
@@ -209,28 +211,63 @@ export default function ReceiptForm({ accounts, onPosted }) {
     }
   }
 
+  const totalItems = [];
+  if (shekelCashNum > 0) totalItems.push({ label: t('doc_total_cash'), value: money(shekelCashNum) });
+  if (foreignTotal > 0) totalItems.push({ label: t('doc_total_foreign'), value: money(foreignTotal) });
+  if (checksTotal > 0) totalItems.push({ label: t('doc_total_checks'), value: money(checksTotal) });
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
-      <h3>{t('receipt_title')}</h3>
-
-      <div className="dc-form-row dc-voucher-head-row">
-        <PartyAccountSelect
-          accounts={accounts}
-          value={patientAccountId}
-          onChange={setPatientAccountId}
-          label={t('party_account')}
-          required
+    <DocumentFormShell
+      variant="receipt"
+      title={t('receipt_title')}
+      subtitle={t('doc_receipt_subtitle')}
+      onSubmit={handleSubmit}
+      error={error}
+      submitting={submitting}
+      totals={showTotals ? (
+        <DocTotalBar
+          items={totalItems}
+          highlight={{ label: t('voucher_document_total'), value: money(documentTotal) }}
         />
-        <div className="dc-form-field dc-field-date dc-voucher-date-col">
-          <PartyVoucherInfo accountId={patientAccountId} />
-          <label>{t('voucher_date')}</label>
-          <FormattedDateInput value={docDate} onChange={setDocDate} required />
+      ) : null}
+      footerExtra={(
+        <>
+          {waEnabled && !waAutoPayment && (
+            <label className="dc-check-row">
+              <input
+                type="checkbox"
+                checked={sendWaConfirm}
+                onChange={(e) => setSendWaConfirm(e.target.checked)}
+              />
+              {t('wa_receipt_confirm')}
+            </label>
+          )}
+          {waEnabled && waAutoPayment && (
+            <p className="dc-muted text-sm">{t('wa_receipt_auto_note')}</p>
+          )}
+        </>
+      )}
+    >
+      <DocSection title={t('doc_section_party')}>
+        <div className="dc-form-row dc-voucher-head-row">
+          <PartyAccountSelect
+            accounts={accounts}
+            value={patientAccountId}
+            onChange={setPatientAccountId}
+            label={t('party_account')}
+            required
+          />
+          <div className="dc-form-field dc-field-date dc-voucher-date-col dc-doc-party-meta">
+            <PartyVoucherInfo accountId={patientAccountId} />
+            <label>{t('voucher_date')}</label>
+            <FormattedDateInput value={docDate} onChange={setDocDate} required />
+          </div>
         </div>
-      </div>
+      </DocSection>
 
-      <div className="dc-form-row">
-        <div className="dc-form-field dc-field-amount">
-          <label>{t('voucher_cash_amount')}</label>
+      <DocSection title={t('doc_section_amount')}>
+        <div className="dc-doc-cash-hero dc-form-field dc-field-amount">
+          <label>{t('doc_cash_primary')}</label>
           <ClinicNumberInput
             showCurrency
             currencySymbol={baseCurrency?.symbol || currencySymbol}
@@ -242,128 +279,110 @@ export default function ReceiptForm({ accounts, onPosted }) {
             placeholder={t('voucher_cash_amount_optional')}
           />
         </div>
-      </div>
 
-      <label className="dc-check-row">
-        <input
-          type="checkbox"
-          checked={includeForeign}
-          onChange={(e) => toggleIncludeForeign(e.target.checked)}
-        />
-        {t('voucher_other_currencies')}
-      </label>
-
-      {includeForeign && (
-        <div className="space-y-2">
-          {foreignPayments.map((p, i) => {
-            const boxesForCurrency = foreignCashBoxes.filter((b) => b.currency_id === p.currencyId);
-            return (
-              <div key={p.key} className="dc-form-row dc-foreign-cash-row">
-                <select
-                  value={p.currencyId}
-                  onChange={(e) => {
-                    const currencyId = e.target.value;
-                    const firstBox = foreignCashBoxes.find((b) => b.currency_id === currencyId);
-                    updateForeignRow(i, {
-                      currencyId,
-                      cashAccountId: firstBox?.account_id || '',
-                    });
-                  }}
-                  required
-                >
-                  <option value="">{t('doc_currency_choose')}</option>
-                  {[...new Map(foreignCashBoxes.map((b) => [b.currency_id, b])).values()].map((b) => (
-                    <option key={b.currency_id} value={b.currency_id}>
-                      {b.currency_code} — {b.currency_symbol}
-                    </option>
-                  ))}
-                </select>
-                <ClinicNumberInput
-                  showCurrency
-                  currencySymbol={
-                    foreignCashBoxes.find((b) => b.currency_id === p.currencyId)?.currency_symbol
-                    || currencies.find((c) => c.id === p.currencyId)?.symbol
-                    || currencySymbol
-                  }
-                  min="0"
-                  step="0.01"
-                  placeholder={t('amount')}
-                  value={p.amount}
-                  onChange={(amount) => updateForeignRow(i, { amount })}
-                  required
-                />
-                <select
-                  value={p.cashAccountId}
-                  onChange={(e) => updateForeignRow(i, { cashAccountId: e.target.value })}
-                  required
-                >
-                  <option value="">{t('voucher_currency_cash_box')}</option>
-                  {boxesForCurrency.map((b) => (
-                    <option key={b.id} value={b.account_id}>{b.name}</option>
-                  ))}
-                </select>
-                <button type="button" onClick={() => removeForeignRow(i)}>×</button>
-              </div>
-            );
-          })}
-          <button type="button" onClick={addForeignRow}>{t('voucher_add_foreign_payment')}</button>
-        </div>
-      )}
-
-      <label className="dc-check-row">
-        <input type="checkbox" checked={includeChecks} onChange={(e) => toggleIncludeChecks(e.target.checked)} />
-        {t('paid_by_check')}
-      </label>
-
-      {includeChecks && (
-        <div className="space-y-2">
-          {checkList.map((c, i) => (
-            <div key={c.idempotencyKey || i} className="dc-check-row-wrap">
-              <CheckFields
-                check={c}
-                onChange={(updated) => updateCheckRow(i, updated)}
-                showAmount
-                currencies={currencies}
-              />
-              <button type="button" onClick={() => removeCheckRow(i)}>×</button>
-            </div>
-          ))}
-          <button type="button" onClick={addCheckRow}>{t('check_add')}</button>
-          <div>{t('checks_total')}: {money(checksTotal)}</div>
-        </div>
-      )}
-
-      {(shekelCashNum > 0 || foreignTotal > 0 || checksTotal > 0) && (
-        <div className="font-bold dc-muted text-sm">
-          {t('voucher_document_total')}: {t('voucher_mixed_total_hint')}
-        </div>
-      )}
-
-      <input
-        type="text" placeholder={t('voucher_memo')}
-        className="dc-field-memo"
-        value={memo} onChange={(e) => setMemo(e.target.value)}
-      />
-
-      {waEnabled && !waAutoPayment && (
-        <label className="dc-check-row">
-          <input
-            type="checkbox"
-            checked={sendWaConfirm}
-            onChange={(e) => setSendWaConfirm(e.target.checked)}
+        <div className="dc-doc-toggles">
+          <DocToggle
+            checked={includeForeign}
+            onChange={toggleIncludeForeign}
+            label={t('voucher_other_currencies')}
+            icon="fa-solid fa-coins"
           />
-          {t('wa_receipt_confirm')}
-        </label>
-      )}
-      {waEnabled && waAutoPayment && (
-        <p className="dc-muted text-sm">{t('wa_receipt_auto_note')}</p>
-      )}
+          <DocToggle
+            checked={includeChecks}
+            onChange={toggleIncludeChecks}
+            label={t('paid_by_check')}
+            icon="fa-solid fa-money-check"
+          />
+        </div>
 
-      {error && <div className="dc-error">{error}</div>}
+        {includeForeign && (
+          <div className="dc-doc-panel">
+            {foreignPayments.map((p, i) => {
+              const boxesForCurrency = foreignCashBoxes.filter((b) => b.currency_id === p.currencyId);
+              return (
+                <div key={p.key} className="dc-form-row dc-foreign-cash-row">
+                  <select
+                    value={p.currencyId}
+                    onChange={(e) => {
+                      const currencyId = e.target.value;
+                      const firstBox = foreignCashBoxes.find((b) => b.currency_id === currencyId);
+                      updateForeignRow(i, {
+                        currencyId,
+                        cashAccountId: firstBox?.account_id || '',
+                      });
+                    }}
+                    required
+                  >
+                    <option value="">{t('doc_currency_choose')}</option>
+                    {[...new Map(foreignCashBoxes.map((b) => [b.currency_id, b])).values()].map((b) => (
+                      <option key={b.currency_id} value={b.currency_id}>
+                        {b.currency_code} — {b.currency_symbol}
+                      </option>
+                    ))}
+                  </select>
+                  <ClinicNumberInput
+                    showCurrency
+                    currencySymbol={
+                      foreignCashBoxes.find((b) => b.currency_id === p.currencyId)?.currency_symbol
+                      || currencies.find((c) => c.id === p.currencyId)?.symbol
+                      || currencySymbol
+                    }
+                    min="0"
+                    step="0.01"
+                    placeholder={t('amount')}
+                    value={p.amount}
+                    onChange={(amount) => updateForeignRow(i, { amount })}
+                    required
+                  />
+                  <select
+                    value={p.cashAccountId}
+                    onChange={(e) => updateForeignRow(i, { cashAccountId: e.target.value })}
+                    required
+                  >
+                    <option value="">{t('voucher_currency_cash_box')}</option>
+                    {boxesForCurrency.map((b) => (
+                      <option key={b.id} value={b.account_id}>{b.name}</option>
+                    ))}
+                  </select>
+                  <button type="button" className="dc-ghost-light" onClick={() => removeForeignRow(i)}>×</button>
+                </div>
+              );
+            })}
+            <button type="button" className="dc-ghost-light" onClick={addForeignRow}>
+              <i className="fa-solid fa-plus" /> {t('voucher_add_foreign_payment')}
+            </button>
+          </div>
+        )}
 
-      <button type="submit" className="dc-success" disabled={submitting}>
-        {submitting ? t('saving_voucher') : t('save_voucher')}
-      </button>
-    </form>
+        {includeChecks && (
+          <div className="dc-doc-panel">
+            {checkList.map((c, i) => (
+              <div key={c.idempotencyKey || i} className="dc-check-row-wrap">
+                <CheckFields
+                  check={c}
+                  onChange={(updated) => updateCheckRow(i, updated)}
+                  showAmount
+                  currencies={currencies}
+                />
+                <button type="button" className="dc-ghost-light" onClick={() => removeCheckRow(i)}>×</button>
+              </div>
+            ))}
+            <button type="button" className="dc-ghost-light" onClick={addCheckRow}>
+              <i className="fa-solid fa-plus" /> {t('check_add')}
+            </button>
+          </div>
+        )}
+      </DocSection>
+
+      <DocSection title={t('doc_section_details')}>
+        <input
+          type="text"
+          placeholder={t('voucher_memo')}
+          className="dc-field-memo"
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+        />
+      </DocSection>
+    </DocumentFormShell>
   );
 }

@@ -7,6 +7,7 @@ import ClinicNumberInput from './ClinicNumberInput';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useSettings } from '../context/SettingsContext';
 import PartyAccountSelect from './PartyAccountSelect';
+import DocumentFormShell, { DocSection, DocTotalBar } from './DocumentFormShell';
 import { partyAccounts } from '../lib/partyAccounts';
 
 function todayIso() {
@@ -204,28 +205,51 @@ export default function BankEntryForm({ accounts, onPosted }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
-      <h3>{t('bank_entry_title')}</h3>
-      <p className="dc-muted text-sm">{t('bank_entry_hint')}</p>
-
-      <div className="dc-form-row">
-        <div className="dc-form-field dc-field-select-md">
-          <label>{t('bank_entry_operation')}</label>
-          <select value={operation} onChange={(e) => setOperation(e.target.value)}>
-            <option value="TRANSFER">{t('bank_entry_op_transfer')}</option>
-            <option value="INCOMING">{t('bank_entry_op_incoming')}</option>
-            <option value="OUTGOING">{t('bank_entry_op_outgoing')}</option>
-            <option value="CHECK_DEPOSIT">{t('bank_entry_op_check_deposit')}</option>
-          </select>
+    <DocumentFormShell
+      variant="bank"
+      title={t('bank_entry_title')}
+      subtitle={t('doc_bank_subtitle')}
+      onSubmit={handleSubmit}
+      error={error}
+      submitting={submitting}
+      submitLabel={t('bank_entry_save')}
+      totals={(operation === 'CHECK_DEPOSIT' ? depositTotal : Number(amount) || 0) > 0 ? (
+        <DocTotalBar
+          highlight={{
+            label: operation === 'CHECK_DEPOSIT' ? t('bank_entry_deposit_total') : t('voucher_document_total'),
+            value: money(operation === 'CHECK_DEPOSIT' ? depositTotal : Number(amount) || 0),
+          }}
+        />
+      ) : null}
+    >
+      <DocSection title={t('bank_entry_operation')} hint={t('bank_entry_hint')}>
+        <div className="dc-doc-op-pills" role="tablist">
+          {[
+            { id: 'TRANSFER', label: t('bank_entry_op_transfer') },
+            { id: 'INCOMING', label: t('bank_entry_op_incoming') },
+            { id: 'OUTGOING', label: t('bank_entry_op_outgoing') },
+            { id: 'CHECK_DEPOSIT', label: t('bank_entry_op_check_deposit') },
+          ].map((op) => (
+            <button
+              key={op.id}
+              type="button"
+              role="tab"
+              className={`dc-doc-op-pill${operation === op.id ? ' is-active' : ''}`}
+              aria-selected={operation === op.id}
+              onClick={() => setOperation(op.id)}
+            >
+              {op.label}
+            </button>
+          ))}
         </div>
         <div className="dc-form-field dc-field-date">
           <label>{t('voucher_date')}</label>
           <FormattedDateInput value={docDate} onChange={setDocDate} required />
         </div>
-      </div>
+      </DocSection>
 
       {operation === 'CHECK_DEPOSIT' ? (
-        <>
+        <DocSection title={t('doc_section_amount')}>
           <div className="dc-form-field dc-field-party">
             <label>{t('bank_entry_collection_bank')}</label>
             <select
@@ -248,9 +272,9 @@ export default function BankEntryForm({ accounts, onPosted }) {
             {boxChecks.length === 0 ? (
               <p className="dc-muted text-sm">{t('bank_entry_no_box_checks')}</p>
             ) : (
-              <div style={{ maxHeight: 220, overflow: 'auto', border: '1px solid #ddd', padding: 8 }}>
+              <div className="dc-doc-check-list">
                 {boxChecks.map((c) => (
-                  <label key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                  <label key={c.id}>
                     <input
                       type="checkbox"
                       checked={selectedCheckIds.includes(c.id)}
@@ -265,16 +289,13 @@ export default function BankEntryForm({ accounts, onPosted }) {
                 ))}
               </div>
             )}
-            {selectedCheckIds.length > 0 && (
-              <p className="text-sm">{t('bank_entry_deposit_total')}: {money(depositTotal)}</p>
-            )}
           </div>
-        </>
+        </DocSection>
       ) : (
-        <>
+        <DocSection title={t('doc_section_amount')}>
           <div className="dc-form-row">
             <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
-            <div className="dc-form-field dc-field-amount">
+            <div className="dc-doc-cash-hero dc-form-field dc-field-amount">
               <label>{t('amount')}</label>
               <ClinicNumberInput
                 showCurrency
@@ -330,22 +351,18 @@ export default function BankEntryForm({ accounts, onPosted }) {
               pickerScope="extended"
             />
           )}
-        </>
+        </DocSection>
       )}
 
-      <input
-        type="text"
-        className="dc-field-memo"
-        placeholder={t('voucher_memo')}
-        value={memo}
-        onChange={(e) => setMemo(e.target.value)}
-      />
-
-      {error && <div className="dc-error">{error}</div>}
-
-      <button type="submit" className="dc-success" disabled={submitting}>
-        {submitting ? t('saving_voucher') : t('bank_entry_save')}
-      </button>
-    </form>
+      <DocSection title={t('doc_section_details')}>
+        <input
+          type="text"
+          className="dc-field-memo"
+          placeholder={t('voucher_memo')}
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+        />
+      </DocSection>
+    </DocumentFormShell>
   );
 }

@@ -1,7 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import { useSettings } from '../context/SettingsContext';
+import LiveKpiValue from '../components/LiveKpiValue';
+import {
+  dashboardErrorMessage,
+  relativeUpdated,
+  useDashboardLive,
+} from '../hooks/useDashboardLive';
 
 const STATUS_KEYS = {
   SCHEDULED: 'doctor_appt_scheduled',
@@ -16,36 +22,32 @@ function formatSlot(slot) {
 export default function DoctorDashboard({ user, onOpenPatient }) {
   const { t } = useTranslation();
   const { date, dateTime, timeRange, money } = useSettings();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [notLinked, setNotLinked] = useState(false);
 
-  const load = useCallback(async () => {
-    setError(null);
-    setNotLinked(false);
+  const fetchDashboard = useCallback(async () => {
     try {
-      const row = await api.get('/doctor/dashboard');
-      setData(row);
+      return await api.get('/doctor/dashboard');
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
-        setNotLinked(true);
-        setData(null);
-      } else {
-        setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
+        return { __notLinked: true };
       }
-    } finally {
-      setLoading(false);
+      throw err;
     }
-  }, [t]);
+  }, []);
 
-  useEffect(() => {
-    load();
-    const timer = window.setInterval(load, 60_000);
-    return () => window.clearInterval(timer);
-  }, [load]);
+  const {
+    data,
+    loading,
+    refreshing,
+    error,
+    now,
+    reload,
+  } = useDashboardLive(fetchDashboard, { intervalMs: 12_000 });
 
-  if (loading && !data && !notLinked) {
+  const errorMsg = dashboardErrorMessage(error, t);
+  const notLinked = Boolean(data?.__notLinked);
+  const busy = refreshing || loading;
+
+  if (loading && !data) {
     return <div className="dc-admin-dashboard">{t('ledger_loading')}</div>;
   }
 
@@ -65,11 +67,11 @@ export default function DoctorDashboard({ user, onOpenPatient }) {
     );
   }
 
-  if (error && !data) {
+  if (errorMsg && !data) {
     return (
       <div className="dc-admin-dashboard">
-        <div className="dc-error">{error}</div>
-        <button type="button" onClick={load}>{t('doctor_dashboard_refresh')}</button>
+        <div className="dc-error">{errorMsg}</div>
+        <button type="button" onClick={() => reload()}>{t('doctor_dashboard_refresh')}</button>
       </div>
     );
   }
@@ -86,10 +88,20 @@ export default function DoctorDashboard({ user, onOpenPatient }) {
   }
 
   return (
-    <div className="dc-admin-dashboard dc-doctor-dashboard">
+    <div className={`dc-admin-dashboard dc-doctor-dashboard is-live-board${busy ? ' is-refreshing' : ''}`}>
       <header className="dc-admin-head">
         <div>
-          <h2>{t('doctor_dashboard_title')}</h2>
+          <div className="dc-admin-title-row">
+            <h2>{t('doctor_dashboard_title')}</h2>
+            <span
+              key={flashKey}
+              className="dc-live-badge is-flash"
+              title={data?.generatedAt ? dateTime(data.generatedAt) : ''}
+            >
+              <span className="dc-live-dot" aria-hidden />
+              {t('dashboard_live_label')}
+            </span>
+          </div>
           <p className="dc-muted text-sm">
             {t('doctor_dashboard_greeting', { name: user?.name || '' })}
             {data?.doctor?.name && (
@@ -99,65 +111,66 @@ export default function DoctorDashboard({ user, onOpenPatient }) {
               </>
             )}
           </p>
-          <p className="dc-muted text-sm">
+          <p className="dc-muted text-sm dc-live-updated">
             {t('doctor_dashboard_day', { day: data?.today ? date(data.today) : '—' })}
             {' · '}
             {t('admin_last_updated', {
-              time: data?.generatedAt ? dateTime(data.generatedAt) : '—',
+              time: relativeUpdated(data?.generatedAt, now, t),
             })}
           </p>
         </div>
-        <button type="button" className="dc-admin-refresh" onClick={load} disabled={loading}>
-          <i className={`fa-solid fa-rotate${loading ? ' fa-spin' : ''}`} />
+        <button type="button" className="dc-admin-refresh" onClick={() => reload()} disabled={busy}>
+          <i className={`fa-solid fa-rotate${busy ? ' fa-spin' : ''}`} />
           {t('doctor_dashboard_refresh')}
         </button>
       </header>
 
-      {error && <div className="dc-error">{error}</div>}
+      {errorMsg && <div className="dc-error">{errorMsg}</div>}
 
-      <div className="dc-admin-kpi-grid">
-        <article className="dc-admin-kpi is-appt">
+      <div className="dc-admin-kpi-grid dc-live-stagger">
+        <article className="dc-admin-kpi is-appt dc-live-card">
           <span className="dc-admin-kpi-icon"><i className="fa-solid fa-calendar-day" /></span>
           <div>
             <span className="dc-admin-kpi-label">{t('doctor_kpi_today')}</span>
-            <strong>{summary.appointmentsToday ?? 0}</strong>
+            <LiveKpiValue value={summary.appointmentsToday ?? 0} />
           </div>
         </article>
-        <article className="dc-admin-kpi is-users">
+        <article className="dc-admin-kpi is-users dc-live-card">
           <span className="dc-admin-kpi-icon"><i className="fa-solid fa-user-clock" /></span>
           <div>
             <span className="dc-admin-kpi-label">{t('doctor_kpi_active_now')}</span>
-            <strong>{summary.activeNow ?? 0}</strong>
+            <LiveKpiValue value={summary.activeNow ?? 0} />
           </div>
         </article>
-        <article className="dc-admin-kpi is-receivable">
+        <article className="dc-admin-kpi is-receivable dc-live-card">
           <span className="dc-admin-kpi-icon"><i className="fa-solid fa-hourglass-half" /></span>
           <div>
             <span className="dc-admin-kpi-label">{t('doctor_kpi_upcoming')}</span>
-            <strong>{summary.upcomingToday ?? 0}</strong>
+            <LiveKpiValue value={summary.upcomingToday ?? 0} />
           </div>
         </article>
-        <article className="dc-admin-kpi is-cash">
+        <article className="dc-admin-kpi is-cash dc-live-card">
           <span className="dc-admin-kpi-icon"><i className="fa-solid fa-circle-check" /></span>
           <div>
             <span className="dc-admin-kpi-label">{t('doctor_kpi_completed')}</span>
-            <strong>{summary.completedToday ?? 0}</strong>
+            <LiveKpiValue value={summary.completedToday ?? 0} />
           </div>
         </article>
-        <article className="dc-admin-kpi is-payable">
+        <article className="dc-admin-kpi is-payable dc-live-card">
           <span className="dc-admin-kpi-icon"><i className="fa-solid fa-tooth" /></span>
           <div>
             <span className="dc-admin-kpi-label">{t('doctor_kpi_with_plan')}</span>
-            <strong>{summary.patientsWithPlan ?? 0}</strong>
+            <LiveKpiValue value={summary.patientsWithPlan ?? 0} />
           </div>
         </article>
       </div>
 
       <div className="dc-admin-main-grid">
-        <section className="dc-admin-panel">
+        <section className="dc-admin-panel dc-live-panel">
           <div className="dc-admin-panel-head">
             <h3><i className="fa-solid fa-stethoscope" /> {t('doctor_current_title')}</h3>
-            <span className="dc-badge dc-badge-emerald">
+            <span className="dc-badge dc-badge-emerald dc-live-count-badge">
+              <span className="dc-live-dot is-sm" aria-hidden />
               {t('admin_live_now_count', { count: activeNow.length })}
             </span>
           </div>
@@ -167,8 +180,11 @@ export default function DoctorDashboard({ user, onOpenPatient }) {
           ) : (
             <div className="dc-admin-room-grid">
               {activeNow.map((appt) => (
-                <article key={appt.id} className="dc-admin-room-card is-live dc-doctor-appt-card">
-                  <div className="dc-admin-room-name">{appt.roomName}</div>
+                <article key={appt.id} className="dc-admin-room-card is-live dc-live-pulse-card dc-doctor-appt-card">
+                  <div className="dc-admin-room-name">
+                    <span className="dc-live-dot is-sm" aria-hidden />
+                    {appt.roomName}
+                  </div>
                   <button
                     type="button"
                     className="dc-doctor-patient-link"
@@ -215,7 +231,7 @@ export default function DoctorDashboard({ user, onOpenPatient }) {
                 <button
                   key={appt.id}
                   type="button"
-                  className="dc-admin-upcoming-row dc-doctor-upcoming-row"
+                  className="dc-admin-upcoming-row dc-doctor-upcoming-row dc-live-row"
                   onClick={() => openPatient(appt.patientId)}
                 >
                   <span className="dc-admin-upcoming-time">{formatSlot(appt.slot)}</span>
@@ -228,7 +244,7 @@ export default function DoctorDashboard({ user, onOpenPatient }) {
           )}
         </section>
 
-        <section className="dc-admin-panel">
+        <section className="dc-admin-panel dc-live-panel">
           <div className="dc-admin-panel-head">
             <h3><i className="fa-solid fa-list-check" /> {t('doctor_schedule_title')}</h3>
           </div>
@@ -239,7 +255,7 @@ export default function DoctorDashboard({ user, onOpenPatient }) {
               {all.map((appt) => (
                 <article
                   key={appt.id}
-                  className={`dc-doctor-schedule-row is-${appt.phase}${appt.status === 'DONE' ? ' is-done' : ''}`}
+                  className={`dc-doctor-schedule-row dc-live-row is-${appt.phase}${appt.status === 'DONE' ? ' is-done' : ''}`}
                 >
                   <div className="dc-doctor-schedule-time">{timeRange(appt.slot, appt.endSlot)}</div>
                   <div className="dc-doctor-schedule-main">
@@ -276,7 +292,7 @@ export default function DoctorDashboard({ user, onOpenPatient }) {
               <h4 className="dc-admin-subtitle">{t('doctor_sessions_title')}</h4>
               <div className="dc-admin-activity-list">
                 {sessions.map((s) => (
-                  <article key={s.id} className="dc-admin-activity-row">
+                  <article key={s.id} className="dc-admin-activity-row dc-live-row">
                     <div className="dc-admin-activity-main">
                       <button
                         type="button"
@@ -302,7 +318,7 @@ export default function DoctorDashboard({ user, onOpenPatient }) {
               <h4 className="dc-admin-subtitle">{t('doctor_completed_title')}</h4>
               <div className="dc-admin-upcoming-list">
                 {completed.map((appt) => (
-                  <div key={appt.id} className="dc-admin-upcoming-row">
+                  <div key={appt.id} className="dc-admin-upcoming-row dc-live-row">
                     <span className="dc-admin-upcoming-time">{formatSlot(appt.slot)}</span>
                     <span className="dc-admin-upcoming-patient">{appt.patientName}</span>
                     <span className="dc-muted text-sm">{appt.roomName}</span>

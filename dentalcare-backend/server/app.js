@@ -107,10 +107,12 @@ const { ensureJournalEntryNumberSchema } = require('./db/ensureJournalEntryNumbe
 const { ensureJournalLineCurrencySchema } = require('./db/ensureJournalLineCurrency');
 const { ensureJournalLineTenantSchema } = require('./db/ensureJournalLineTenant');
 const { ensureChartAccountCurrencySchema } = require('./db/ensureChartAccountCurrency');
+const { ensurePatientDependentsSchema } = require('./db/ensurePatientDependents');
 
 Promise.all([
   ensureCheckbooksSchema().catch((err) => console.error('checkbooks ensure failed:', err.message)),
   ensureRoomsSchema().catch((err) => console.error('rooms ensure failed:', err.message)),
+  ensurePatientDependentsSchema().catch((err) => console.error('patient dependents ensure failed:', err.message)),
   ensureTenantSettingsSchema()
     .catch((err) => console.error('tenant_settings ensure failed:', err.message))
     .then(() => ensureTenantIsolation())

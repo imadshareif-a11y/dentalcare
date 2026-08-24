@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api, ApiError } from '../api/client';
+import { api } from '../api/client';
 import { useSettings } from '../context/SettingsContext';
+import LiveKpiValue from '../components/LiveKpiValue';
+import PartyModal from '../components/PartyModal';
+import {
+  dashboardErrorMessage,
+  relativeUpdated,
+  useDashboardLive,
+} from '../hooks/useDashboardLive';
 
 const SOURCE_LABEL_KEYS = {
   RECEIPT: 'nav_receipt',
@@ -27,6 +34,14 @@ const ROLE_KEYS = {
   RECEPTIONIST: 'user_role_receptionist',
 };
 
+const KPI_MODAL_TITLES = {
+  cash: 'admin_kpi_drill_cash_title',
+  receivables: 'admin_kpi_drill_receivables_title',
+  payables: 'admin_kpi_drill_payables_title',
+  appointments: 'admin_kpi_drill_appointments_title',
+  users: 'admin_kpi_drill_users_title',
+};
+
 function roleLabel(role, t) {
   const key = ROLE_KEYS[role];
   return key ? t(key) : (role || '—');
@@ -36,31 +51,31 @@ function formatTime(slot) {
   return String(slot || '').slice(0, 5) || '—';
 }
 
+function apptPhaseLabel(phase, t) {
+  if (phase === 'now') return t('admin_kpi_drill_appt_now');
+  if (phase === 'upcoming') return t('admin_kpi_drill_appt_upcoming');
+  if (phase === 'past') return t('admin_kpi_drill_appt_past');
+  return '—';
+}
+
 export default function AdminDashboard() {
   const { t } = useTranslation();
   const { money, dateTime } = useSettings();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [activityFilter, setActivityFilter] = useState('all');
+  const [kpiModal, setKpiModal] = useState(null);
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const row = await api.get('/admin/dashboard');
-      setData(row);
-    } catch (err) {
-      setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+  const fetchDashboard = useCallback(async () => api.get('/admin/dashboard'), []);
+  const {
+    data,
+    loading,
+    refreshing,
+    error,
+    now,
+    flashKey,
+    reload,
+  } = useDashboardLive(fetchDashboard, { intervalMs: 15_000 });
 
-  useEffect(() => {
-    load();
-    const timer = window.setInterval(load, 60_000);
-    return () => window.clearInterval(timer);
-  }, [load]);
+  const errorMsg = dashboardErrorMessage(error, t);
 
   const filteredActivity = useMemo(() => {
     const rows = data?.activity || [];
@@ -77,86 +92,108 @@ export default function AdminDashboard() {
     return <div className="dc-admin-dashboard">{t('ledger_loading')}</div>;
   }
 
-  if (error && !data) {
+  if (errorMsg && !data) {
     return (
       <div className="dc-admin-dashboard">
-        <div className="dc-error">{error}</div>
-        <button type="button" onClick={load}>{t('admin_refresh')}</button>
+        <div className="dc-error">{errorMsg}</div>
+        <button type="button" onClick={() => reload()}>{t('admin_refresh')}</button>
       </div>
     );
   }
 
   const summary = data?.summary || {};
   const baseSymbol = data?.baseCurrency?.symbol || '₪';
+  const busy = refreshing || loading;
+  const cashBoxes = data?.cashBoxes || [];
+  const topDebts = data?.topPatientDebts || [];
+  const topPayables = data?.topSupplierPayables || [];
+  const dayAppts = data?.appointments?.all || [];
+  const onlineUsers = data?.activeUsers || [];
 
   return (
-    <div className="dc-admin-dashboard">
+    <div className={`dc-admin-dashboard is-live-board${busy ? ' is-refreshing' : ''}`}>
       <header className="dc-admin-head">
         <div>
-          <h2>{t('admin_dashboard_title')}</h2>
-          <p className="dc-muted text-sm">
+          <div className="dc-admin-title-row">
+            <h2>{t('admin_dashboard_title')}</h2>
+            <span
+              key={flashKey}
+              className="dc-live-badge is-flash"
+              title={data?.generatedAt ? dateTime(data.generatedAt) : ''}
+            >
+              <span className="dc-live-dot" aria-hidden />
+              {t('dashboard_live_label')}
+            </span>
+          </div>
+          <p className="dc-muted text-sm dc-live-updated">
             {t('admin_last_updated', {
-              time: data?.generatedAt ? dateTime(data.generatedAt) : '—',
+              time: relativeUpdated(data?.generatedAt, now, t),
             })}
           </p>
         </div>
-        <button type="button" className="dc-admin-refresh" onClick={load} disabled={loading}>
-          <i className={`fa-solid fa-rotate${loading ? ' fa-spin' : ''}`} />
+        <button type="button" className="dc-admin-refresh" onClick={() => reload()} disabled={busy}>
+          <i className={`fa-solid fa-rotate${busy ? ' fa-spin' : ''}`} />
           {t('admin_refresh')}
         </button>
       </header>
 
-      {error && <div className="dc-error">{error}</div>}
+      {errorMsg && <div className="dc-error">{errorMsg}</div>}
 
-      <div className="dc-admin-kpi-grid">
-        <article className="dc-admin-kpi is-cash">
+      <div className="dc-admin-kpi-grid dc-live-stagger">
+        <button type="button" className="dc-admin-kpi is-cash dc-live-card is-clickable" onClick={() => setKpiModal('cash')}>
           <span className="dc-admin-kpi-icon"><i className="fa-solid fa-cash-register" /></span>
           <div>
             <span className="dc-admin-kpi-label">{t('admin_kpi_cash')}</span>
-            <strong>{money(summary.cashTotalBase)}</strong>
+            <LiveKpiValue value={summary.cashTotalBase} format={money} />
+            <span className="dc-admin-kpi-hint">{t('admin_kpi_click_hint')}</span>
           </div>
-        </article>
-        <article className="dc-admin-kpi is-receivable">
+        </button>
+        <button type="button" className="dc-admin-kpi is-receivable dc-live-card is-clickable" onClick={() => setKpiModal('receivables')}>
           <span className="dc-admin-kpi-icon"><i className="fa-solid fa-hand-holding-dollar" /></span>
           <div>
             <span className="dc-admin-kpi-label">{t('admin_kpi_receivables')}</span>
-            <strong>{money(summary.patientReceivables)}</strong>
+            <LiveKpiValue value={summary.patientReceivables} format={money} />
             <span className="dc-admin-kpi-sub">
               {t('admin_kpi_debtors', { count: summary.patientsWithDebt || 0 })}
             </span>
+            <span className="dc-admin-kpi-hint">{t('admin_kpi_click_hint')}</span>
           </div>
-        </article>
-        <article className="dc-admin-kpi is-payable">
+        </button>
+        <button type="button" className="dc-admin-kpi is-payable dc-live-card is-clickable" onClick={() => setKpiModal('payables')}>
           <span className="dc-admin-kpi-icon"><i className="fa-solid fa-file-invoice-dollar" /></span>
           <div>
             <span className="dc-admin-kpi-label">{t('admin_kpi_payables')}</span>
-            <strong>{money(summary.supplierPayables)}</strong>
+            <LiveKpiValue value={summary.supplierPayables} format={money} />
+            <span className="dc-admin-kpi-hint">{t('admin_kpi_click_hint')}</span>
           </div>
-        </article>
-        <article className="dc-admin-kpi is-appt">
+        </button>
+        <button type="button" className="dc-admin-kpi is-appt dc-live-card is-clickable" onClick={() => setKpiModal('appointments')}>
           <span className="dc-admin-kpi-icon"><i className="fa-solid fa-calendar-check" /></span>
           <div>
             <span className="dc-admin-kpi-label">{t('admin_kpi_appointments')}</span>
-            <strong>{summary.appointmentsToday ?? 0}</strong>
+            <LiveKpiValue value={summary.appointmentsToday ?? 0} />
             <span className="dc-admin-kpi-sub">
               {t('admin_kpi_active_now', { count: summary.activeNow || 0 })}
             </span>
+            <span className="dc-admin-kpi-hint">{t('admin_kpi_click_hint')}</span>
           </div>
-        </article>
-        <article className="dc-admin-kpi is-users">
+        </button>
+        <button type="button" className="dc-admin-kpi is-users dc-live-card is-clickable" onClick={() => setKpiModal('users')}>
           <span className="dc-admin-kpi-icon"><i className="fa-solid fa-users" /></span>
           <div>
             <span className="dc-admin-kpi-label">{t('admin_kpi_online_users')}</span>
-            <strong>{summary.onlineUsers ?? 0}</strong>
+            <LiveKpiValue value={summary.onlineUsers ?? 0} />
+            <span className="dc-admin-kpi-hint">{t('admin_kpi_click_hint')}</span>
           </div>
-        </article>
+        </button>
       </div>
 
       <div className="dc-admin-main-grid">
-        <section className="dc-admin-panel">
+        <section className="dc-admin-panel dc-live-panel">
           <div className="dc-admin-panel-head">
             <h3><i className="fa-solid fa-door-open" /> {t('admin_live_rooms_title')}</h3>
-            <span className="dc-badge dc-badge-emerald">
+            <span className="dc-badge dc-badge-emerald dc-live-count-badge">
+              <span className="dc-live-dot is-sm" aria-hidden />
               {t('admin_live_now_count', { count: data?.appointments?.activeNow?.length || 0 })}
             </span>
           </div>
@@ -166,8 +203,11 @@ export default function AdminDashboard() {
           ) : (
             <div className="dc-admin-room-grid">
               {data.appointments.activeNow.map((appt) => (
-                <article key={appt.id} className="dc-admin-room-card is-live">
-                  <div className="dc-admin-room-name">{appt.roomName}</div>
+                <article key={appt.id} className="dc-admin-room-card is-live dc-live-pulse-card">
+                  <div className="dc-admin-room-name">
+                    <span className="dc-live-dot is-sm" aria-hidden />
+                    {appt.roomName}
+                  </div>
                   <div className="dc-admin-room-doctor">
                     <i className="fa-solid fa-user-doctor" />
                     {appt.doctorName}
@@ -190,7 +230,7 @@ export default function AdminDashboard() {
           ) : (
             <div className="dc-admin-upcoming-list">
               {data.appointments.upcoming.map((appt) => (
-                <div key={appt.id} className="dc-admin-upcoming-row">
+                <div key={appt.id} className="dc-admin-upcoming-row dc-live-row">
                   <span className="dc-admin-upcoming-time">
                     {formatTime(appt.slot)}
                   </span>
@@ -203,7 +243,7 @@ export default function AdminDashboard() {
           )}
         </section>
 
-        <section className="dc-admin-panel">
+        <section className="dc-admin-panel dc-live-panel">
           <div className="dc-admin-panel-head">
             <h3><i className="fa-solid fa-clock-rotate-left" /> {t('admin_activity_title')}</h3>
           </div>
@@ -224,7 +264,7 @@ export default function AdminDashboard() {
               <div className="dc-admin-empty is-compact">{t('admin_activity_empty')}</div>
             )}
             {filteredActivity.map((row) => (
-              <article key={row.id} className="dc-admin-activity-row">
+              <article key={row.id} className="dc-admin-activity-row dc-live-row">
                 <div className="dc-admin-activity-main">
                   <span className="dc-admin-activity-type">
                     {t(SOURCE_LABEL_KEYS[row.sourceType] || row.sourceType || '—')}
@@ -251,20 +291,22 @@ export default function AdminDashboard() {
       </div>
 
       <div className="dc-admin-main-grid">
-        <section className="dc-admin-panel">
+        <section className="dc-admin-panel dc-live-panel">
           <div className="dc-admin-panel-head">
             <h3><i className="fa-solid fa-circle-dot" /> {t('admin_online_users_title')}</h3>
-            <span className="dc-badge dc-badge-emerald">
-              {t('admin_live_now_count', { count: data?.activeUsers?.length || 0 })}
+            <span className="dc-badge dc-badge-emerald dc-live-count-badge">
+              <span className="dc-live-dot is-sm" aria-hidden />
+              {t('admin_live_now_count', { count: onlineUsers.length })}
             </span>
           </div>
-          {(data?.activeUsers?.length || 0) === 0 ? (
+          {onlineUsers.length === 0 ? (
             <div className="dc-admin-empty">{t('admin_online_users_empty')}</div>
           ) : (
             <div className="dc-admin-online-list">
-              {data.activeUsers.map((u) => (
-                <article key={u.sessionId} className="dc-admin-online-row">
+              {onlineUsers.map((u) => (
+                <article key={u.sessionId} className="dc-admin-online-row dc-live-row is-online">
                   <div className="dc-admin-online-main">
+                    <span className="dc-live-dot is-sm" aria-hidden />
                     <strong>{u.userName}</strong>
                     <span className="dc-muted">@{u.username}</span>
                   </div>
@@ -279,7 +321,7 @@ export default function AdminDashboard() {
           )}
         </section>
 
-        <section className="dc-admin-panel">
+        <section className="dc-admin-panel dc-live-panel">
           <div className="dc-admin-panel-head">
             <h3><i className="fa-solid fa-right-to-bracket" /> {t('admin_auth_activity_title')}</h3>
           </div>
@@ -290,7 +332,7 @@ export default function AdminDashboard() {
             {(data?.authEvents || []).map((row) => (
               <article
                 key={row.id}
-                className={`dc-admin-activity-row dc-auth-event is-${String(row.eventType || '').toLowerCase()}`}
+                className={`dc-admin-activity-row dc-auth-event dc-live-row is-${String(row.eventType || '').toLowerCase()}`}
               >
                 <div className="dc-admin-activity-main">
                   <span className="dc-admin-activity-type">
@@ -309,21 +351,22 @@ export default function AdminDashboard() {
         </section>
       </div>
 
-      <section className="dc-admin-panel dc-admin-cash-panel">
+      <section className="dc-admin-panel dc-admin-cash-panel dc-live-panel">
         <div className="dc-admin-panel-head">
           <h3><i className="fa-solid fa-vault" /> {t('admin_cash_boxes_title')}</h3>
         </div>
         <div className="dc-admin-cash-grid">
-          {(data?.cashBoxes || []).length === 0 && (
+          {cashBoxes.length === 0 && (
             <div className="dc-admin-empty is-compact">{t('admin_cash_boxes_empty')}</div>
           )}
-          {(data?.cashBoxes || []).map((box) => (
-            <article key={box.id} className={`dc-admin-cash-card${box.boxKind !== 'CASH' ? ' is-checks' : ''}`}>
+          {cashBoxes.map((box) => (
+            <article key={box.id} className={`dc-admin-cash-card dc-live-card${box.boxKind !== 'CASH' ? ' is-checks' : ''}`}>
               <div className="dc-admin-cash-name">{box.name}</div>
               <div className="dc-admin-cash-balance">
-                {Number(box.balance).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                {' '}
-                {box.currencySymbol}
+                <LiveKpiValue
+                  value={box.balance}
+                  format={(n) => `${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${box.currencySymbol}`}
+                />
               </div>
               {data?.baseCurrency?.code && box.currencyCode && box.currencyCode !== data.baseCurrency.code && (
                 <div className="dc-muted text-sm">
@@ -334,6 +377,152 @@ export default function AdminDashboard() {
           ))}
         </div>
       </section>
+
+      <PartyModal
+        open={Boolean(kpiModal)}
+        title={kpiModal ? t(KPI_MODAL_TITLES[kpiModal]) : ''}
+        onClose={() => setKpiModal(null)}
+        wide
+        className="dc-admin-kpi-modal"
+      >
+        {kpiModal === 'cash' && (
+          <div className="dc-admin-kpi-drill">
+            <p className="dc-muted text-sm dc-admin-kpi-drill-sum">
+              {t('admin_kpi_drill_cash_total', { amount: money(summary.cashTotalBase) })}
+            </p>
+            {cashBoxes.length === 0 ? (
+              <div className="dc-admin-empty">{t('admin_cash_boxes_empty')}</div>
+            ) : (
+              <div className="dc-admin-kpi-drill-grid">
+                {cashBoxes.map((box) => (
+                  <article
+                    key={box.id}
+                    className={`dc-admin-kpi-drill-card${box.boxKind !== 'CASH' ? ' is-checks' : ''}`}
+                  >
+                    <div className="dc-admin-kpi-drill-card-top">
+                      <strong>{box.name}</strong>
+                      <span className="dc-badge">
+                        {box.boxKind === 'CASH' ? t('admin_kpi_drill_box_cash') : t('admin_kpi_drill_box_checks')}
+                      </span>
+                    </div>
+                    <div className="dc-admin-kpi-drill-amount">
+                      {Number(box.balance).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      {' '}
+                      {box.currencySymbol}
+                    </div>
+                    {data?.baseCurrency?.code && box.currencyCode && box.currencyCode !== data.baseCurrency.code && (
+                      <div className="dc-muted text-sm">
+                        ≈ {Number(box.balanceBase).toLocaleString(undefined, { maximumFractionDigits: 2 })} {baseSymbol}
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {kpiModal === 'receivables' && (
+          <div className="dc-admin-kpi-drill">
+            <p className="dc-muted text-sm">{t('admin_kpi_drill_top5_patients')}</p>
+            {topDebts.length === 0 ? (
+              <div className="dc-admin-empty">{t('admin_kpi_drill_debts_empty')}</div>
+            ) : (
+              <ol className="dc-admin-kpi-rank-list">
+                {topDebts.map((row, idx) => (
+                  <li key={row.id} className="dc-admin-kpi-rank-row">
+                    <span className="dc-admin-kpi-rank-num">{idx + 1}</span>
+                    <div className="dc-admin-kpi-rank-main">
+                      <strong>{row.name}</strong>
+                      {row.phone && <span className="dc-muted text-sm">{row.phone}</span>}
+                    </div>
+                    <span className="dc-admin-kpi-rank-amount">{money(row.balance)}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
+
+        {kpiModal === 'payables' && (
+          <div className="dc-admin-kpi-drill">
+            <p className="dc-muted text-sm">{t('admin_kpi_drill_top5_suppliers')}</p>
+            {topPayables.length === 0 ? (
+              <div className="dc-admin-empty">{t('admin_kpi_drill_payables_empty')}</div>
+            ) : (
+              <ol className="dc-admin-kpi-rank-list">
+                {topPayables.map((row, idx) => (
+                  <li key={row.id} className="dc-admin-kpi-rank-row">
+                    <span className="dc-admin-kpi-rank-num">{idx + 1}</span>
+                    <div className="dc-admin-kpi-rank-main">
+                      <strong>{row.name}</strong>
+                      {row.phone && <span className="dc-muted text-sm">{row.phone}</span>}
+                    </div>
+                    <span className="dc-admin-kpi-rank-amount">{money(row.balance)}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
+
+        {kpiModal === 'appointments' && (
+          <div className="dc-admin-kpi-drill">
+            {dayAppts.length === 0 ? (
+              <div className="dc-admin-empty">{t('admin_kpi_drill_appts_empty')}</div>
+            ) : (
+              <div className="dc-admin-kpi-appt-list">
+                {dayAppts.map((appt) => (
+                  <article
+                    key={appt.id}
+                    className={`dc-admin-kpi-appt-row is-${appt.phase}`}
+                  >
+                    <div className="dc-admin-kpi-appt-time">
+                      {formatTime(appt.slot)} – {formatTime(appt.endSlot)}
+                    </div>
+                    <div className="dc-admin-kpi-appt-main">
+                      <strong>{appt.patientName}</strong>
+                      <span className="dc-muted text-sm">
+                        {appt.doctorName}
+                        {' · '}
+                        {appt.roomName}
+                      </span>
+                    </div>
+                    <span className={`dc-badge${appt.phase === 'now' ? ' dc-badge-emerald' : ''}`}>
+                      {apptPhaseLabel(appt.phase, t)}
+                    </span>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {kpiModal === 'users' && (
+          <div className="dc-admin-kpi-drill">
+            {onlineUsers.length === 0 ? (
+              <div className="dc-admin-empty">{t('admin_online_users_empty')}</div>
+            ) : (
+              <div className="dc-admin-online-list">
+                {onlineUsers.map((u) => (
+                  <article key={u.sessionId} className="dc-admin-online-row is-online">
+                    <div className="dc-admin-online-main">
+                      <span className="dc-live-dot is-sm" aria-hidden />
+                      <strong>{u.userName}</strong>
+                      <span className="dc-muted">@{u.username}</span>
+                    </div>
+                    <div className="dc-admin-online-meta">
+                      <span>{roleLabel(u.role, t)}</span>
+                      <span className="dc-muted">{dateTime(u.lastSeenAt)}</span>
+                      {u.ipAddress && <span className="dc-muted">{u.ipAddress}</span>}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </PartyModal>
     </div>
   );
 }

@@ -6,7 +6,7 @@ import ClinicNumberInput from './ClinicNumberInput';
 import CurrencySelect from './CurrencySelect';
 import { useCurrencies } from '../hooks/useCurrencies';
 
-export default function DoctorForm({ record, onSaved }) {
+export default function DoctorForm({ record, onSaved, onDeleted }) {
   const { t } = useTranslation();
   const { currencies, baseCurrency } = useCurrencies();
   const isEdit = Boolean(record?.id);
@@ -17,6 +17,7 @@ export default function DoctorForm({ record, onSaved }) {
   const [monthlySalary, setMonthlySalary] = useState('');
   const [currencyId, setCurrencyId] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -85,6 +86,24 @@ export default function DoctorForm({ record, onSaved }) {
     }
   }
 
+  const canDelete = isEdit && !record?.has_movements;
+
+  async function handleDelete() {
+    if (!canDelete || !record?.id) return;
+    if (!window.confirm(t('party_confirm_delete', { name: record.name || '' }))) return;
+    setError(null);
+    setDeleting(true);
+    try {
+      await api.delete(`/doctors/${record.id}`);
+      onDeleted?.();
+      onSaved?.({ deleted: true });
+    } catch (err) {
+      setError(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <input type="text" className="dc-field-name" placeholder={t('doctor_name')} value={name} onChange={(e) => setName(e.target.value)} required />
@@ -133,9 +152,24 @@ export default function DoctorForm({ record, onSaved }) {
         </>
       )}
       {error && <div className="dc-error">{error}</div>}
-      <button type="submit" disabled={submitting}>
-        {submitting ? t('party_saving') : (isEdit ? t('party_save') : t('doctor_register'))}
-      </button>
+      {isEdit && record?.has_movements && (
+        <p className="dc-muted text-sm">{t('party_delete_blocked_movements')}</p>
+      )}
+      <div className="dc-form-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        {canDelete ? (
+          <button
+            type="button"
+            className="dc-danger"
+            disabled={submitting || deleting}
+            onClick={handleDelete}
+          >
+            {deleting ? t('party_deleting') : t('party_delete')}
+          </button>
+        ) : <span />}
+        <button type="submit" disabled={submitting || deleting}>
+          {submitting ? t('party_saving') : (isEdit ? t('party_save') : t('doctor_register'))}
+        </button>
+      </div>
     </form>
   );
 }

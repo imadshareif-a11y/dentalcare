@@ -44,6 +44,12 @@ function mapPatientRow(row) {
     ...row,
     birth_date: birthDate,
     age: ageFromBirthDate(birthDate),
+    billing_party_id: row.billing_party_id || null,
+    billing_party_name: row.billing_party_name || null,
+    billing_account_id: row.billing_account_id || row.account_id || null,
+    is_dependent: Boolean(row.is_dependent || row.billing_party_id),
+    dependents_count: Number(row.dependents_count || 0),
+    has_movements: Boolean(row.has_movements),
   };
 }
 

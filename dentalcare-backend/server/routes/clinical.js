@@ -267,17 +267,32 @@ router.post(
       }
 
       let patientAccountId = null;
+      let patientChargeMemo = 'ترحيل تكلفة الجلسة لذمة المريض';
       if (sessionTotal > 0) {
-        patientAccountId = await withTenantClient(req.user.tenantId, async (client) => {
+        const billing = await withTenantClient(req.user.tenantId, async (client) => {
           const result = await client.query(
-            `SELECT account_id FROM parties WHERE id = $1 AND tenant_id = $2 AND party_type = 'PATIENT'`,
+            `SELECT p.account_id, p.name, p.billing_party_id,
+                    g.account_id AS guardian_account_id, g.name AS guardian_name
+             FROM parties p
+             LEFT JOIN parties g
+               ON g.id = p.billing_party_id
+              AND g.tenant_id = p.tenant_id
+              AND g.party_type = 'PATIENT'
+             WHERE p.id = $1 AND p.tenant_id = $2 AND p.party_type = 'PATIENT'`,
             [patientId, req.user.tenantId]
           );
-          if (result.rows.length === 0 || !result.rows[0].account_id) {
-            throw new Error('لا يوجد حساب ذمة مرتبط بهذا المريض');
-          }
-          return result.rows[0].account_id;
+          return result.rows[0] || null;
         });
+        if (!billing) {
+          throw Object.assign(new Error('المريض غير موجود'), { statusCode: 400 });
+        }
+        patientAccountId = billing.guardian_account_id || billing.account_id;
+        if (!patientAccountId) {
+          throw new Error('لا يوجد حساب ذمة مرتبط بهذا المريض');
+        }
+        if (billing.guardian_account_id) {
+          patientChargeMemo = `ترحيل جلسة — ${billing.name} (ذمة ${billing.guardian_name})`;
+        }
       }
 
       let doctorLines = [];
@@ -327,7 +342,7 @@ router.post(
           memo: `جلسة عالجية — ${treatments.length} إجراء${doctorNameForMemo ? ` — د. ${doctorNameForMemo}` : ''}`,
           idempotencyKey,
           lines: [
-            { accountId: patientAccountId, debit: sessionTotal, lineMemo: 'ترحيل تكلفة الجلسة لذمة المريض' },
+            { accountId: patientAccountId, debit: sessionTotal, lineMemo: patientChargeMemo },
             ...treatments.filter((t) => Number(t.cost) > 0).map((t) => ({
               accountId: revenueAccountId,
               credit: Number(t.cost),

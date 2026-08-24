@@ -5,6 +5,7 @@ import { api, ApiError } from '../api/client';
 import PartyModal from '../components/PartyModal';
 import UserForm from '../components/UserForm';
 import PermissionsEditor from '../components/PermissionsEditor';
+import { useAuth } from '../context/AuthContext';
 
 const ROLE_LABEL_KEY = {
   OWNER: 'user_role_owner',
@@ -24,6 +25,7 @@ const ROLE_ORDER = ['OWNER', 'ACCOUNTANT', 'DOCTOR', 'RECEPTIONIST'];
 
 export default function Users() {
   const { t } = useTranslation();
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [defaultsMeta, setDefaultsMeta] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +35,8 @@ export default function Users() {
   const [editingUserId, setEditingUserId] = useState(null);
   const [editingPermissions, setEditingPermissions] = useState({});
   const [saving, setSaving] = useState(false);
+  const [statusSavingId, setStatusSavingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const [doctors, setDoctors] = useState([]);
   const [linkSavingId, setLinkSavingId] = useState(null);
 
@@ -167,6 +171,35 @@ export default function Users() {
     }
   }
 
+  async function toggleActive(u) {
+    const next = !u.is_active;
+    if (!next && !confirm(t('user_deactivate_confirm', { name: u.name }))) return;
+    setStatusSavingId(u.id);
+    try {
+      await api.patch(`/users/${u.id}`, { isActive: next });
+      await loadUsers();
+    } catch (err) {
+      alert(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
+    } finally {
+      setStatusSavingId(null);
+    }
+  }
+
+  async function deleteUser(u) {
+    if (String(u.id) === String(currentUser?.id)) return;
+    if (!confirm(t('user_delete_confirm', { name: u.name, username: u.username }))) return;
+    setDeletingId(u.id);
+    try {
+      await api.delete(`/users/${u.id}`);
+      if (editingUserId === u.id) setEditingUserId(null);
+      await loadUsers();
+    } catch (err) {
+      alert(err instanceof ApiError ? (err.body?.error || err.message) : t('error_network'));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   const roles = defaultsMeta?.roles || ROLE_ORDER;
 
   return (
@@ -199,8 +232,13 @@ export default function Users() {
           <div className="dc-users-cards">
             {users.map((u) => {
               const editing = editingUserId === u.id;
+              const isSelf = String(u.id) === String(currentUser?.id);
+              const busy = statusSavingId === u.id || deletingId === u.id || linkSavingId === u.id;
               return (
-                <article key={u.id} className={`dc-user-card${editing ? ' is-editing' : ''}`}>
+                <article
+                  key={u.id}
+                  className={`dc-user-card${editing ? ' is-editing' : ''}${u.is_active ? '' : ' is-inactive'}`}
+                >
                   <div className="dc-user-card-main">
                     <div className="dc-user-avatar" aria-hidden>
                       {(u.name || u.username || '?').slice(0, 1)}
@@ -212,16 +250,37 @@ export default function Users() {
                     <span className={`dc-user-role tone-${ROLE_TONE[u.role] || 'slate'}`}>
                       {t(ROLE_LABEL_KEY[u.role] || u.role)}
                     </span>
-                    <span className={`dc-user-status${u.is_active ? ' is-active' : ''}`}>
-                      {u.is_active ? t('user_status_active') : '—'}
+                    <span className={`dc-user-status${u.is_active ? ' is-active' : ' is-inactive'}`}>
+                      {u.is_active ? t('user_status_active') : t('user_status_inactive')}
                     </span>
                     <div className="dc-user-actions">
+                      <button
+                        type="button"
+                        className={u.is_active ? 'dc-ghost' : 'dc-success'}
+                        disabled={busy || (isSelf && u.is_active)}
+                        title={isSelf && u.is_active ? t('user_cannot_deactivate_self') : undefined}
+                        onClick={() => toggleActive(u)}
+                      >
+                        {statusSavingId === u.id
+                          ? t('ledger_loading')
+                          : (u.is_active ? t('user_deactivate') : t('user_activate'))}
+                      </button>
+                      {!isSelf && (
+                        <button
+                          type="button"
+                          className="dc-danger"
+                          disabled={busy}
+                          onClick={() => deleteUser(u)}
+                        >
+                          {deletingId === u.id ? t('ledger_loading') : t('user_delete')}
+                        </button>
+                      )}
                       {editing ? (
                         <button type="button" className="dc-ghost" onClick={() => setEditingUserId(null)}>
                           {t('permissions_cancel')}
                         </button>
                       ) : (
-                        <button type="button" onClick={() => startEditing(u)}>
+                        <button type="button" disabled={busy} onClick={() => startEditing(u)}>
                           {t('permissions_edit_button')}
                         </button>
                       )}

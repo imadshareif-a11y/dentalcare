@@ -16,6 +16,7 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
   const [error, setError] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [defaultBillingParty, setDefaultBillingParty] = useState(null);
 
   const openClinical = useCallback((patientId) => {
     onOpenClinical?.(patientId);
@@ -54,17 +55,26 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
 
   function openAdd() {
     setEditing(null);
+    setDefaultBillingParty(null);
+    setModalOpen(true);
+  }
+
+  function openAddDependent(guardian) {
+    setEditing(null);
+    setDefaultBillingParty(guardian);
     setModalOpen(true);
   }
 
   function openEdit(row) {
     setEditing(row);
+    setDefaultBillingParty(null);
     setModalOpen(true);
   }
 
   function closeModal() {
     setModalOpen(false);
     setEditing(null);
+    setDefaultBillingParty(null);
   }
 
   async function handleSaved() {
@@ -72,6 +82,12 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
     onAccountsChanged?.();
     closeModal();
   }
+
+  const modalTitle = editing
+    ? t('patient_edit')
+    : (defaultBillingParty
+      ? t('patient_register_dependent_of', { name: defaultBillingParty.name })
+      : t('patient_register'));
 
   return (
     <div className="space-y-4">
@@ -94,6 +110,7 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
             <tr>
               <th>{t('patient_name')}</th>
               <th>{t('patient_phone')}</th>
+              <th>{t('patient_billing_link')}</th>
               <th>{t('patient_birth_date')}</th>
               <th>{t('patient_age')}</th>
               <th>{t('patient_gender')}</th>
@@ -108,7 +125,10 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
             {patients.map((p) => (
               <tr
                 key={p.id}
-                className={onOpenClinical ? 'dc-patient-row is-clickable' : undefined}
+                className={[
+                  onOpenClinical ? 'dc-patient-row is-clickable' : '',
+                  p.is_dependent ? 'dc-patient-dependent-row' : '',
+                ].filter(Boolean).join(' ') || undefined}
                 onClick={onOpenClinical ? (e) => handleRowClick(p.id, e) : undefined}
                 onKeyDown={onOpenClinical ? (e) => handleRowKeyDown(p.id, e) : undefined}
                 tabIndex={onOpenClinical ? 0 : undefined}
@@ -133,6 +153,15 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
                   )}
                 </td>
                 <td>{p.phone || '—'}</td>
+                <td>
+                  {p.is_dependent && p.billing_party_name ? (
+                    <span className="dc-badge dc-badge-amber">{t('patient_dependent_of', { name: p.billing_party_name })}</span>
+                  ) : (Number(p.dependents_count) > 0 ? (
+                    <span className="dc-badge dc-badge-emerald">
+                      {t('patient_dependents_count', { count: p.dependents_count })}
+                    </span>
+                  ) : '—')}
+                </td>
                 <td>{p.birth_date || '—'}</td>
                 <td>{p.age != null ? p.age : '—'}</td>
                 <td>
@@ -152,6 +181,16 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
                 </td>
                 {canEdit && (
                   <td>
+                    {!p.is_dependent && (
+                      <button
+                        type="button"
+                        className="dc-icon-btn dc-icon-btn-sm"
+                        onClick={() => openAddDependent(p)}
+                        title={t('patient_add_dependent')}
+                      >
+                        <i className="fa-solid fa-user-plus" />
+                      </button>
+                    )}
                     <button type="button" className="dc-icon-btn dc-icon-btn-sm" onClick={() => openEdit(p)} title={t('party_edit')}>
                       <i className="fa-solid fa-pen" />
                     </button>
@@ -166,10 +205,15 @@ export default function Patients({ canEdit = true, onAccountsChanged, onOpenClin
       {canEdit && (
         <PartyModal
           open={modalOpen}
-          title={editing ? t('patient_edit') : t('patient_register')}
+          title={modalTitle}
           onClose={closeModal}
         >
-          <PatientForm record={editing} onSaved={handleSaved} />
+          <PatientForm
+            record={editing}
+            defaultBillingParty={defaultBillingParty}
+            guardianOptions={patients}
+            onSaved={handleSaved}
+          />
         </PartyModal>
       )}
     </div>

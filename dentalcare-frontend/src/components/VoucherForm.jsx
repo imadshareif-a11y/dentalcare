@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import ClinicNumberInput from './ClinicNumberInput';
 import PartyAccountSelect from './PartyAccountSelect';
+import DocumentFormShell, { DocSection, DocTotalBar } from './DocumentFormShell';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useCashBoxes } from '../hooks/useCashBoxes';
 import { useSettings } from '../context/SettingsContext';
@@ -253,139 +254,145 @@ export default function VoucherForm({ accounts, onPosted }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="dc-voucher-form space-y-3">
-      <p className="dc-muted text-sm">{t('voucher_multi_currency_hint')}</p>
-      <p className="dc-muted text-sm">{t('voucher_line_nav_hint')}</p>
+    <DocumentFormShell
+      variant="journal"
+      title={t('nav_voucher')}
+      subtitle={t('doc_journal_subtitle')}
+      onSubmit={handleSubmit}
+      error={error}
+      submitting={submitting}
+      submitDisabled={!isBalanced}
+      submitLabel={t('voucher_save')}
+      submittingLabel={t('voucher_saving')}
+      totals={(
+        <DocTotalBar
+          items={[
+            { label: t('voucher_debit_base', { symbol: baseSymbol }), value: money(totalBaseDebit) },
+            { label: t('voucher_credit_base', { symbol: baseSymbol }), value: money(totalBaseCredit) },
+          ]}
+          highlight={!isBalanced && totalBaseDebit + totalBaseCredit > 0
+            ? { label: t('voucher_diff'), value: money(Math.abs(diff)) }
+            : { label: t('trial_balance_totals'), value: isBalanced ? money(totalBaseDebit) : '—' }}
+        />
+      )}
+    >
+      <DocSection title={t('doc_section_lines')} hint={t('voucher_line_nav_hint')}>
+        <p className="dc-muted text-sm">{t('voucher_multi_currency_hint')}</p>
 
-      <div className="dc-voucher-table-wrap">
-        <table className="dc-voucher-table text-sm">
-          <thead>
-            <tr>
-              <th>{t('voucher_choose_account')}</th>
-              <th>{t('voucher_debit_foreign')}</th>
-              <th>{t('voucher_credit_foreign')}</th>
-              <th>{t('voucher_line_currency')}</th>
-              <th>{t('voucher_exchange_rate')}</th>
-              <th>{t('voucher_debit_base', { symbol: baseSymbol })}</th>
-              <th>{t('voucher_credit_base', { symbol: baseSymbol })}</th>
-              <th>{t('voucher_line_memo')}</th>
-              <th aria-label={t('check_col_actions')} />
-            </tr>
-          </thead>
-          <tbody>
-            {computedLines.map((line, i) => (
-              <tr key={i}>
-                <td className="dc-voucher-account-cell">
-                  <PartyAccountSelect
-                    accounts={accounts}
-                    accountList={accountOptions}
-                    value={line.accountId}
-                    onChange={(accountId) => onAccountChange(i, accountId)}
-                    required
-                    compact
-                    hideHint
-                    pickerScope="extended"
-                    fieldClassName="dc-voucher-account-field"
-                    inputRef={(el) => { lineAccountRefs.current[i] = el; }}
-                  />
-                </td>
-                <td>
-                  <ClinicNumberInput
-                    showCurrency
-                    currencySymbol={line.currencySymbol || baseSymbol}
-                    min="0"
-                    step="0.01"
-                    value={line.debit}
-                    onChange={(debit) => updateLine(i, { debit, credit: debit ? '' : line.credit })}
-                  />
-                </td>
-                <td>
-                  <ClinicNumberInput
-                    showCurrency
-                    currencySymbol={line.currencySymbol || baseSymbol}
-                    min="0"
-                    step="0.01"
-                    value={line.credit}
-                    onChange={(credit) => updateLine(i, { credit, debit: credit ? '' : line.debit })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'ArrowDown') tryAdvanceLine(i, e);
-                    }}
-                  />
-                </td>
-                <td className="dc-voucher-currency-cell">
-                  <span className="dc-voucher-currency-badge">
-                    {line.currencyCode || baseCurrency?.code || '—'}
-                  </span>
-                </td>
-                <td className="dc-num dc-voucher-rate-cell">
-                  {(Number(line.exchangeRate) || 1).toFixed(4)}
-                </td>
-                <td className="dc-money dc-voucher-base-cell">
-                  {line.baseDebit > 0 ? money(line.baseDebit) : '—'}
-                </td>
-                <td className="dc-money dc-voucher-base-cell">
-                  {line.baseCredit > 0 ? money(line.baseCredit) : '—'}
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    value={line.lineMemo}
-                    onChange={(e) => updateLine(i, { lineMemo: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key !== 'Tab' && e.key !== 'ArrowDown') return;
-                      if (e.key === 'Tab' && e.shiftKey) return;
-                      tryAdvanceLine(i, e);
-                    }}
-                    placeholder={t('voucher_line_memo')}
-                  />
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className="dc-ghost-light"
-                    onClick={() => removeLine(i)}
-                    disabled={lines.length <= 1}
-                    title={t('voucher_remove_line')}
-                  >
-                    ×
-                  </button>
-                </td>
+        <div className="dc-voucher-table-wrap">
+          <table className="dc-voucher-table text-sm">
+            <thead>
+              <tr>
+                <th>{t('voucher_choose_account')}</th>
+                <th>{t('voucher_debit_foreign')}</th>
+                <th>{t('voucher_credit_foreign')}</th>
+                <th>{t('voucher_line_currency')}</th>
+                <th>{t('voucher_exchange_rate')}</th>
+                <th>{t('voucher_debit_base', { symbol: baseSymbol })}</th>
+                <th>{t('voucher_credit_base', { symbol: baseSymbol })}</th>
+                <th>{t('voucher_line_memo')}</th>
+                <th aria-label={t('check_col_actions')} />
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="dc-voucher-totals-row">
-              <td colSpan={5}><strong>{t('trial_balance_totals')}</strong></td>
-              <td className="dc-money"><strong>{money(totalBaseDebit)}</strong></td>
-              <td className="dc-money"><strong>{money(totalBaseCredit)}</strong></td>
-              <td colSpan={2} className={isBalanced ? 'text-emerald-700' : 'text-rose-700'}>
-                {!isBalanced && totalBaseDebit + totalBaseCredit > 0 && (
-                  <span>{t('voucher_diff')}: {money(Math.abs(diff))}</span>
-                )}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {computedLines.map((line, i) => (
+                <tr key={i}>
+                  <td className="dc-voucher-account-cell">
+                    <PartyAccountSelect
+                      accounts={accounts}
+                      accountList={accountOptions}
+                      value={line.accountId}
+                      onChange={(accountId) => onAccountChange(i, accountId)}
+                      required
+                      compact
+                      hideHint
+                      pickerScope="extended"
+                      fieldClassName="dc-voucher-account-field"
+                      inputRef={(el) => { lineAccountRefs.current[i] = el; }}
+                    />
+                  </td>
+                  <td>
+                    <ClinicNumberInput
+                      showCurrency
+                      currencySymbol={line.currencySymbol || baseSymbol}
+                      min="0"
+                      step="0.01"
+                      value={line.debit}
+                      onChange={(debit) => updateLine(i, { debit, credit: debit ? '' : line.credit })}
+                    />
+                  </td>
+                  <td>
+                    <ClinicNumberInput
+                      showCurrency
+                      currencySymbol={line.currencySymbol || baseSymbol}
+                      min="0"
+                      step="0.01"
+                      value={line.credit}
+                      onChange={(credit) => updateLine(i, { credit, debit: credit ? '' : line.debit })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowDown') tryAdvanceLine(i, e);
+                      }}
+                    />
+                  </td>
+                  <td className="dc-voucher-currency-cell">
+                    <span className="dc-voucher-currency-badge">
+                      {line.currencyCode || baseCurrency?.code || '—'}
+                    </span>
+                  </td>
+                  <td className="dc-num dc-voucher-rate-cell">
+                    {(Number(line.exchangeRate) || 1).toFixed(4)}
+                  </td>
+                  <td className="dc-money dc-voucher-base-cell">
+                    {line.baseDebit > 0 ? money(line.baseDebit) : '—'}
+                  </td>
+                  <td className="dc-money dc-voucher-base-cell">
+                    {line.baseCredit > 0 ? money(line.baseCredit) : '—'}
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      value={line.lineMemo}
+                      onChange={(e) => updateLine(i, { lineMemo: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Tab' && e.key !== 'ArrowDown') return;
+                        if (e.key === 'Tab' && e.shiftKey) return;
+                        tryAdvanceLine(i, e);
+                      }}
+                      placeholder={t('voucher_line_memo')}
+                    />
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="dc-ghost-light"
+                      onClick={() => removeLine(i)}
+                      disabled={lines.length <= 1}
+                      title={t('voucher_remove_line')}
+                    >
+                      ×
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-      <button type="button" className="dc-voucher-add-line-btn" onClick={addLineManual}>
-        <i className="fa-solid fa-plus" aria-hidden="true" />
-        {t('voucher_add_line')}
-      </button>
+        <button type="button" className="dc-voucher-add-line-btn" onClick={addLineManual}>
+          <i className="fa-solid fa-plus" aria-hidden="true" />
+          {t('voucher_add_line')}
+        </button>
+      </DocSection>
 
-      <input
-        type="text"
-        className="dc-field-memo"
-        placeholder={t('voucher_memo')}
-        value={memo}
-        onChange={(e) => setMemo(e.target.value)}
-      />
-
-      {error && <div className="text-rose-700 font-bold">{error}</div>}
-
-      <button type="submit" disabled={!isBalanced || submitting}>
-        {submitting ? t('voucher_saving') : t('voucher_save')}
-      </button>
-    </form>
+      <DocSection title={t('doc_section_details')}>
+        <input
+          type="text"
+          className="dc-field-memo"
+          placeholder={t('voucher_memo')}
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+        />
+      </DocSection>
+    </DocumentFormShell>
   );
 }

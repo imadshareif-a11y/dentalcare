@@ -49,6 +49,13 @@ async function postJournalEntry({
   exchangeRate = 1,
   entryDate = null,
 }) {
+  if (!tenantId) {
+    throw new Error('postJournalEntry requires tenantId');
+  }
+  if (!userId) {
+    throw new Error('postJournalEntry requires userId');
+  }
+
   // --- حماية من التكرار: نفس idempotencyKey ما بيترحّل مرتين ---
   // لو الواجهة أرسلت نفس الطلب مرتين (تأخر شبكة، ضغط مزدوج،
   // ريفريش)، نرجّع نفس النتيجة الأولى بدون ما نكرر الترحيل.

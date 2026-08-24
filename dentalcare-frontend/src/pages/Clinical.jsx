@@ -685,13 +685,14 @@ export default function Clinical({
   }
 
   async function printLedger() {
-    if (!selectedPatient?.account_id) {
+    const ledgerAccountId = selectedPatient?.billing_account_id || selectedPatient?.account_id;
+    if (!ledgerAccountId) {
       setError(t('clinical_patient_required'));
       return;
     }
     try {
       const ledger = await api.get('/reports/ledger', {
-        accountId: selectedPatient.account_id,
+        accountId: ledgerAccountId,
         fromDate: '2000-01-01',
         toDate: todayIso(),
       });
@@ -1293,6 +1294,7 @@ export default function Clinical({
           </div>
           {canEditPatients && showAddPatient && (
             <PatientForm
+              guardianOptions={patients}
               onRegistered={async (result) => {
                 const refreshed = await api.get('/patients').catch(() => patients);
                 setPatients(refreshed);

@@ -128,6 +128,32 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
         [req.user.tenantId]
       );
 
+      const topPatientDebts = await client.query(
+        `SELECT p.id, p.name, p.phone,
+                COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS balance
+         FROM parties p
+         LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
+         WHERE p.tenant_id = $1 AND p.party_type = 'PATIENT'
+         GROUP BY p.id, p.name, p.phone
+         HAVING COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) > 0
+         ORDER BY balance DESC
+         LIMIT 5`,
+        [req.user.tenantId]
+      );
+
+      const topSupplierPayables = await client.query(
+        `SELECT p.id, p.name, p.phone,
+                COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS balance
+         FROM parties p
+         LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
+         WHERE p.tenant_id = $1 AND p.party_type = 'SUPPLIER'
+         GROUP BY p.id, p.name, p.phone
+         HAVING COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) > 0
+         ORDER BY balance DESC
+         LIMIT 5`,
+        [req.user.tenantId]
+      );
+
       const activityResult = await client.query(
         `SELECT je.id, je.entry_number, je.source_type, je.memo,
                 to_char(COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date), 'YYYY-MM-DD') AS entry_date,
@@ -212,6 +238,18 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
           onlineUsers: activeUsers.length,
         },
         cashBoxes,
+        topPatientDebts: topPatientDebts.rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          phone: row.phone || null,
+          balance: Number(row.balance) || 0,
+        })),
+        topSupplierPayables: topSupplierPayables.rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          phone: row.phone || null,
+          balance: Number(row.balance) || 0,
+        })),
         activity: activityResult.rows.map((row) => ({
           id: row.id,
           entryNumber: row.entry_number,

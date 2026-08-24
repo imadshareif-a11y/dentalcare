@@ -11,6 +11,7 @@ const { withTenantClient } = require('../db/pool');
 const { nextAccountCode } = require('../settings/numbering');
 const { syncPartyAccountName } = require('../parties/syncAccountName');
 const { insertChartAccount } = require('../accounting/chartAccounts');
+const { deletePartyIfNoMovements } = require('../parties/deleteParty');
 
 router.post(
   '/doctors',
@@ -144,19 +145,54 @@ router.patch(
   }
 );
 
+router.delete(
+  '/doctors/:id',
+  requireAuth,
+  requirePermission('doctors', 'edit'),
+  async (req, res) => {
+    try {
+      await withTenantClient(req.user.tenantId, async (client) => {
+        await deletePartyIfNoMovements(client, {
+          tenantId: req.user.tenantId,
+          partyId: req.params.id,
+          partyType: 'DOCTOR',
+        });
+      });
+      res.json({ success: true });
+    } catch (err) {
+      if (err.statusCode === 400 || err.statusCode === 404) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
+      if (err.code === '23503') {
+        return res.status(400).json({
+          error: 'لا يمكن حذف الذمة لوجود بيانات مرتبطة بها',
+        });
+      }
+      console.error('Doctor delete failed:', err);
+      res.status(500).json({ error: 'تعذّر حذف الطبيب' });
+    }
+  }
+);
+
 router.get('/doctors', requireAuth, requirePermission('doctors', 'view'), async (req, res) => {
   try {
     const doctors = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(`
         SELECT
-          p.id, p.name, p.phone,
+          p.id, p.name, p.phone, p.account_id,
           d.compensation_type, d.percentage_rate, d.monthly_salary,
+          EXISTS (
+            SELECT 1 FROM journal_entry_lines lm
+            WHERE lm.account_id = p.account_id AND lm.tenant_id = d.tenant_id
+            LIMIT 1
+          ) AS has_movements,
           COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS balance
         FROM doctors d
         JOIN parties p ON p.id = d.party_id AND p.tenant_id = d.tenant_id
         LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id AND l.tenant_id = d.tenant_id
         WHERE d.tenant_id = $1 AND p.party_type = 'DOCTOR'
-        GROUP BY p.id, p.name, p.phone, d.compensation_type, d.percentage_rate, d.monthly_salary
+        GROUP BY p.id, p.name, p.phone, p.account_id, d.compensation_type, d.percentage_rate,
+                 d.monthly_salary, d.tenant_id
         ORDER BY p.name ASC
       `, [req.user.tenantId]);
       return result.rows;

@@ -5,6 +5,7 @@ const { withTenantClient } = require('../db/pool');
 const { nextAccountCode } = require('../settings/numbering');
 const { syncPartyAccountName } = require('../parties/syncAccountName');
 const { insertChartAccount } = require('../accounting/chartAccounts');
+const { deletePartyIfNoMovements } = require('../parties/deleteParty');
 
 router.post(
   '/suppliers',
@@ -78,17 +79,51 @@ router.patch(
   }
 );
 
+router.delete(
+  '/suppliers/:id',
+  requireAuth,
+  requirePermission('payments', 'edit'),
+  async (req, res) => {
+    try {
+      await withTenantClient(req.user.tenantId, async (client) => {
+        await deletePartyIfNoMovements(client, {
+          tenantId: req.user.tenantId,
+          partyId: req.params.id,
+          partyType: 'SUPPLIER',
+        });
+      });
+      res.json({ success: true });
+    } catch (err) {
+      if (err.statusCode === 400 || err.statusCode === 404) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
+      if (err.code === '23503') {
+        return res.status(400).json({
+          error: 'لا يمكن حذف الذمة لوجود بيانات مرتبطة بها',
+        });
+      }
+      console.error('Supplier delete failed:', err);
+      res.status(500).json({ error: 'تعذّر حذف المورد' });
+    }
+  }
+);
+
 router.get('/suppliers', requireAuth, requirePermission('payments', 'view'), async (req, res) => {
   try {
     const suppliers = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(`
         SELECT
           p.id, p.name, p.phone, p.account_id,
+          EXISTS (
+            SELECT 1 FROM journal_entry_lines lm
+            WHERE lm.account_id = p.account_id AND lm.tenant_id = p.tenant_id
+            LIMIT 1
+          ) AS has_movements,
           COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS balance
         FROM parties p
         LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id AND l.tenant_id = p.tenant_id
         WHERE p.tenant_id = $1 AND p.party_type = 'SUPPLIER'
-        GROUP BY p.id, p.name, p.phone, p.account_id
+        GROUP BY p.id, p.name, p.phone, p.account_id, p.tenant_id
         ORDER BY p.name ASC
       `, [req.user.tenantId]);
       return result.rows;

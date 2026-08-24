@@ -34,6 +34,7 @@ import ExpenseAccounts from './pages/ExpenseAccounts';
 import AssetAccounts from './pages/AssetAccounts';
 import ChartOfAccounts from './pages/ChartOfAccounts';
 import Favorites from './pages/Favorites';
+import AccountsHub, { accountsHubIcon } from './pages/AccountsHub';
 import DocumentWorkspace from './components/DocumentWorkspace';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import CurrencyDailyConfirm from './components/CurrencyDailyConfirm';
@@ -50,6 +51,27 @@ const ROLE_LABEL = {
   DOCTOR: 'user_role_doctor',
   RECEPTIONIST: 'user_role_receptionist',
   SUPER_ADMIN: 'user_role_super_admin',
+};
+
+/** Accounting groups that use a favorites-style tile hub + popup workspace */
+const HUB_ACC_GROUPS = new Set(['accounts', 'docs', 'reports']);
+
+const HUB_COPY = {
+  accounts: {
+    titleKey: 'accounts_hub_title',
+    hintKey: 'accounts_hub_hint',
+    emptyKey: 'accounts_hub_empty',
+  },
+  docs: {
+    titleKey: 'docs_hub_title',
+    hintKey: 'docs_hub_hint',
+    emptyKey: 'docs_hub_empty',
+  },
+  reports: {
+    titleKey: 'reports_hub_title',
+    hintKey: 'reports_hub_hint',
+    emptyKey: 'reports_hub_empty',
+  },
 };
 
 const ACC_GROUPS = [
@@ -230,6 +252,7 @@ export default function App() {
   const [showCurrencyDaily, setShowCurrencyDaily] = useState(false);
   const [showDoctorBrief, setShowDoctorBrief] = useState(false);
   const [quickModal, setQuickModal] = useState(null); // 'patient' | 'supplier' | null
+  const [accountsWorkspace, setAccountsWorkspace] = useState(null); // tab key opened from accounts hub
   const [clinicalFocus, setClinicalFocus] = useState({ patientId: null, nonce: 0 });
 
   const loadAccounts = useCallback(() => {
@@ -279,7 +302,12 @@ export default function App() {
     if (loc) {
       setAccGroup(loc.groupId);
       setAccSubGroup(loc.subGroupId);
+      if (HUB_ACC_GROUPS.has(loc.groupId)) {
+        setAccountsWorkspace(tabKey);
+        return;
+      }
     }
+    setAccountsWorkspace(null);
     setTab(tabKey);
   }, []);
 
@@ -364,6 +392,41 @@ export default function App() {
   const canAccounting = accGroupsVisible.length > 0;
   const canUsers = visibleTabs.some((tb) => tb.key === 'users');
   const adminTabs = visibleTabs.filter((tb) => tb.key === 'users' || tb.key === 'settings');
+  const accountsHubTiles = useMemo(() => {
+    const group = accGroupsVisible.find((g) => g.id === 'accounts');
+    if (!group) return [];
+    const direct = (group.items || []).map((tb) => ({
+      key: tb.key,
+      label: tb.label,
+      icon: accountsHubIcon(tb.key),
+    }));
+    const nested = (group.subgroups || []).flatMap((sg) => (
+      (sg.items || []).map((tb) => ({
+        key: tb.key,
+        label: tb.label,
+        icon: accountsHubIcon(tb.key),
+      }))
+    ));
+    return [...direct, ...nested];
+  }, [accGroupsVisible]);
+  const docsHubTiles = useMemo(() => {
+    const group = accGroupsVisible.find((g) => g.id === 'docs');
+    if (!group) return [];
+    return (group.items || []).map((tb) => ({
+      key: tb.key,
+      label: tb.label,
+      icon: accountsHubIcon(tb.key),
+    }));
+  }, [accGroupsVisible]);
+  const reportsHubTiles = useMemo(() => {
+    const group = accGroupsVisible.find((g) => g.id === 'reports');
+    if (!group) return [];
+    return (group.items || []).map((tb) => ({
+      key: tb.key,
+      label: tb.label,
+      icon: accountsHubIcon(tb.key),
+    }));
+  }, [accGroupsVisible]);
 
   const topSections = [
     { id: 'doctor', label: t('nav_section_doctor'), show: canDoctorBoard, icon: 'fa-solid fa-stethoscope', tone: 'teal' },
@@ -376,6 +439,7 @@ export default function App() {
 
   function openSection(id) {
     setSection(id);
+    setAccountsWorkspace(null);
     if (id === 'doctor') {
       setTab('doctorDashboard');
       return;
@@ -399,6 +463,10 @@ export default function App() {
     const group = accGroupsVisible.find((g) => g.id === 'favorites') || accGroupsVisible[0];
     if (group) {
       setAccGroup(group.id);
+      if (HUB_ACC_GROUPS.has(group.id)) {
+        setAccSubGroup(null);
+        return;
+      }
       if (group.items[0]) {
         setAccSubGroup(null);
         setTab(group.items[0].key);
@@ -413,6 +481,11 @@ export default function App() {
     const group = accGroupsVisible.find((g) => g.id === id);
     if (!group) return;
     setAccGroup(id);
+    setAccountsWorkspace(null);
+    if (HUB_ACC_GROUPS.has(id)) {
+      setAccSubGroup(null);
+      return;
+    }
     if (group.items[0]) {
       setAccSubGroup(null);
       setTab(group.items[0].key);
@@ -464,6 +537,17 @@ export default function App() {
   const currentAccSubGroup = currentAccGroup?.subgroups?.find((sg) => sg.id === accSubGroup) || null;
   const accountsSecondNavActive = accSubGroup
     || (currentAccGroup?.items?.some((tb) => tb.key === tab) ? tab : null);
+  const showAccountsHub = !isPlatform && section === 'accounting' && accGroup === 'accounts';
+  const showDocsHub = !isPlatform && section === 'accounting' && accGroup === 'docs';
+  const showReportsHub = !isPlatform && section === 'accounting' && accGroup === 'reports';
+  const showTileHub = showAccountsHub || showDocsHub || showReportsHub;
+  const hubCopy = HUB_COPY[accGroup] || HUB_COPY.accounts;
+  const hubTiles = showReportsHub
+    ? reportsHubTiles
+    : (showDocsHub ? docsHubTiles : accountsHubTiles);
+  const accountsWorkspaceTab = accountsWorkspace
+    ? visibleTabs.find((tb) => tb.key === accountsWorkspace)
+    : null;
   return (
     <div className="dc-app">
       {showCurrencyDaily && (
@@ -552,41 +636,45 @@ export default function App() {
               </button>
             ))}
           </nav>
-          <nav className="dc-subnav dc-subnav-2 no-print">
-            {currentAccGroup.items.map((tb) => (
-              <button
-                key={tb.key}
-                type="button"
-                className={`dc-chip${accountsSecondNavActive === tb.key ? ' is-active' : ''}`}
-                onClick={() => openAccDirectTab(tb.key)}
-              >
-                {tb.label}
-              </button>
-            ))}
-            {(currentAccGroup.subgroups || []).map((sg) => (
-              <button
-                key={sg.id}
-                type="button"
-                className={`dc-chip parties${accSubGroup === sg.id ? ' is-active' : ''}`}
-                onClick={() => openAccSubGroup(sg.id)}
-              >
-                {t(sg.labelKey)}
-              </button>
-            ))}
-          </nav>
-          {currentAccSubGroup && (
-            <nav className="dc-subnav dc-subnav-3 no-print">
-              {currentAccSubGroup.items.map((tb) => (
-                <button
-                  key={tb.key}
-                  type="button"
-                  className={`dc-chip${tab === tb.key ? ' is-active' : ''}`}
-                  onClick={() => setTab(tb.key)}
-                >
-                  {tb.label}
-                </button>
-              ))}
-            </nav>
+          {!HUB_ACC_GROUPS.has(accGroup) && (
+            <>
+              <nav className="dc-subnav dc-subnav-2 no-print">
+                {currentAccGroup.items.map((tb) => (
+                  <button
+                    key={tb.key}
+                    type="button"
+                    className={`dc-chip${accountsSecondNavActive === tb.key ? ' is-active' : ''}`}
+                    onClick={() => openAccDirectTab(tb.key)}
+                  >
+                    {tb.label}
+                  </button>
+                ))}
+                {(currentAccGroup.subgroups || []).map((sg) => (
+                  <button
+                    key={sg.id}
+                    type="button"
+                    className={`dc-chip parties${accSubGroup === sg.id ? ' is-active' : ''}`}
+                    onClick={() => openAccSubGroup(sg.id)}
+                  >
+                    {t(sg.labelKey)}
+                  </button>
+                ))}
+              </nav>
+              {currentAccSubGroup && (
+                <nav className="dc-subnav dc-subnav-3 no-print">
+                  {currentAccSubGroup.items.map((tb) => (
+                    <button
+                      key={tb.key}
+                      type="button"
+                      className={`dc-chip${tab === tb.key ? ' is-active' : ''}`}
+                      onClick={() => setTab(tb.key)}
+                    >
+                      {tb.label}
+                    </button>
+                  ))}
+                </nav>
+              )}
+            </>
           )}
         </>
       )}
@@ -612,10 +700,29 @@ export default function App() {
         ) : (
           <div className="dc-panel">
             {isPlatform && <PlatformAdmin />}
-            {!isPlatform && activeTab && activeTab.render()}
+            {!isPlatform && showTileHub && (
+              <AccountsHub
+                tiles={hubTiles}
+                titleKey={hubCopy.titleKey}
+                hintKey={hubCopy.hintKey}
+                emptyKey={hubCopy.emptyKey}
+                onOpen={(key) => setAccountsWorkspace(key)}
+              />
+            )}
+            {!isPlatform && !showTileHub && activeTab && activeTab.render()}
           </div>
         )}
       </main>
+
+      <PartyModal
+        open={Boolean(accountsWorkspaceTab)}
+        title={accountsWorkspaceTab?.label || ''}
+        onClose={() => setAccountsWorkspace(null)}
+        wide
+        className="dc-workspace-modal"
+      >
+        {accountsWorkspaceTab?.render?.()}
+      </PartyModal>
 
       <PartyModal
         open={quickModal === 'patient'}

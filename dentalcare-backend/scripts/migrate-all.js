@@ -34,6 +34,7 @@ const MIGRATION_FILES = [
   'sql/purchase_docs_v1.sql',
   'sql/patients_v2_demographics.sql',
   'sql/patients_v3_birth_date.sql',
+  'sql/patient_dependents_v1.sql',
   'sql/currencies_v1.sql',
   'sql/journal_currency_v1.sql',
   'sql/journal_line_currency_v1.sql',

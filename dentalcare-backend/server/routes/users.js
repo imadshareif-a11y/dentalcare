@@ -252,9 +252,11 @@ router.patch(
   requireRole(['OWNER']),
   async (req, res) => {
     const { id } = req.params;
-    const { doctorPartyId } = req.body;
+    const { doctorPartyId, isActive } = req.body;
+    const wantsDoctor = doctorPartyId !== undefined;
+    const wantsActive = typeof isActive === 'boolean';
 
-    if (doctorPartyId === undefined) {
+    if (!wantsDoctor && !wantsActive) {
       return res.status(400).json({ error: 'لم يتم إرسال بيانات للتحديث' });
     }
 
@@ -262,34 +264,72 @@ router.patch(
       await ensureUserDoctorLinkSchema();
       const updated = await withTenantClient(req.user.tenantId, async (client) => {
         const existing = await client.query(
-          `SELECT id, role FROM users
-           WHERE id = $1 AND tenant_id = $2 AND role <> 'SUPER_ADMIN'`,
+          `SELECT id, role, is_active FROM users
+           WHERE id = $1 AND tenant_id = $2 AND role <> 'SUPER_ADMIN'
+             AND LOWER(username) NOT LIKE 'support.%'`,
           [id, req.user.tenantId]
         );
         const userRow = existing.rows[0];
         if (!userRow) return null;
 
-        let linkedDoctorId = null;
-        if (doctorPartyId) {
-          linkedDoctorId = await validateDoctorPartyLink(client, req.user.tenantId, doctorPartyId);
-          if (userRow.role !== 'DOCTOR') {
-            const err = new Error('ربط الطبيب متاح فقط لمستخدمي دور «طبيب»');
+        if (wantsActive) {
+          if (String(id) === String(req.user.userId) && isActive === false) {
+            const err = new Error('لا يمكن إيقاف حسابك الحالي أثناء تسجيل الدخول');
             err.statusCode = 400;
             throw err;
           }
+          if (userRow.role === 'OWNER' && isActive === false) {
+            const owners = await client.query(
+              `SELECT COUNT(*)::int AS c FROM users
+               WHERE tenant_id = $1 AND role = 'OWNER' AND is_active = TRUE
+                 AND role <> 'SUPER_ADMIN'
+                 AND LOWER(username) NOT LIKE 'support.%'`,
+              [req.user.tenantId]
+            );
+            if (Number(owners.rows[0]?.c) <= 1 && userRow.is_active) {
+              const err = new Error('لا يمكن إيقاف آخر مالك نشط للعيادة');
+              err.statusCode = 400;
+              throw err;
+            }
+          }
+          await client.query(
+            `UPDATE users SET is_active = $1
+             WHERE id = $2 AND tenant_id = $3`,
+            [isActive, id, req.user.tenantId]
+          );
+        }
+
+        if (wantsDoctor) {
+          let linkedDoctorId = null;
+          if (doctorPartyId) {
+            linkedDoctorId = await validateDoctorPartyLink(client, req.user.tenantId, doctorPartyId);
+            if (userRow.role !== 'DOCTOR') {
+              const err = new Error('ربط الطبيب متاح فقط لمستخدمي دور «طبيب»');
+              err.statusCode = 400;
+              throw err;
+            }
+          }
+          await client.query(
+            `UPDATE users SET doctor_party_id = $1
+             WHERE id = $2 AND tenant_id = $3`,
+            [linkedDoctorId, id, req.user.tenantId]
+          );
         }
 
         const result = await client.query(
-          `UPDATE users SET doctor_party_id = $1
-           WHERE id = $2 AND tenant_id = $3
-           RETURNING id, doctor_party_id`,
-          [linkedDoctorId, id, req.user.tenantId]
+          `SELECT id, is_active, doctor_party_id FROM users
+           WHERE id = $1 AND tenant_id = $2`,
+          [id, req.user.tenantId]
         );
         return result.rows[0] || null;
       });
 
       if (!updated) return res.status(404).json({ error: 'المستخدم غير موجود' });
-      res.json({ success: true, doctorPartyId: updated.doctor_party_id });
+      res.json({
+        success: true,
+        isActive: updated.is_active,
+        doctorPartyId: updated.doctor_party_id,
+      });
     } catch (err) {
       if (err.statusCode === 400) return res.status(400).json({ error: err.message });
       if (err.code === '23505') {
@@ -297,6 +337,67 @@ router.patch(
       }
       console.error('User update failed:', err);
       res.status(500).json({ error: 'تعذّر تحديث المستخدم' });
+    }
+  }
+);
+
+router.delete(
+  '/users/:id',
+  requireAuth,
+  requireClinicContext,
+  requireRole(['OWNER']),
+  async (req, res) => {
+    const { id } = req.params;
+
+    if (String(id) === String(req.user.userId)) {
+      return res.status(400).json({ error: 'لا يمكن حذف حسابك الحالي' });
+    }
+
+    try {
+      await withTenantClient(req.user.tenantId, async (client) => {
+        const existing = await client.query(
+          `SELECT id, role FROM users
+           WHERE id = $1 AND tenant_id = $2 AND role <> 'SUPER_ADMIN'
+             AND LOWER(username) NOT LIKE 'support.%'`,
+          [id, req.user.tenantId]
+        );
+        if (existing.rowCount === 0) {
+          const err = new Error('المستخدم غير موجود');
+          err.statusCode = 404;
+          throw err;
+        }
+        const userRow = existing.rows[0];
+        if (userRow.role === 'OWNER') {
+          const owners = await client.query(
+            `SELECT COUNT(*)::int AS c FROM users
+             WHERE tenant_id = $1 AND role = 'OWNER' AND is_active = TRUE
+               AND LOWER(username) NOT LIKE 'support.%'`,
+            [req.user.tenantId]
+          );
+          if (Number(owners.rows[0]?.c) <= 1) {
+            const err = new Error('لا يمكن حذف آخر مالك للعيادة');
+            err.statusCode = 400;
+            throw err;
+          }
+        }
+
+        await client.query(
+          `DELETE FROM users WHERE id = $1 AND tenant_id = $2`,
+          [id, req.user.tenantId]
+        );
+      });
+      res.json({ success: true });
+    } catch (err) {
+      if (err.statusCode === 400 || err.statusCode === 404) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
+      if (err.code === '23503') {
+        return res.status(400).json({
+          error: 'لا يمكن حذف المستخدم لوجود بيانات مرتبطة به — أوقفه بدل الحذف',
+        });
+      }
+      console.error('User delete failed:', err);
+      res.status(500).json({ error: 'تعذّر حذف المستخدم' });
     }
   }
 );
