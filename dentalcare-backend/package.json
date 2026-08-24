@@ -5,6 +5,7 @@
   "main": "server/app.js",
   "scripts": {
     "start": "node server/app.js",
+    "start:prod": "node scripts/migrate-all.js && node server/app.js",
     "dev": "node --watch server/app.js",
     "seed": "node scripts/seed.js",
     "seed:platform": "node scripts/seed-platform-admin.js",

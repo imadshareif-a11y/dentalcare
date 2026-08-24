@@ -9,6 +9,8 @@ COPY dentalcare-backend/package.json dentalcare-backend/package-lock.json ./dent
 RUN npm --prefix dentalcare-frontend ci \
  && npm --prefix dentalcare-backend ci --omit=dev
 
+# CACHEBUST يفرض إعادة نسخ الكود وبناء الواجهة من الصفر عند كل نشر كامل
+ARG CACHEBUST=1
 COPY schema.sql ./schema.sql
 COPY package.json ./package.json
 COPY dentalcare-frontend ./dentalcare-frontend
@@ -21,4 +23,5 @@ ENV NODE_ENV=production
 ENV SERVE_FRONTEND=1
 WORKDIR /app/dentalcare-backend
 EXPOSE 5000
-CMD ["node", "server/app.js"]
+# ترحيل القاعدة ثم تشغيل الـ API + الواجهة من نفس الصورة
+CMD ["npm", "run", "start:prod"]

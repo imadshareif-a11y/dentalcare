@@ -225,6 +225,9 @@ async function main() {
   const { ensureTenantSettingsSchema } = require('../server/db/ensureTenantSettings');
   await ensureTenantSettingsSchema();
 
+  const { ensureTenantIsolation } = require('../server/db/ensureTenantIsolation');
+  await ensureTenantIsolation();
+
   await pool.end();
   console.log('migrate:all completed.');
 }

@@ -1,12 +1,14 @@
-# Railway — نسخة تجريبية
-# وجود Dockerfile يجعل Railway يبني منه تلقائيًا
+# Railway — نشر كامل من الجذر (Dockerfile)
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
+# يفرض بناء بدون الاعتماد على طبقات قديمة عند توفره
+watchPatterns = ["dentalcare-backend/**", "dentalcare-frontend/**", "schema.sql", "Dockerfile", "package.json"]
 
 [deploy]
-startCommand = "node server/app.js"
+# مسار التشغيل داخل صورة Docker (WORKDIR = dentalcare-backend)
+startCommand = "npm run start:prod"
 healthcheckPath = "/api/health"
-healthcheckTimeout = 60
+healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

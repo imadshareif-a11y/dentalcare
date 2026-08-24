@@ -23,6 +23,7 @@ app.get('/api/health', (req, res) => {
     commit: process.env.RAILWAY_GIT_COMMIT_SHA
       || process.env.RAILWAY_DEPLOYMENT_ID
       || null,
+    replaceFull: true,
     builtAt: process.env.RAILWAY_DEPLOYMENT_CREATED || null,
   });
 });

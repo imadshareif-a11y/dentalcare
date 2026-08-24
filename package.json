@@ -7,6 +7,7 @@
     "build": "npm --prefix dentalcare-frontend ci && npm --prefix dentalcare-frontend run build -- --mode production && npm --prefix dentalcare-backend ci --omit=dev",
     "build:frontend:prod": "npm --prefix dentalcare-frontend run build",
     "start": "npm --prefix dentalcare-backend start",
+    "start:prod": "npm --prefix dentalcare-backend run start:prod",
     "migrate:all": "npm --prefix dentalcare-backend run migrate:all",
     "seed:trial": "npm --prefix dentalcare-backend run seed:trial"
   },
