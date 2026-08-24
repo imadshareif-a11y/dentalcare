@@ -49,6 +49,19 @@ async function insertChartAccount(client, tenantId, {
 
   const resolvedCurrencyId = await resolveAccountCurrencyId(client, tenantId, currencyId);
 
+  let resolvedSortOrder = sortOrder;
+  if (resolvedSortOrder == null || Number.isNaN(Number(resolvedSortOrder))) {
+    const maxRes = await client.query(
+      `SELECT COALESCE(MAX(sort_order), 0)::int AS m
+       FROM chart_of_accounts
+       WHERE tenant_id = $1`,
+      [tenantId]
+    );
+    resolvedSortOrder = Number(maxRes.rows[0]?.m || 0) + 1;
+  } else {
+    resolvedSortOrder = Number(resolvedSortOrder);
+  }
+
   const result = await client.query(
     `INSERT INTO chart_of_accounts
        (tenant_id, account_code, account_name, account_name_ar, account_name_en, account_name_he,
@@ -65,7 +78,7 @@ async function insertChartAccount(client, tenantId, {
       parentId,
       isGroup,
       isActive,
-      sortOrder,
+      resolvedSortOrder,
       resolvedCurrencyId,
     ]
   );
