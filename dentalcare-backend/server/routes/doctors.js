@@ -110,26 +110,27 @@ router.patch(
           `SELECT p.id, p.account_id
            FROM parties p
            JOIN doctors d ON d.party_id = p.id
-           WHERE p.id = $1 AND p.party_type = 'DOCTOR'`,
-          [req.params.id]
+           WHERE p.id = $1 AND p.tenant_id = $2 AND p.party_type = 'DOCTOR'`,
+          [req.params.id, req.user.tenantId]
         );
         if (existing.rowCount === 0) {
           throw Object.assign(new Error('الطبيب غير موجود'), { statusCode: 404 });
         }
         const { account_id: accountId } = existing.rows[0];
         await client.query(
-          `UPDATE parties SET name = $2, phone = $3 WHERE id = $1`,
-          [req.params.id, name.trim(), phone || null]
+          `UPDATE parties SET name = $2, phone = $3 WHERE id = $1 AND tenant_id = $4`,
+          [req.params.id, name.trim(), phone || null, req.user.tenantId]
         );
         await client.query(
           `UPDATE doctors
            SET compensation_type = $2, percentage_rate = $3, monthly_salary = $4
-           WHERE party_id = $1`,
+           WHERE party_id = $1 AND tenant_id = $5`,
           [
             req.params.id,
             compensationType,
             compensationType === 'PERCENTAGE' ? Number(percentageRate) : null,
             compensationType === 'SALARY' ? Number(monthlySalary) : null,
+            req.user.tenantId,
           ]
         );
         await syncPartyAccountName(client, accountId, 'DOCTOR', name.trim());
@@ -153,7 +154,7 @@ router.get('/doctors', requireAuth, requirePermission('doctors', 'view'), async 
           COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS balance
         FROM doctors d
         JOIN parties p ON p.id = d.party_id AND p.tenant_id = d.tenant_id
-        LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
+        LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id AND l.tenant_id = d.tenant_id
         WHERE d.tenant_id = $1 AND p.party_type = 'DOCTOR'
         GROUP BY p.id, p.name, p.phone, d.compensation_type, d.percentage_rate, d.monthly_salary
         ORDER BY p.name ASC

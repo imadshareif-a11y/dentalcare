@@ -65,6 +65,15 @@ async function withTenantClient(tenantId, callback) {
     await client.query(`SELECT set_config('app.current_tenant', $1, true)`, [String(tenantId)]);
     // تأكيد إغلاق تجاوز النظام داخل سياق العيادة
     await client.query(`SELECT set_config('app.bypass_rls', '0', true)`);
+    const bound = await client.query(`SELECT current_setting('app.current_tenant', true) AS tenant_id`);
+    if (String(bound.rows[0]?.tenant_id || '') !== String(tenantId)) {
+      throw new Error('Failed to bind clinic tenant context');
+    }
+    try {
+      await client.query('SET LOCAL row_security = on');
+    } catch {
+      // بعض أدوار superuser تتجاهل هذا — العزل يعتمد أيضًا على WHERE tenant_id
+    }
 
     const result = await callback(client);
 

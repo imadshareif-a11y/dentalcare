@@ -143,7 +143,7 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
                   WHERE lx.journal_entry_id = je.id
                 ) AS party_names
          FROM journal_entries je
-         LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+         LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id AND l.tenant_id = je.tenant_id
          LEFT JOIN users u ON u.id = je.created_by AND u.tenant_id = je.tenant_id
          WHERE je.tenant_id = $1
          GROUP BY je.id, je.entry_number, je.source_type, je.memo, je.entry_date, je.created_at, u.name, u.username

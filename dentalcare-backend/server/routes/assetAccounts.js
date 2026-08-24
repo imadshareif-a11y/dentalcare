@@ -65,9 +65,10 @@ router.get(
           `SELECT id, account_code, account_name, account_name_ar, account_name_en, account_name_he,
                   account_type, is_active
            FROM chart_of_accounts
-           WHERE ${ASSET_FILTER}
+           WHERE tenant_id = $1 AND ${ASSET_FILTER}
              ${includeInactive ? '' : 'AND is_active = TRUE'}
-           ORDER BY account_code ASC`
+           ORDER BY account_code ASC`,
+          [req.user.tenantId]
         );
         return result.rows.map(mapRow);
       });
@@ -149,8 +150,8 @@ router.patch(
     try {
       await withTenantClient(req.user.tenantId, async (client) => {
         const existing = await client.query(
-          `SELECT id FROM chart_of_accounts WHERE id = $1 AND ${ASSET_FILTER}`,
-          [req.params.id]
+          `SELECT id FROM chart_of_accounts WHERE id = $1 AND tenant_id = $2 AND ${ASSET_FILTER}`,
+          [req.params.id, req.user.tenantId]
         );
         if (existing.rowCount === 0) {
           throw Object.assign(new Error('حساب الأصل غير موجود'), { statusCode: 404 });
@@ -178,8 +179,9 @@ router.patch(
         }
 
         if (fields.length) {
+          values.push(req.user.tenantId);
           await client.query(
-            `UPDATE chart_of_accounts SET ${fields.join(', ')} WHERE id = $1`,
+            `UPDATE chart_of_accounts SET ${fields.join(', ')} WHERE id = $1 AND tenant_id = $${values.length}`,
             values
           );
         }

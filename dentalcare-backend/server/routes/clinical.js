@@ -250,8 +250,8 @@ router.post(
         await ensureClinicalSessionsAppointment();
         await withTenantClient(req.user.tenantId, async (client) => {
           const appt = await client.query(
-            `SELECT id, patient_id, status FROM appointments WHERE id = $1`,
-            [linkAppointmentId]
+            `SELECT id, patient_id, status FROM appointments WHERE id = $1 AND tenant_id = $2`,
+            [linkAppointmentId, req.user.tenantId]
           );
           if (appt.rowCount === 0) {
             throw Object.assign(new Error('الموعد غير موجود'), { statusCode: 400 });
@@ -286,9 +286,9 @@ router.post(
         const doctorInfo = await withTenantClient(req.user.tenantId, async (client) => {
           const result = await client.query(
             `SELECT p.name, p.account_id, d.compensation_type, d.percentage_rate
-             FROM doctors d JOIN parties p ON p.id = d.party_id
-             WHERE d.party_id = $1`,
-            [doctorId]
+             FROM doctors d JOIN parties p ON p.id = d.party_id AND p.tenant_id = d.tenant_id
+             WHERE d.party_id = $1 AND d.tenant_id = $2`,
+            [doctorId, req.user.tenantId]
           );
           return result.rows[0] || null;
         });
@@ -519,8 +519,8 @@ router.post(
     try {
       const created = await withTenantClient(req.user.tenantId, async (client) => {
         const session = await client.query(
-          `SELECT id FROM clinical_sessions WHERE id = $1`,
-          [req.params.sessionId]
+          `SELECT id FROM clinical_sessions WHERE id = $1 AND tenant_id = $2`,
+          [req.params.sessionId, req.user.tenantId]
         );
         if (session.rowCount === 0) return null;
 

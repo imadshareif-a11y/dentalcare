@@ -55,6 +55,7 @@ const MIGRATION_FILES = [
   'sql/plan_item_session_progress_v1.sql',
   'sql/tooth_conditions_v1.sql',
   'sql/document_numbering_v1.sql',
+  'sql/journal_lines_tenant_v1.sql',
   'sql/tenant_ai_settings_v1.sql',
   'sql/tenant_ai_provider_v1.sql',
   'sql/tenant_whatsapp_v1.sql',

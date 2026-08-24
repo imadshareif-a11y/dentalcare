@@ -39,7 +39,7 @@ function mapRow(row) {
   };
 }
 
-async function assertNoCycle(client, accountId, newParentId) {
+async function assertNoCycle(client, tenantId, accountId, newParentId) {
   if (!newParentId) return;
   if (newParentId === accountId) {
     throw Object.assign(new Error('لا يمكن جعل الحساب أبًا لنفسه'), { statusCode: 400 });
@@ -52,33 +52,36 @@ async function assertNoCycle(client, accountId, newParentId) {
     }
     if (seen.has(cursor)) break;
     seen.add(cursor);
-    const r = await client.query(`SELECT parent_id FROM chart_of_accounts WHERE id = $1`, [cursor]);
+    const r = await client.query(
+      `SELECT parent_id FROM chart_of_accounts WHERE id = $1 AND tenant_id = $2`,
+      [cursor, tenantId]
+    );
     cursor = r.rows[0]?.parent_id || null;
   }
 }
 
-async function loadAccount(client, id) {
+async function loadAccount(client, tenantId, id) {
   const result = await client.query(
     `SELECT a.*,
             c.code AS currency_code,
             c.symbol AS currency_symbol,
             p.party_type,
-            (SELECT COUNT(*)::int FROM chart_of_accounts ch WHERE ch.parent_id = a.id) AS child_count,
+            (SELECT COUNT(*)::int FROM chart_of_accounts ch WHERE ch.parent_id = a.id AND ch.tenant_id = a.tenant_id) AS child_count,
             EXISTS (
-              SELECT 1 FROM parties x WHERE x.account_id = a.id
-              UNION ALL SELECT 1 FROM cash_boxes x WHERE x.account_id = a.id
-              UNION ALL SELECT 1 FROM bank_accounts x WHERE x.chart_account_id = a.id
+              SELECT 1 FROM parties x WHERE x.account_id = a.id AND x.tenant_id = a.tenant_id
+              UNION ALL SELECT 1 FROM cash_boxes x WHERE x.account_id = a.id AND x.tenant_id = a.tenant_id
+              UNION ALL SELECT 1 FROM bank_accounts x WHERE x.chart_account_id = a.id AND x.tenant_id = a.tenant_id
             ) AS is_linked,
             EXISTS (
-              SELECT 1 FROM journal_entry_lines l WHERE l.account_id = a.id LIMIT 1
+              SELECT 1 FROM journal_entry_lines l WHERE l.account_id = a.id AND l.tenant_id = a.tenant_id LIMIT 1
             ) AS has_movements
      FROM chart_of_accounts a
-     LEFT JOIN currencies c ON c.id = a.currency_id
+     LEFT JOIN currencies c ON c.id = a.currency_id AND c.tenant_id = a.tenant_id
      LEFT JOIN LATERAL (
-       SELECT party_type FROM parties p WHERE p.account_id = a.id LIMIT 1
+       SELECT party_type FROM parties p WHERE p.account_id = a.id AND p.tenant_id = a.tenant_id LIMIT 1
      ) p ON TRUE
-     WHERE a.id = $1`,
-    [id]
+     WHERE a.id = $1 AND a.tenant_id = $2`,
+    [id, tenantId]
   );
   return result.rows[0] || null;
 }
@@ -96,22 +99,23 @@ router.get(
                   a.account_type, a.parent_id, a.is_group, a.is_active, a.sort_order, a.currency_id,
                   c.code AS currency_code, c.symbol AS currency_symbol,
                   p.party_type,
-                  (SELECT COUNT(*)::int FROM chart_of_accounts c WHERE c.parent_id = a.id) AS child_count,
+                  (SELECT COUNT(*)::int FROM chart_of_accounts c WHERE c.parent_id = a.id AND c.tenant_id = a.tenant_id) AS child_count,
                   EXISTS (
-                    SELECT 1 FROM parties x WHERE x.account_id = a.id
-                    UNION ALL SELECT 1 FROM cash_boxes x WHERE x.account_id = a.id
-                    UNION ALL SELECT 1 FROM bank_accounts x WHERE x.chart_account_id = a.id
+                    SELECT 1 FROM parties x WHERE x.account_id = a.id AND x.tenant_id = a.tenant_id
+                    UNION ALL SELECT 1 FROM cash_boxes x WHERE x.account_id = a.id AND x.tenant_id = a.tenant_id
+                    UNION ALL SELECT 1 FROM bank_accounts x WHERE x.chart_account_id = a.id AND x.tenant_id = a.tenant_id
                   ) AS is_linked,
                   EXISTS (
-                    SELECT 1 FROM journal_entry_lines l WHERE l.account_id = a.id LIMIT 1
+                    SELECT 1 FROM journal_entry_lines l WHERE l.account_id = a.id AND l.tenant_id = a.tenant_id LIMIT 1
                   ) AS has_movements
            FROM chart_of_accounts a
-           LEFT JOIN currencies c ON c.id = a.currency_id
+           LEFT JOIN currencies c ON c.id = a.currency_id AND c.tenant_id = a.tenant_id
            LEFT JOIN LATERAL (
-             SELECT party_type FROM parties p WHERE p.account_id = a.id LIMIT 1
+             SELECT party_type FROM parties p WHERE p.account_id = a.id AND p.tenant_id = a.tenant_id LIMIT 1
            ) p ON TRUE
-           ${includeInactive ? '' : 'WHERE a.is_active = TRUE'}
-           ORDER BY a.account_type ASC, a.sort_order ASC, a.account_code ASC`
+           WHERE a.tenant_id = $1 ${includeInactive ? '' : 'AND a.is_active = TRUE'}
+           ORDER BY a.account_type ASC, a.sort_order ASC, a.account_code ASC`,
+          [req.user.tenantId]
         );
         return dedupeChartRows(result.rows.map(mapRow));
       });
@@ -143,7 +147,7 @@ router.post(
     try {
       const row = await withTenantClient(req.user.tenantId, async (client) => {
         if (parentId) {
-          const parent = await loadAccount(client, parentId);
+          const parent = await loadAccount(client, req.user.tenantId, parentId);
           if (!parent) throw Object.assign(new Error('الحساب الأب غير موجود'), { statusCode: 400 });
           accountType = parent.account_type;
         }
@@ -196,7 +200,7 @@ router.post(
 
         // إذا أُضيف ابن تحت حساب غير تجميعي، حوّله لتجميعي تلقائيًا إن لم تكن له حركات
         if (parentId) {
-          const parent = await loadAccount(client, parentId);
+          const parent = await loadAccount(client, req.user.tenantId, parentId);
           if (parent && !parent.is_group && !parent.has_movements) {
             await client.query(
               `UPDATE chart_of_accounts SET is_group = TRUE WHERE id = $1`,
@@ -205,7 +209,7 @@ router.post(
           }
         }
 
-        return loadAccount(client, result.rows[0].id);
+        return loadAccount(client, req.user.tenantId, result.rows[0].id);
       });
 
       res.status(201).json({ success: true, account: mapRow(row) });
@@ -229,7 +233,7 @@ router.patch(
   async (req, res) => {
     try {
       const account = await withTenantClient(req.user.tenantId, async (client) => {
-        const existing = await loadAccount(client, req.params.id);
+        const existing = await loadAccount(client, req.user.tenantId, req.params.id);
         if (!existing) throw Object.assign(new Error('الحساب غير موجود'), { statusCode: 404 });
 
         const fields = [];
@@ -298,8 +302,8 @@ router.patch(
           let accountType = existing.account_type;
 
           if (parentId) {
-            await assertNoCycle(client, req.params.id, parentId);
-            const parent = await loadAccount(client, parentId);
+            await assertNoCycle(client, req.user.tenantId, req.params.id, parentId);
+            const parent = await loadAccount(client, req.user.tenantId, parentId);
             if (!parent) throw Object.assign(new Error('الحساب الأب غير موجود'), { statusCode: 400 });
             accountType = parent.account_type;
           } else if (req.body.accountType !== undefined) {
@@ -314,26 +318,27 @@ router.patch(
             // حدّث النوع للفروع أيضًا عند النقل لجذر نوع آخر
             await client.query(
               `WITH RECURSIVE subtree AS (
-                 SELECT id FROM chart_of_accounts WHERE id = $1
+                 SELECT id FROM chart_of_accounts WHERE id = $1 AND tenant_id = $3
                  UNION ALL
                  SELECT c.id FROM chart_of_accounts c
-                 JOIN subtree s ON c.parent_id = s.id
+                 JOIN subtree s ON c.parent_id = s.id AND c.tenant_id = $3
                )
                UPDATE chart_of_accounts SET account_type = $2
-               WHERE id IN (SELECT id FROM subtree)`,
-              [req.params.id, accountType]
+               WHERE tenant_id = $3 AND id IN (SELECT id FROM subtree)`,
+              [req.params.id, accountType, req.user.tenantId]
             );
           }
         }
 
         if (fields.length) {
+          values.push(req.user.tenantId);
           await client.query(
-            `UPDATE chart_of_accounts SET ${fields.join(', ')} WHERE id = $1`,
+            `UPDATE chart_of_accounts SET ${fields.join(', ')} WHERE id = $1 AND tenant_id = $${values.length}`,
             values
           );
         }
 
-        return loadAccount(client, req.params.id);
+        return loadAccount(client, req.user.tenantId, req.params.id);
       });
 
       res.json({ success: true, account: mapRow(account) });
@@ -354,7 +359,7 @@ router.delete(
   async (req, res) => {
     try {
       await withTenantClient(req.user.tenantId, async (client) => {
-        const existing = await loadAccount(client, req.params.id);
+        const existing = await loadAccount(client, req.user.tenantId, req.params.id);
         if (!existing) throw Object.assign(new Error('الحساب غير موجود'), { statusCode: 404 });
         if (Number(existing.child_count) > 0) {
           throw Object.assign(new Error('احذف الفروع أولًا أو انقلها'), { statusCode: 400 });
@@ -372,7 +377,7 @@ router.delete(
           );
         }
 
-        await client.query(`DELETE FROM chart_of_accounts WHERE id = $1`, [req.params.id]);
+        await client.query(`DELETE FROM chart_of_accounts WHERE id = $1 AND tenant_id = $2`, [req.params.id, req.user.tenantId]);
       });
       res.json({ success: true });
     } catch (err) {

@@ -15,8 +15,8 @@ async function assertDiscountAccountKind(tenantId, discountAccountId, isCreditNo
   const row = await withTenantClient(tenantId, async (client) => {
     const result = await client.query(
       `SELECT account_code, account_type, account_name_ar, account_name
-       FROM chart_of_accounts WHERE id = $1`,
-      [discountAccountId]
+       FROM chart_of_accounts WHERE id = $1 AND tenant_id = $2`,
+      [discountAccountId, tenantId]
     );
     return result.rows[0] || null;
   });

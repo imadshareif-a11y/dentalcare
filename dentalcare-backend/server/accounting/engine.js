@@ -57,9 +57,9 @@ async function postJournalEntry({
       const result = await client.query(
         `SELECT ik.journal_entry_id, je.entry_number
          FROM idempotency_keys ik
-         JOIN journal_entries je ON je.id = ik.journal_entry_id
-         WHERE ik.key = $1`,
-        [idempotencyKey]
+         JOIN journal_entries je ON je.id = ik.journal_entry_id AND je.tenant_id = ik.tenant_id
+         WHERE ik.key = $1 AND ik.tenant_id = $2`,
+        [idempotencyKey, tenantId]
       );
       return result.rows[0] || null;
     });
@@ -128,10 +128,11 @@ async function postJournalEntry({
     for (const line of lines) {
       await client.query(
         `INSERT INTO journal_entry_lines
-           (journal_entry_id, account_id, debit, credit, line_memo,
+           (tenant_id, journal_entry_id, account_id, debit, credit, line_memo,
             currency_id, exchange_rate, foreign_debit, foreign_credit)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
+          tenantId,
           journalEntryId,
           line.accountId,
           line.debit || 0,
@@ -163,16 +164,17 @@ async function postJournalEntry({
 async function reverseJournalEntry({ tenantId, userId, originalEntryId, memo }) {
   return withTenantClient(tenantId, async (client) => {
     const linesResult = await client.query(
-      `SELECT account_id, debit, credit FROM journal_entry_lines WHERE journal_entry_id = $1`,
-      [originalEntryId]
+      `SELECT account_id, debit, credit FROM journal_entry_lines
+       WHERE journal_entry_id = $1 AND tenant_id = $2`,
+      [originalEntryId, tenantId]
     );
     if (linesResult.rows.length === 0) {
       throw new Error('القيد الأصلي غير موجود');
     }
 
     const original = await client.query(
-      `SELECT entry_date FROM journal_entries WHERE id = $1`,
-      [originalEntryId]
+      `SELECT entry_date FROM journal_entries WHERE id = $1 AND tenant_id = $2`,
+      [originalEntryId, tenantId]
     );
     const originalDay = original.rows[0]?.entry_date
       ? String(original.rows[0].entry_date).slice(0, 10)
@@ -196,15 +198,15 @@ async function reverseJournalEntry({ tenantId, userId, originalEntryId, memo }) 
 
     for (const line of reversedLines) {
       await client.query(
-        `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit)
-         VALUES ($1, $2, $3, $4)`,
-        [reversalId, line.accountId, line.debit, line.credit]
+        `INSERT INTO journal_entry_lines (tenant_id, journal_entry_id, account_id, debit, credit)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [tenantId, reversalId, line.accountId, line.debit, line.credit]
       );
     }
 
     await client.query(
-      `UPDATE journal_entries SET reversed_by = $1 WHERE id = $2`,
-      [reversalId, originalEntryId]
+      `UPDATE journal_entries SET reversed_by = $1 WHERE id = $2 AND tenant_id = $3`,
+      [reversalId, originalEntryId, tenantId]
     );
 
     return { reversalEntryId: reversalId };
@@ -221,8 +223,8 @@ async function getAccountBalance({ tenantId, accountId }) {
       `SELECT COALESCE(SUM(debit), 0) AS total_debit,
               COALESCE(SUM(credit), 0) AS total_credit
        FROM journal_entry_lines
-       WHERE account_id = $1`,
-      [accountId]
+       WHERE account_id = $1 AND tenant_id = $2`,
+      [accountId, tenantId]
     );
     const { total_debit, total_credit } = result.rows[0];
     return Number(total_debit) - Number(total_credit);

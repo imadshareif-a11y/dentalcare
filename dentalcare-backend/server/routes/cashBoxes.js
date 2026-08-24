@@ -153,8 +153,8 @@ router.patch(
           resolvedNames = await namesFromBody(client, req.user.tenantId, req.body);
         }
         const existing = await client.query(
-          `SELECT id, account_id, is_system FROM cash_boxes WHERE id = $1`,
-          [req.params.id]
+          `SELECT id, account_id, is_system FROM cash_boxes WHERE id = $1 AND tenant_id = $2`,
+          [req.params.id, req.user.tenantId]
         );
         if (existing.rowCount === 0) {
           throw Object.assign(new Error('الصندوق غير موجود'), { statusCode: 404 });
@@ -176,16 +176,17 @@ router.patch(
 
         if (fields.length === 0) return;
 
-        await client.query(
-          `UPDATE cash_boxes SET ${fields.join(', ')} WHERE id = $1`,
+          values.push(req.user.tenantId);
+          await client.query(
+          `UPDATE cash_boxes SET ${fields.join(', ')} WHERE id = $1 AND tenant_id = $${values.length}`,
           values
         );
 
         // مزامنة اسم الحساب المرتبط
         if (name !== undefined || nameEn !== undefined || nameHe !== undefined) {
           const box = await client.query(
-            `SELECT account_id, name, name_en, name_he FROM cash_boxes WHERE id = $1`,
-            [req.params.id]
+            `SELECT account_id, name, name_en, name_he FROM cash_boxes WHERE id = $1 AND tenant_id = $2`,
+            [req.params.id, req.user.tenantId]
           );
           const b = box.rows[0];
           await client.query(
@@ -194,20 +195,20 @@ router.patch(
                  account_name_ar = $2,
                  account_name_en = COALESCE($3, account_name_en),
                  account_name_he = COALESCE($4, account_name_he)
-             WHERE id = $1`,
-            [b.account_id, b.name, b.name_en, b.name_he]
+             WHERE id = $1 AND tenant_id = $5`,
+            [b.account_id, b.name, b.name_en, b.name_he, req.user.tenantId]
           );
         }
 
         if (isActive === false) {
           await client.query(
-            `UPDATE chart_of_accounts SET is_active = FALSE WHERE id = $1`,
-            [existing.rows[0].account_id]
+            `UPDATE chart_of_accounts SET is_active = FALSE WHERE id = $1 AND tenant_id = $2`,
+            [existing.rows[0].account_id, req.user.tenantId]
           );
         } else if (isActive === true) {
           await client.query(
-            `UPDATE chart_of_accounts SET is_active = TRUE WHERE id = $1`,
-            [existing.rows[0].account_id]
+            `UPDATE chart_of_accounts SET is_active = TRUE WHERE id = $1 AND tenant_id = $2`,
+            [existing.rows[0].account_id, req.user.tenantId]
           );
         }
       });

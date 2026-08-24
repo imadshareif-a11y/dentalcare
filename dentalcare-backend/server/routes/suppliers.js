@@ -56,16 +56,16 @@ router.patch(
     try {
       await withTenantClient(req.user.tenantId, async (client) => {
         const existing = await client.query(
-          `SELECT id, account_id FROM parties WHERE id = $1 AND party_type = 'SUPPLIER'`,
-          [req.params.id]
+          `SELECT id, account_id FROM parties WHERE id = $1 AND tenant_id = $2 AND party_type = 'SUPPLIER'`,
+          [req.params.id, req.user.tenantId]
         );
         if (existing.rowCount === 0) {
           throw Object.assign(new Error('المورد غير موجود'), { statusCode: 404 });
         }
         const { account_id: accountId } = existing.rows[0];
         await client.query(
-          `UPDATE parties SET name = $2, phone = $3 WHERE id = $1`,
-          [req.params.id, name.trim(), phone || null]
+          `UPDATE parties SET name = $2, phone = $3 WHERE id = $1 AND tenant_id = $4`,
+          [req.params.id, name.trim(), phone || null, req.user.tenantId]
         );
         await syncPartyAccountName(client, accountId, 'SUPPLIER', name.trim());
       });
@@ -86,7 +86,7 @@ router.get('/suppliers', requireAuth, requirePermission('payments', 'view'), asy
           p.id, p.name, p.phone, p.account_id,
           COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS balance
         FROM parties p
-        LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
+        LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id AND l.tenant_id = p.tenant_id
         WHERE p.tenant_id = $1 AND p.party_type = 'SUPPLIER'
         GROUP BY p.id, p.name, p.phone, p.account_id
         ORDER BY p.name ASC
