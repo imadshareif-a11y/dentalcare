@@ -42,7 +42,10 @@
     "dedupe:financials": "node scripts/dedupe-financials.js",
     "diagnose:financials": "node scripts/diagnose-financials.js",
     "backup:full": "node scripts/ops/run-backup-full.js",
-    "test:permissions": "node scripts/test-permissions.js"
+    "test:permissions": "node scripts/test-permissions.js",
+    "test:tenant-isolation": "node scripts/test-tenant-isolation.js",
+    "test:fx-reconciliation": "node scripts/test-fx-reconciliation.js",
+    "audit:system": "node scripts/audit-system.js"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

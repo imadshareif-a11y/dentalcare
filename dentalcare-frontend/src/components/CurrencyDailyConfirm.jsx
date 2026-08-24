@@ -5,13 +5,14 @@ import { getLastRatesConfirmInfo, markRatesConfirmedToday } from '../lib/currenc
 import { dedupeByCode } from '../lib/dedupeList';
 import { useSettings } from '../context/SettingsContext';
 import { toWesternDigits } from '../utils/format';
+import useEscapeClose from '../hooks/useEscapeClose';
 
 function parseRate(value) {
   const n = Number(toWesternDigits(String(value ?? '')).trim());
   return Number.isFinite(n) ? n : NaN;
 }
 
-export default function CurrencyDailyConfirm({ user, onConfirmed }) {
+export default function CurrencyDailyConfirm({ user, onConfirmed, onClose }) {
   const { t, i18n } = useTranslation();
   const { date, dateTime } = useSettings();
   const [rows, setRows] = useState([]);
@@ -25,6 +26,12 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
 
   const base = useMemo(() => rows.find((r) => r.is_base) || null, [rows]);
   const lastLocalConfirm = useMemo(() => getLastRatesConfirmInfo(user?.id), [user?.id]);
+
+  useEscapeClose(true, onClose);
+
+  function handleClose() {
+    onClose?.();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -162,7 +169,7 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
     : (lastLocalConfirm?.date ? date(lastLocalConfirm.date) : null);
 
   return (
-    <div className="dc-modal-backdrop" role="presentation">
+    <div className="dc-modal-backdrop" role="presentation" onClick={handleClose}>
       <div
         className="dc-modal dc-currency-daily-modal"
         role="dialog"
@@ -170,7 +177,18 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
         aria-labelledby="currency-daily-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 id="currency-daily-title">{t('currency_daily_title')}</h3>
+        <div className="dc-appt-head">
+          <h3 id="currency-daily-title">{t('currency_daily_title')}</h3>
+          <button
+            type="button"
+            className="dc-danger"
+            onClick={handleClose}
+            disabled={saving}
+            aria-label={t('close')}
+          >
+            ×
+          </button>
+        </div>
         <p className="dc-muted text-sm">{t('currency_daily_hint_auto')}</p>
         {base && (
           <p className="text-sm">
@@ -260,9 +278,14 @@ export default function CurrencyDailyConfirm({ user, onConfirmed }) {
         {error && <div className="dc-error" style={{ marginTop: 10 }}>{error}</div>}
 
         <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="dc-ghost-light" disabled={loading || saving} onClick={reloadMarket}>
-            {t('currency_daily_reload_market')}
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="dc-ghost-light" disabled={loading || saving} onClick={reloadMarket}>
+              {t('currency_daily_reload_market')}
+            </button>
+            <button type="button" className="dc-ghost-light" disabled={saving} onClick={handleClose}>
+              {t('close')}
+            </button>
+          </div>
           <button
             type="button"
             className="dc-success"

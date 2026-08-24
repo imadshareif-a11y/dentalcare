@@ -63,7 +63,8 @@ ALTER TABLE tenant_settings
   ADD COLUMN IF NOT EXISTS role_permission_defaults JSONB,
   ADD COLUMN IF NOT EXISTS number_digits VARCHAR(16) NOT NULL DEFAULT 'western',
   ADD COLUMN IF NOT EXISTS time_format VARCHAR(8) NOT NULL DEFAULT '12h',
-  ADD COLUMN IF NOT EXISTS letterhead_layout JSONB NOT NULL DEFAULT '{}'::jsonb;
+  ADD COLUMN IF NOT EXISTS letterhead_layout JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS fx_gain_loss_account_id UUID;
 `;
 
 async function ensureTenantSettingsSchema() {

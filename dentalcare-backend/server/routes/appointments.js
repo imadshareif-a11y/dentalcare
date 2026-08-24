@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireAuth, requireAnyPermission, requireClinicContext } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { tryAutoSend } = require('../whatsapp/service');
+const { assertBookingNotPast } = require('../lib/appointmentTime');
 const { ensureAppointmentsSchema } = require('../db/ensureAppointments');
 const { ensureUserDoctorLinkSchema } = require('../db/ensureUserDoctorLink');
 
@@ -215,6 +216,7 @@ router.post(
     }
     const { slot, endSlot } = range;
     try {
+      assertBookingNotPast(day, slot);
       await ensureAppointmentsSchema();
       const row = await withTenantClient(req.user.tenantId, async (client) => {
         await assertDoctor(client, req.user.tenantId, doctorId);
@@ -366,6 +368,11 @@ router.patch(
         }
 
         if (wantsReschedule) {
+          if (nextStatus !== 'CANCELLED') {
+            assertBookingNotPast(nextDay, nextSlot, {
+              allowIfSameAs: { day: row.appointment_date, slot: row.slot },
+            });
+          }
           await assertDoctor(client, req.user.tenantId, nextDoctorId);
           await assertRoom(client, req.user.tenantId, nextRoomId);
           if (nextStatus !== 'CANCELLED') {

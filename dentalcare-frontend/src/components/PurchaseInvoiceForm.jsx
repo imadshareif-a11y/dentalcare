@@ -1,21 +1,29 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import PartyAccountSelect from './PartyAccountSelect';
 import CurrencySelect from './CurrencySelect';
 import DocumentImageAttach from './DocumentImageAttach';
 import ClinicNumberInput from './ClinicNumberInput';
+import DocPartyDateRow from './DocPartyDateRow';
 import DocumentFormShell, { DocSection, DocTotalBar } from './DocumentFormShell';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useSettings } from '../context/SettingsContext';
+import { useDocumentDraftBinding } from '../hooks/useDocumentDraftBinding';
 
-export default function PurchaseInvoiceForm({ accounts, onPosted }) {
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export default function PurchaseInvoiceForm({ accounts, onPosted, draft, registerDraftHandlers }) {
   const { t } = useTranslation();
   const { money } = useSettings();
   const { currencies, baseCurrency } = useCurrencies();
   const expenseAccounts = accounts.filter((a) => a.account_type === 'EXPENSE');
 
   const [supplierAccountId, setSupplierAccountId] = useState('');
+  const [docDate, setDocDate] = useState(todayIso);
   const [expenseAccountId, setExpenseAccountId] = useState(
     () => expenseAccounts.find((a) => a.account_code === '5200')?.id || ''
   );
@@ -30,6 +38,41 @@ export default function PurchaseInvoiceForm({ accounts, onPosted }) {
   useEffect(() => {
     if (!currencyId && baseCurrency?.id) setCurrencyId(baseCurrency.id);
   }, [baseCurrency, currencyId]);
+
+  const getPayload = useCallback(() => ({
+    supplierAccountId,
+    docDate,
+    expenseAccountId,
+    currencyId,
+    amount,
+    memo,
+    idempotencyKey,
+  }), [supplierAccountId, docDate, expenseAccountId, currencyId, amount, memo, idempotencyKey]);
+
+  const applyPayload = useCallback((p) => {
+    if (p.supplierAccountId != null) setSupplierAccountId(p.supplierAccountId);
+    if (p.docDate) setDocDate(p.docDate);
+    if (p.expenseAccountId != null) setExpenseAccountId(p.expenseAccountId);
+    if (p.currencyId) setCurrencyId(p.currencyId);
+    if (p.amount != null) setAmount(String(p.amount));
+    if (p.memo != null) setMemo(p.memo);
+    if (p.idempotencyKey) setIdempotencyKey(p.idempotencyKey);
+  }, []);
+
+  const getSummary = useCallback(() => {
+    const supplier = accounts.find((a) => a.id === supplierAccountId);
+    const name = supplier?.account_name || '';
+    const amt = Number(amount) > 0 ? money(Number(amount)) : '';
+    return [name, amt, memo].filter(Boolean).join(' — ').slice(0, 500);
+  }, [accounts, supplierAccountId, amount, memo, money]);
+
+  useDocumentDraftBinding({
+    registerDraftHandlers,
+    draft,
+    getPayload,
+    applyPayload,
+    getSummary,
+  });
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -47,6 +90,10 @@ export default function PurchaseInvoiceForm({ accounts, onPosted }) {
       setError(t('amount_required'));
       return;
     }
+    if (!docDate) {
+      setError(t('voucher_date_required'));
+      return;
+    }
     setSubmitting(true);
     try {
       const result = await api.post('/purchase-invoices', {
@@ -54,6 +101,7 @@ export default function PurchaseInvoiceForm({ accounts, onPosted }) {
         expenseAccountId,
         currencyId,
         amount: numericAmount,
+        date: docDate,
         memo: memo || undefined,
         idempotencyKey,
       });
@@ -69,6 +117,7 @@ export default function PurchaseInvoiceForm({ accounts, onPosted }) {
       }
 
       setSupplierAccountId('');
+      setDocDate(todayIso());
       setCurrencyId(baseCurrency?.id || '');
       setAmount('');
       setMemo('');
@@ -100,13 +149,19 @@ export default function PurchaseInvoiceForm({ accounts, onPosted }) {
       ) : null}
     >
       <DocSection title={t('doc_section_party')}>
-        <PartyAccountSelect
-          accounts={accounts}
-          value={supplierAccountId}
-          onChange={setSupplierAccountId}
-          label={t('party_account')}
-          required
-        />
+        <DocPartyDateRow
+          accountId={supplierAccountId}
+          docDate={docDate}
+          onDateChange={setDocDate}
+        >
+          <PartyAccountSelect
+            accounts={accounts}
+            value={supplierAccountId}
+            onChange={setSupplierAccountId}
+            label={t('party_account')}
+            required
+          />
+        </DocPartyDateRow>
         <div className="dc-form-field dc-field-select-md">
           <label>{t('purchase_expense_account')}</label>
           <select value={expenseAccountId} onChange={(e) => setExpenseAccountId(e.target.value)} required>
@@ -119,20 +174,18 @@ export default function PurchaseInvoiceForm({ accounts, onPosted }) {
       </DocSection>
 
       <DocSection title={t('doc_section_amount')}>
-        <div className="dc-form-row">
-          <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
-          <div className="dc-doc-cash-hero dc-form-field dc-field-amount">
-            <label>{t('amount')}</label>
-            <ClinicNumberInput
-              showCurrency
-              currencySymbol={currencies.find((c) => c.id === currencyId)?.symbol || baseCurrency?.symbol}
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={setAmount}
-              required
-            />
-          </div>
+        <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
+        <div className="dc-doc-cash-hero dc-form-field dc-field-amount">
+          <label>{t('amount')}</label>
+          <ClinicNumberInput
+            showCurrency
+            currencySymbol={currencies.find((c) => c.id === currencyId)?.symbol || baseCurrency?.symbol}
+            min="0"
+            step="0.01"
+            value={amount}
+            onChange={setAmount}
+            required
+          />
         </div>
       </DocSection>
 

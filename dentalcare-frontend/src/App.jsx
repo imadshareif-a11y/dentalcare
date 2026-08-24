@@ -74,6 +74,14 @@ const HUB_COPY = {
   },
 };
 
+function canOpenCurrencyRates(permissions = {}) {
+  const level = (key) => permissions?.[key] || 'none';
+  return level('accounts') !== 'none'
+    || level('receipts') === 'edit'
+    || level('payments') === 'edit'
+    || level('journal') === 'edit';
+}
+
 const ACC_GROUPS = [
   {
     id: 'favorites',
@@ -155,43 +163,94 @@ function buildTabs({
     { key: 'receipt', label: t('nav_receipt'), visible: canEdit('receipts'),
       render: () => (
         <DocumentWorkspace sourceType="RECEIPT" titleKey="nav_receipt" successKey="voucher_posted_success_receipt">
-          {({ onPosted }) => <ReceiptForm accounts={accounts} onPosted={onPosted} />}
+          {({ onPosted, draft, registerDraftHandlers }) => (
+            <ReceiptForm
+              accounts={accounts}
+              onPosted={onPosted}
+              draft={draft}
+              registerDraftHandlers={registerDraftHandlers}
+            />
+          )}
         </DocumentWorkspace>
       ) },
     { key: 'payment', label: t('nav_payment'), visible: canEdit('payments'),
       render: () => (
         <DocumentWorkspace sourceType="PAYMENT" titleKey="nav_payment" successKey="voucher_posted_success_payment">
-          {({ onPosted }) => <PaymentForm accounts={accounts} onPosted={onPosted} />}
+          {({ onPosted, draft, registerDraftHandlers }) => (
+            <PaymentForm
+              accounts={accounts}
+              onPosted={onPosted}
+              draft={draft}
+              registerDraftHandlers={registerDraftHandlers}
+            />
+          )}
         </DocumentWorkspace>
       ) },
     { key: 'purchase', label: t('nav_purchase_invoice'), visible: canEdit('payments'),
       render: () => (
         <DocumentWorkspace sourceType="PURCHASE_INVOICE" titleKey="nav_purchase_invoice" successKey="voucher_posted_success_purchase">
-          {({ onPosted }) => <PurchaseInvoiceForm accounts={accounts} onPosted={onPosted} />}
+          {({ onPosted, draft, registerDraftHandlers }) => (
+            <PurchaseInvoiceForm
+              accounts={accounts}
+              onPosted={onPosted}
+              draft={draft}
+              registerDraftHandlers={registerDraftHandlers}
+            />
+          )}
         </DocumentWorkspace>
       ) },
     { key: 'creditNote', label: t('nav_credit_note'), visible: canEdit('receipts') || canEdit('payments') || canEdit('journal'),
       render: () => (
         <DocumentWorkspace sourceType="CREDIT_NOTE" titleKey="nav_credit_note" successKey="voucher_posted_success_credit_note">
-          {({ onPosted }) => <AdjustmentNoteForm type="credit" accounts={accounts} onPosted={onPosted} />}
+          {({ onPosted, draft, registerDraftHandlers }) => (
+            <AdjustmentNoteForm
+              type="credit"
+              accounts={accounts}
+              onPosted={onPosted}
+              draft={draft}
+              registerDraftHandlers={registerDraftHandlers}
+            />
+          )}
         </DocumentWorkspace>
       ) },
     { key: 'debitNote', label: t('nav_debit_note'), visible: canEdit('receipts') || canEdit('payments') || canEdit('journal'),
       render: () => (
         <DocumentWorkspace sourceType="DEBIT_NOTE" titleKey="nav_debit_note" successKey="voucher_posted_success_debit_note">
-          {({ onPosted }) => <AdjustmentNoteForm type="debit" accounts={accounts} onPosted={onPosted} />}
+          {({ onPosted, draft, registerDraftHandlers }) => (
+            <AdjustmentNoteForm
+              type="debit"
+              accounts={accounts}
+              onPosted={onPosted}
+              draft={draft}
+              registerDraftHandlers={registerDraftHandlers}
+            />
+          )}
         </DocumentWorkspace>
       ) },
     { key: 'bankEntry', label: t('nav_bank_entry'), visible: canEdit('journal') || canEdit('payments') || canEdit('accounts'),
       render: () => (
         <DocumentWorkspace sourceType="BANK_ENTRY" titleKey="nav_bank_entry" successKey="voucher_posted_success_bank_entry">
-          {({ onPosted }) => <BankEntryForm accounts={accounts} onPosted={onPosted} />}
+          {({ onPosted, draft, registerDraftHandlers }) => (
+            <BankEntryForm
+              accounts={accounts}
+              onPosted={onPosted}
+              draft={draft}
+              registerDraftHandlers={registerDraftHandlers}
+            />
+          )}
         </DocumentWorkspace>
       ) },
     { key: 'voucher', label: t('nav_voucher'), visible: canEdit('journal'),
       render: () => (
         <DocumentWorkspace sourceType="JOURNAL" titleKey="nav_voucher" successKey="voucher_posted_success">
-          {({ onPosted }) => <VoucherForm accounts={accounts} onPosted={onPosted} />}
+          {({ onPosted, draft, registerDraftHandlers }) => (
+            <VoucherForm
+              accounts={accounts}
+              onPosted={onPosted}
+              draft={draft}
+              registerDraftHandlers={registerDraftHandlers}
+            />
+          )}
         </DocumentWorkspace>
       ) },
     { key: 'patients', label: t('nav_patients'), visible: canSee('patients'),
@@ -407,8 +466,25 @@ export default function App() {
         icon: accountsHubIcon(tb.key),
       }))
     ));
-    return [...direct, ...nested];
-  }, [accGroupsVisible]);
+    const tiles = [...direct, ...nested];
+    if (canOpenCurrencyRates(user?.permissions)) {
+      const ratesTile = {
+        key: 'currencyRates',
+        label: t('accounts_hub_currency_rates'),
+        icon: 'fa-solid fa-check-double',
+      };
+      const curIdx = tiles.findIndex((tile) => tile.key === 'currencies');
+      if (curIdx >= 0) {
+        return [
+          ...tiles.slice(0, curIdx + 1),
+          ratesTile,
+          ...tiles.slice(curIdx + 1),
+        ];
+      }
+      return [ratesTile, ...tiles];
+    }
+    return tiles;
+  }, [accGroupsVisible, user?.permissions, t]);
   const docsHubTiles = useMemo(() => {
     const group = accGroupsVisible.find((g) => g.id === 'docs');
     if (!group) return [];
@@ -554,6 +630,7 @@ export default function App() {
         <CurrencyDailyConfirm
           user={user}
           onConfirmed={() => setShowCurrencyDaily(false)}
+          onClose={() => setShowCurrencyDaily(false)}
         />
       )}
       {showDoctorBrief && !showCurrencyDaily && (
@@ -706,7 +783,13 @@ export default function App() {
                 titleKey={hubCopy.titleKey}
                 hintKey={hubCopy.hintKey}
                 emptyKey={hubCopy.emptyKey}
-                onOpen={(key) => setAccountsWorkspace(key)}
+                onOpen={(key) => {
+                  if (key === 'currencyRates') {
+                    setShowCurrencyDaily(true);
+                    return;
+                  }
+                  setAccountsWorkspace(key);
+                }}
               />
             )}
             {!isPlatform && !showTileHub && activeTab && activeTab.render()}

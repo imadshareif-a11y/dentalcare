@@ -78,6 +78,7 @@ export default function RoomTimelineModal({
   onClose,
   date,
   onDateChange,
+  minDate,
   rooms,
   appointments,
   slots,
@@ -118,7 +119,7 @@ export default function RoomTimelineModal({
 
         <div className="dc-room-timeline-toolbar">
           <label className="dc-muted text-sm">{t('clinical_appointment_date')}</label>
-          <FormattedDateInput value={date} onChange={onDateChange} />
+          <FormattedDateInput value={date} onChange={onDateChange} min={minDate} />
         </div>
 
         <div className="dc-room-timeline-legend">

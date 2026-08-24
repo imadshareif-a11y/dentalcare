@@ -7,6 +7,7 @@ const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
 const { resolveCurrencyContext, toBaseAmount } = require('../accounting/currency');
+const { buildCashMovementLines } = require('../accounting/voucherLines');
 const { tryAutoSend } = require('../whatsapp/service');
 
 async function resolveAccountByCode(client, tenantId, code) {
@@ -109,10 +110,20 @@ router.post(
     const journalEntryIds = [];
     const createdChecks = [];
     try {
+      const baseCurrency = await resolveCurrencyContext(req.user.tenantId, null);
+
       for (let i = 0; i < cashPayments.length; i += 1) {
         const p = cashPayments[i];
         const currency = await resolveCurrencyContext(req.user.tenantId, p.currencyId || null);
-        const baseAmount = toBaseAmount(p.amount, currency.rate);
+        const lines = await withTenantClient(req.user.tenantId, async (client) => (
+          buildCashMovementLines(client, {
+            cashAccountId: p.cashAccountId,
+            counterAccountId: patientAccountId,
+            foreignAmount: p.amount,
+            direction: 'IN',
+            currencyContext: currency,
+          })
+        ));
         const { journalEntryId } = await postJournalEntry({
           tenantId: req.user.tenantId,
           userId: req.user.userId,
@@ -120,12 +131,9 @@ router.post(
           memo,
           entryDate,
           idempotencyKey: i === 0 ? idempotencyKey : `${idempotencyKey || 'rcpt'}:cash:${i}`,
-          currencyId: currency.currencyId,
-          exchangeRate: currency.rate,
-          lines: [
-            { accountId: p.cashAccountId, debit: baseAmount },
-            { accountId: patientAccountId, credit: baseAmount },
-          ],
+          currencyId: baseCurrency.currencyId,
+          exchangeRate: 1,
+          lines,
         });
         journalEntryIds.push(journalEntryId);
       }
@@ -138,6 +146,15 @@ router.post(
           const holdingId = c.cashAccountId
             || await resolveCashBoxAccountScoped(req.user.tenantId, currency.currencyId, 'CHECKS_IN', '1200')
             || checksHoldingId;
+          const lines = await withTenantClient(req.user.tenantId, async (client) => (
+            buildCashMovementLines(client, {
+              cashAccountId: holdingId,
+              counterAccountId: patientAccountId,
+              foreignAmount,
+              direction: 'IN',
+              currencyContext: currency,
+            })
+          ));
           const { journalEntryId } = await postJournalEntry({
             tenantId: req.user.tenantId,
             userId: req.user.userId,
@@ -145,12 +162,9 @@ router.post(
             memo,
             entryDate,
             idempotencyKey: c.idempotencyKey,
-            currencyId: currency.currencyId,
-            exchangeRate: currency.rate,
-            lines: [
-              { accountId: holdingId, debit: baseAmount },
-              { accountId: patientAccountId, credit: baseAmount },
-            ],
+            currencyId: baseCurrency.currencyId,
+            exchangeRate: 1,
+            lines,
           });
 
           const inserted = await withTenantClient(req.user.tenantId, async (client) => {
@@ -182,17 +196,23 @@ router.post(
         }
       }
 
-      const cashTotal = cashPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-      const checksTotal = hasChecks
-        ? checks.reduce((sum, c) => sum + (Number(c.amount) || 0), 0)
-        : 0;
-      const paymentTotal = cashTotal + checksTotal;
+      let paymentTotalBase = 0;
+      for (const p of cashPayments) {
+        const cur = await resolveCurrencyContext(req.user.tenantId, p.currencyId || null);
+        paymentTotalBase += toBaseAmount(p.amount, cur.rate);
+      }
+      if (hasChecks) {
+        for (const c of checks) {
+          const cur = await resolveCurrencyContext(req.user.tenantId, c.currencyId || null);
+          paymentTotalBase += toBaseAmount(c.amount, cur.rate);
+        }
+      }
       const tenantId = req.user.tenantId;
       setImmediate(() => {
         tryAutoSend(tenantId, {
           kind: 'payment',
           patientAccountId,
-          amount: paymentTotal,
+          amount: paymentTotalBase,
           entryDate,
         }).catch(() => {});
       });

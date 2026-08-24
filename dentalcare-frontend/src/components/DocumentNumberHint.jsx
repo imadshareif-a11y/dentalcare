@@ -22,18 +22,28 @@ const FALLBACK_SAMPLE = {
   DEBIT_NOTE: 'DN00001',
 };
 
-export default function DocumentNumberHint({ sourceType }) {
-  const { t } = useTranslation();
+export function useDocumentNumberSample(sourceType) {
   const { settings } = useSettings();
   const sampleKey = SAMPLE_KEY[sourceType];
-  const sample = (sampleKey && settings?.[sampleKey]) || FALLBACK_SAMPLE[sourceType] || null;
+  return (sampleKey && settings?.[sampleKey]) || FALLBACK_SAMPLE[sourceType] || null;
+}
+
+export function DocumentNumberRow({ sourceType }) {
+  const { t } = useTranslation();
+  const sample = useDocumentNumberSample(sourceType);
   if (!sample) return null;
 
   return (
-    <label className="dc-field-doc-number">
-      <span>{t('doc_number')}</span>
-      <input type="text" value={sample} readOnly disabled aria-readonly="true" />
-      <span className="dc-muted text-sm">{t('doc_number_auto_hint')}</span>
-    </label>
+    <div className="dc-doc-number-row">
+      <span className="dc-doc-number-label">{t('doc_number')}</span>
+      <span className="dc-doc-number-value">{sample}</span>
+      <span className="dc-doc-number-sep" aria-hidden="true">·</span>
+      <span className="dc-doc-number-hint">{t('doc_number_auto_hint')}</span>
+    </div>
   );
+}
+
+/** @deprecated استخدم DocumentNumberRow داخل رأس النموذج */
+export default function DocumentNumberHint({ sourceType }) {
+  return <DocumentNumberRow sourceType={sourceType} />;
 }

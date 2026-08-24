@@ -127,7 +127,7 @@ async function withOptionalTable(client, label, fn) {
   }
 }
 
-async function seedClinicExtras(client, tenantId) {
+async function seedClinicFoundation(client, tenantId) {
   await withOptionalTable(client, 'tenant_settings', async () => {
     await client.query(
       `INSERT INTO tenant_settings (tenant_id) VALUES ($1)
@@ -135,6 +135,24 @@ async function seedClinicExtras(client, tenantId) {
       [tenantId]
     );
   });
+
+  await withOptionalTable(client, 'currencies', async () => {
+    await client.query(
+      `INSERT INTO currencies
+         (tenant_id, code, name, name_en, name_he, symbol, decimal_places, rate_to_base, is_base, is_active)
+       SELECT
+         $1, 'ILS', 'شيكل إسرائيلي', 'Israeli Shekel', 'שקל חדש',
+         COALESCE(NULLIF(trim(s.currency_symbol), ''), '₪'), 2, 1, TRUE, TRUE
+       FROM tenant_settings s
+       WHERE s.tenant_id = $1
+       ON CONFLICT (tenant_id, code) DO NOTHING`,
+      [tenantId]
+    );
+  });
+}
+
+async function seedClinicExtras(client, tenantId) {
+  await seedClinicFoundation(client, tenantId);
 
   await withOptionalTable(client, 'treatment_catalog', async () => {
     const existing = await client.query(
@@ -150,20 +168,6 @@ async function seedClinicExtras(client, tenantId) {
         );
       }
     }
-  });
-
-  await withOptionalTable(client, 'currencies', async () => {
-    await client.query(
-      `INSERT INTO currencies
-         (tenant_id, code, name, name_en, name_he, symbol, decimal_places, rate_to_base, is_base, is_active)
-       SELECT
-         $1, 'ILS', 'شيكل إسرائيلي', 'Israeli Shekel', 'שקל חדש',
-         COALESCE(NULLIF(trim(s.currency_symbol), ''), '₪'), 2, 1, TRUE, TRUE
-       FROM tenant_settings s
-       WHERE s.tenant_id = $1
-       ON CONFLICT (tenant_id, code) DO NOTHING`,
-      [tenantId]
-    );
   });
 
   await withOptionalTable(client, 'cash_boxes', async () => {
@@ -184,5 +188,6 @@ module.exports = {
   TIME_FORMATS,
   DOC_SERIES_PUBLIC,
   publicSettings,
+  seedClinicFoundation,
   seedClinicExtras,
 };

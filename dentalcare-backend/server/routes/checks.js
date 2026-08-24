@@ -410,8 +410,8 @@ router.post(
 
         const bankResult = await client.query(
           `SELECT id, chart_account_id, account_kind, name, is_active
-           FROM bank_accounts WHERE id = $1`,
-          [bankAccountId]
+           FROM bank_accounts WHERE id = $1 AND tenant_id = $2`,
+          [bankAccountId, req.user.tenantId]
         );
         const bank = bankResult.rows[0];
         if (!bank || !bank.is_active) {
@@ -455,8 +455,8 @@ router.post(
              location = 'BANK_CURRENT',
              location_account_id = $1,
              cleared_journal_entry_id = $2
-           WHERE id = $3`,
-          [bank.chart_account_id, journalEntryId, id]
+           WHERE id = $3 AND tenant_id = $4`,
+          [bank.chart_account_id, journalEntryId, id, req.user.tenantId]
         );
       });
 
@@ -503,8 +503,8 @@ router.post(
 
       await withTenantClient(req.user.tenantId, async (client) => {
         await client.query(
-          `UPDATE checks SET status = 'BOUNCED', location = 'BOUNCED' WHERE id = $1`,
-          [id]
+          `UPDATE checks SET status = 'BOUNCED', location = 'BOUNCED' WHERE id = $1 AND tenant_id = $2`,
+          [id, req.user.tenantId]
         );
       });
 
@@ -568,8 +568,8 @@ router.post(
              status = 'ENDORSED',
              location = 'ENDORSED',
              endorsed_journal_entry_id = $1
-           WHERE id = $2`,
-          [journalEntryId, id]
+           WHERE id = $2 AND tenant_id = $3`,
+          [journalEntryId, id, req.user.tenantId]
         );
       });
 
@@ -619,16 +619,16 @@ router.post(
           await client.query(
             `UPDATE checks
              SET image_front_mime = $2, image_front_bytes = $3
-             WHERE id = $1`,
-            [req.params.id, front.mimetype, front.buffer]
+             WHERE id = $1 AND tenant_id = $4`,
+            [req.params.id, front.mimetype, front.buffer, req.user.tenantId]
           );
         }
         if (back) {
           await client.query(
             `UPDATE checks
              SET image_back_mime = $2, image_back_bytes = $3
-             WHERE id = $1`,
-            [req.params.id, back.mimetype, back.buffer]
+             WHERE id = $1 AND tenant_id = $4`,
+            [req.params.id, back.mimetype, back.buffer, req.user.tenantId]
           );
         }
 

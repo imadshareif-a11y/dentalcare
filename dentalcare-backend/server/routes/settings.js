@@ -54,7 +54,8 @@ const SETTINGS_SELECT = `
          wa_enabled, wa_provider, wa_api_token, wa_phone_number_id, wa_base_url,
          wa_default_country, wa_template_appointment, wa_template_reminder,
          wa_template_payment, wa_template_balance,
-         wa_auto_appointment, wa_auto_reminder, wa_auto_payment
+         wa_auto_appointment, wa_auto_reminder, wa_auto_payment,
+         fx_gain_loss_account_id
   FROM tenant_settings WHERE tenant_id = $1
 `;
 
@@ -79,7 +80,8 @@ const SETTINGS_RETURNING = `
   wa_enabled, wa_provider, wa_api_token, wa_phone_number_id, wa_base_url,
   wa_default_country, wa_template_appointment, wa_template_reminder,
   wa_template_payment, wa_template_balance,
-  wa_auto_appointment, wa_auto_reminder, wa_auto_payment
+  wa_auto_appointment, wa_auto_reminder, wa_auto_payment,
+  fx_gain_loss_account_id
 `;
 
 const AI_RETURNING = `
@@ -110,6 +112,7 @@ router.get('/settings', requireAuth, requireClinicContext, async (req, res) => {
     });
     res.json({
       ...mapSettings(data.settings),
+      fxGainLossAccountId: data.settings?.fx_gain_loss_account_id || null,
       dateFormats: DATE_FORMATS,
       baseCurrencyId: data.baseCurrency?.id || null,
       baseCurrencyCode: data.baseCurrency?.code || null,
@@ -147,6 +150,7 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
     creditNotesPrefix, creditNotesWidth, creditNotesNext,
     debitNotesPrefix, debitNotesWidth, debitNotesNext,
     baseCurrencyId,
+    fxGainLossAccountId,
   } = req.body;
 
   if (dateFormat && !DATE_FORMATS.includes(dateFormat)) {
@@ -210,6 +214,20 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
         await setBaseCurrency(client, req.user.tenantId, baseCurrencyId);
       }
 
+      const fxAccountParam = fxGainLossAccountId === undefined
+        ? null
+        : (fxGainLossAccountId ? String(fxGainLossAccountId) : '');
+      if (fxAccountParam) {
+        const fxOk = await client.query(
+          `SELECT 1 FROM chart_of_accounts
+           WHERE id = $1 AND tenant_id = $2 AND is_active = TRUE LIMIT 1`,
+          [fxAccountParam, req.user.tenantId]
+        );
+        if (fxOk.rowCount === 0) {
+          throw Object.assign(new Error('حساب فروق العملات غير موجود'), { statusCode: 400 });
+        }
+      }
+
       const result = await client.query(
         `UPDATE tenant_settings SET
            date_format = COALESCE($2, date_format),
@@ -254,6 +272,11 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
            debit_notes_prefix = COALESCE($41, debit_notes_prefix),
            debit_notes_width = COALESCE($42, debit_notes_width),
            debit_notes_next = COALESCE($43, debit_notes_next),
+           fx_gain_loss_account_id = CASE
+             WHEN $44::text IS NULL THEN fx_gain_loss_account_id
+             WHEN $44::text = '' THEN NULL
+             ELSE $44::uuid
+           END,
            updated_at = now()
          WHERE tenant_id = $1
          RETURNING ${SETTINGS_RETURNING}`,
@@ -290,6 +313,7 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
           wCn, nCn,
           debitNotesPrefix == null ? null : String(debitNotesPrefix).slice(0, 10),
           wDn, nDn,
+          fxAccountParam,
         ]
       );
       return result.rows[0];
@@ -303,6 +327,7 @@ router.patch('/settings', requireAuth, requireClinicContext, requireRole(['OWNER
     });
     res.json({
       ...mapSettings(row),
+      fxGainLossAccountId: row?.fx_gain_loss_account_id || null,
       baseCurrencyId: base?.id || null,
           baseCurrencyCode: base?.code || null,
           baseCurrencySymbol: base?.symbol || null,

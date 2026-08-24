@@ -9,7 +9,8 @@ router.post(
   requireAuth,
   requirePermission('payments', 'edit'),
   async (req, res) => {
-    const { supplierAccountId, expenseAccountId, amount, memo, idempotencyKey, currencyId } = req.body;
+    const { supplierAccountId, expenseAccountId, amount, memo, idempotencyKey, currencyId, date } = req.body;
+    const entryDate = date ? String(date).slice(0, 10) : null;
     const numericAmount = Number(amount);
 
     if (!supplierAccountId || !expenseAccountId) {
@@ -38,6 +39,7 @@ router.post(
         userId: req.user.userId,
         sourceType: 'PURCHASE_INVOICE',
         memo,
+        entryDate,
         idempotencyKey,
         currencyId: currency.currencyId,
         exchangeRate: currency.rate,

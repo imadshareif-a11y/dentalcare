@@ -72,10 +72,32 @@ function foreignToBase(foreignAmount, rate, places = 2) {
   return toBaseAmount(Number(foreignAmount) || 0, rate, places);
 }
 
+/** مبالغ السطر للكشف: عملة الحساب (أجنبي) أو الأساس. */
+function ledgerLineAmounts(row, useForeign) {
+  if (useForeign) {
+    const debit = Number(row.foreign_debit) || 0;
+    const credit = Number(row.foreign_credit) || 0;
+    if (debit > 0 || credit > 0) {
+      return { debit, credit };
+    }
+  }
+  return {
+    debit: Number(row.debit) || 0,
+    credit: Number(row.credit) || 0,
+  };
+}
+
+function ledgerNetBalance(totals, useForeign) {
+  const { debit, credit } = ledgerLineAmounts(totals, useForeign);
+  return debit - credit;
+}
+
 module.exports = {
   resolveAccountCurrency,
   resolveAccountCurrencyId,
   syncChartAccountCurrency,
   foreignToBase,
   mapCurrencyRow,
+  ledgerLineAmounts,
+  ledgerNetBalance,
 };

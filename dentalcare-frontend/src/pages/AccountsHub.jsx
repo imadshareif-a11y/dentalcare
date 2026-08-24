@@ -1,8 +1,10 @@
 import { useTranslation } from 'react-i18next';
+import { hubTileToneForKey } from '../lib/documentTones';
 
 const TILE_ICONS = {
   chartTree: 'fa-solid fa-sitemap',
   currencies: 'fa-solid fa-coins',
+  currencyRates: 'fa-solid fa-check-double',
   cashBoxes: 'fa-solid fa-cash-register',
   banks: 'fa-solid fa-building-columns',
   expenseAccounts: 'fa-solid fa-receipt',
@@ -49,11 +51,13 @@ export default function AccountsHub({
         <div className="dc-favorites-empty">{t(emptyKey)}</div>
       ) : (
         <div className="dc-favorites-grid">
-          {tiles.map((tile) => (
+          {tiles.map((tile) => {
+            const tone = tile.tone || hubTileToneForKey(tile.key);
+            return (
             <button
               key={tile.key}
               type="button"
-              className="dc-fav-tile"
+              className={['dc-fav-tile', tone ? `tone-${tone}` : ''].filter(Boolean).join(' ')}
               onClick={() => onOpen?.(tile.key)}
             >
               <span className="dc-fav-icon">
@@ -61,7 +65,8 @@ export default function AccountsHub({
               </span>
               <span className="dc-fav-label">{tile.label}</span>
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

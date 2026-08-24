@@ -58,6 +58,7 @@ app.use('/api', require('./routes/adminDashboard'));
 app.use('/api', require('./routes/doctorDashboard'));
 app.use('/api', require('./routes/partyImport'));         // إعدادات، علاجات، استيراد
 app.use('/api', require('./routes/platform'));         // SUPER_ADMIN /api/platform/*
+app.use('/api', require('./routes/documentDrafts')); // GET/POST /api/document-drafts
 
 function resolveFrontendDist() {
   const candidates = [
@@ -108,11 +109,13 @@ const { ensureJournalLineCurrencySchema } = require('./db/ensureJournalLineCurre
 const { ensureJournalLineTenantSchema } = require('./db/ensureJournalLineTenant');
 const { ensureChartAccountCurrencySchema } = require('./db/ensureChartAccountCurrency');
 const { ensurePatientDependentsSchema } = require('./db/ensurePatientDependents');
+const { ensureDocumentDraftsSchema } = require('./db/ensureDocumentDrafts');
 
 Promise.all([
   ensureCheckbooksSchema().catch((err) => console.error('checkbooks ensure failed:', err.message)),
   ensureRoomsSchema().catch((err) => console.error('rooms ensure failed:', err.message)),
   ensurePatientDependentsSchema().catch((err) => console.error('patient dependents ensure failed:', err.message)),
+  ensureDocumentDraftsSchema().catch((err) => console.error('document_drafts ensure failed:', err.message)),
   ensureTenantSettingsSchema()
     .catch((err) => console.error('tenant_settings ensure failed:', err.message))
     .then(() => ensureTenantIsolation())

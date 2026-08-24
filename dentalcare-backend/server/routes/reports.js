@@ -12,6 +12,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
+const { resolveAccountCurrency, ledgerLineAmounts, ledgerNetBalance } = require('../accounting/accountCurrency');
 
 // نفس منطق fallback chain الموجود بـ routes/accounts.js — موحّد
 // هون عشان كل التقارير تحترم لغة المستخدم بنفس الطريقة بالضبط
@@ -44,42 +45,48 @@ router.get('/reports/ledger', requireAuth, requirePermission('reports', 'view'),
         throw new Error('الحساب غير موجود');
       }
 
-      // الرصيد الافتتاحي = كل الحركات *قبل* fromDate
+      const accountCurrency = await resolveAccountCurrency(client, accountId);
+      const useForeign = Boolean(accountCurrency && !accountCurrency.isBase);
+
+      // الرصيد الافتتاحي = كل الحركات *قبل* fromDate (بعملة الحساب)
       const openingResult = await client.query(
-        `SELECT COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS opening_balance
+        `SELECT COALESCE(SUM(l.debit), 0) AS debit,
+                COALESCE(SUM(l.credit), 0) AS credit,
+                COALESCE(SUM(l.foreign_debit), 0) AS foreign_debit,
+                COALESCE(SUM(l.foreign_credit), 0) AS foreign_credit
          FROM journal_entry_lines l
          JOIN journal_entries e ON e.id = l.journal_entry_id
-         WHERE l.account_id = $1 AND e.tenant_id = $3 AND e.entry_date < $2`,
+         WHERE l.account_id = $1 AND l.tenant_id = $3 AND e.entry_date < $2`,
         [accountId, fromDate, req.user.tenantId]
       );
-      const openingBalance = Number(openingResult.rows[0].opening_balance);
+      const openingBalance = ledgerNetBalance(openingResult.rows[0], useForeign);
 
-      // حركات الفترة المحددة فقط — هون بالضبط الفلترة اللي كانت
-      // مفقودة بالكود الأصلي
       const movementsResult = await client.query(
-        `SELECT e.entry_date, e.memo, l.debit, l.credit, l.line_memo
+        `SELECT e.entry_date, e.memo, l.debit, l.credit, l.foreign_debit, l.foreign_credit, l.line_memo
          FROM journal_entry_lines l
          JOIN journal_entries e ON e.id = l.journal_entry_id
-         WHERE l.account_id = $1 AND e.tenant_id = $4 AND e.entry_date BETWEEN $2 AND $3
+         WHERE l.account_id = $1 AND l.tenant_id = $4 AND e.entry_date BETWEEN $2 AND $3
          ORDER BY e.entry_date ASC, e.created_at ASC`,
         [accountId, fromDate, toDate, req.user.tenantId]
       );
 
-      // نحسب الرصيد المتحرك سطر بسطر (running balance)
       let runningBalance = openingBalance;
       const movements = movementsResult.rows.map((row) => {
-        runningBalance += Number(row.debit) - Number(row.credit);
+        const { debit, credit } = ledgerLineAmounts(row, useForeign);
+        runningBalance += debit - credit;
         return {
           date: row.entry_date,
           details: row.line_memo || row.memo,
-          debit: Number(row.debit),
-          credit: Number(row.credit),
+          debit,
+          credit,
           runningBalance,
         };
       });
 
       return {
         accountName: resolveAccountName(accountInfo.rows[0], req.user.locale || 'ar'),
+        currencyCode: accountCurrency?.code || null,
+        currencySymbol: accountCurrency?.symbol || null,
         openingBalance,
         movements,
         closingBalance: runningBalance,

@@ -207,6 +207,7 @@ export default function SettingsPage({ onAccountsChanged }) {
       debitNotesPrefix: settings.debitNotesPrefix || 'DN',
       debitNotesWidth: settings.debitNotesWidth || 5,
       debitNotesNext: settings.debitNotesNext || 1,
+      fxGainLossAccountId: settings.fxGainLossAccountId || '',
     });
   }, [settings]);
 

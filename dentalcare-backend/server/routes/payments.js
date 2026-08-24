@@ -7,6 +7,7 @@ const { requireAuth, requirePermission } = require('../middleware/auth');
 const { withTenantClient } = require('../db/pool');
 const { postJournalEntry, UnbalancedEntryError } = require('../accounting/engine');
 const { resolveCurrencyContext, toBaseAmount } = require('../accounting/currency');
+const { buildCashMovementLines } = require('../accounting/voucherLines');
 const {
   validateCheckbookIssue,
   advanceCheckbookAfterIssue,
@@ -113,10 +114,20 @@ router.post(
     const journalEntryIds = [];
     const createdChecks = [];
     try {
+      const baseCurrency = await resolveCurrencyContext(req.user.tenantId, null);
+
       for (let i = 0; i < cashPayments.length; i += 1) {
         const p = cashPayments[i];
         const currency = await resolveCurrencyContext(req.user.tenantId, p.currencyId || null);
-        const baseAmount = toBaseAmount(p.amount, currency.rate);
+        const lines = await withTenantClient(req.user.tenantId, async (client) => (
+          buildCashMovementLines(client, {
+            cashAccountId: p.cashAccountId,
+            counterAccountId: payeeAccountId,
+            foreignAmount: p.amount,
+            direction: 'OUT',
+            currencyContext: currency,
+          })
+        ));
         const { journalEntryId } = await postJournalEntry({
           tenantId: req.user.tenantId,
           userId: req.user.userId,
@@ -124,12 +135,9 @@ router.post(
           memo,
           entryDate,
           idempotencyKey: i === 0 ? idempotencyKey : `${idempotencyKey || 'pay'}:cash:${i}`,
-          currencyId: currency.currencyId,
-          exchangeRate: currency.rate,
-          lines: [
-            { accountId: payeeAccountId, debit: baseAmount },
-            { accountId: p.cashAccountId, credit: baseAmount },
-          ],
+          currencyId: baseCurrency.currencyId,
+          exchangeRate: 1,
+          lines,
         });
         journalEntryIds.push(journalEntryId);
       }
@@ -142,6 +150,15 @@ router.post(
           const holdingId = c.cashAccountId
             || await resolveCashBoxAccountScoped(req.user.tenantId, currency.currencyId, 'CHECKS_OUT', '2200')
             || checksHoldingId;
+          const lines = await withTenantClient(req.user.tenantId, async (client) => (
+            buildCashMovementLines(client, {
+              cashAccountId: holdingId,
+              counterAccountId: payeeAccountId,
+              foreignAmount,
+              direction: 'OUT',
+              currencyContext: currency,
+            })
+          ));
           const { journalEntryId } = await postJournalEntry({
             tenantId: req.user.tenantId,
             userId: req.user.userId,
@@ -149,12 +166,9 @@ router.post(
             memo,
             entryDate,
             idempotencyKey: c.idempotencyKey,
-            currencyId: currency.currencyId,
-            exchangeRate: currency.rate,
-            lines: [
-              { accountId: payeeAccountId, debit: baseAmount },
-              { accountId: holdingId, credit: baseAmount },
-            ],
+            currencyId: baseCurrency.currencyId,
+            exchangeRate: 1,
+            lines,
           });
 
           const inserted = await withTenantClient(req.user.tenantId, async (client) => {

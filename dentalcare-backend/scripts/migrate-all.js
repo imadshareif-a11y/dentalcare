@@ -68,6 +68,7 @@ const MIGRATION_FILES = [
   'sql/rls_system_bypass_v1.sql',
   'sql/treatment_plan_stages_v1.sql',
   'sql/doctors_v1.sql',
+  'sql/document_drafts_v1.sql',
   'sql/idempotency.sql',
   'sql/tenant_delete_fk_v1.sql',
   'sql/trigger_balance_check.sql',

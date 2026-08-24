@@ -38,7 +38,8 @@ async function assertDiscountAccountKind(tenantId, discountAccountId, isCreditNo
 function postNote(sourceType, creditTheParty) {
   const isCreditNote = creditTheParty;
   return async (req, res) => {
-    const { partyAccountId, discountAccountId, amount, memo, idempotencyKey, currencyId } = req.body;
+    const { partyAccountId, discountAccountId, amount, memo, idempotencyKey, currencyId, date } = req.body;
+    const entryDate = date ? String(date).slice(0, 10) : null;
     const numericAmount = Number(amount);
 
     if (!partyAccountId || !discountAccountId) {
@@ -84,6 +85,7 @@ function postNote(sourceType, creditTheParty) {
         userId: req.user.userId,
         sourceType,
         memo,
+        entryDate,
         idempotencyKey,
         currencyId: currency.currencyId,
         exchangeRate: currency.rate,

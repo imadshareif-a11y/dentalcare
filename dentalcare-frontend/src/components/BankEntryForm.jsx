@@ -1,21 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
-import FormattedDateInput from './FormattedDateInput';
 import CurrencySelect from './CurrencySelect';
 import ClinicNumberInput from './ClinicNumberInput';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useSettings } from '../context/SettingsContext';
 import PartyAccountSelect from './PartyAccountSelect';
+import DocPartyDateRow from './DocPartyDateRow';
 import DocumentFormShell, { DocSection, DocTotalBar } from './DocumentFormShell';
 import { partyAccounts } from '../lib/partyAccounts';
+import { useDocumentDraftBinding } from '../hooks/useDocumentDraftBinding';
 
 function todayIso() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export default function BankEntryForm({ accounts, onPosted }) {
+export default function BankEntryForm({ accounts, onPosted, draft, registerDraftHandlers }) {
   const { t, i18n } = useTranslation();
   const { money } = useSettings();
   const { currencies, baseCurrency } = useCurrencies();
@@ -101,6 +102,56 @@ export default function BankEntryForm({ accounts, onPosted }) {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     ));
   }
+
+  const getPayload = useCallback(() => ({
+    operation,
+    docDate,
+    currencyId,
+    amount,
+    fromBankAccountId,
+    toBankAccountId,
+    counterpartAccountId,
+    selectedCheckIds,
+    memo,
+    idempotencyKey,
+  }), [
+    operation, docDate, currencyId, amount, fromBankAccountId, toBankAccountId,
+    counterpartAccountId, selectedCheckIds, memo, idempotencyKey,
+  ]);
+
+  const applyPayload = useCallback((p) => {
+    if (p.operation) setOperation(p.operation);
+    if (p.docDate) setDocDate(p.docDate);
+    if (p.currencyId) setCurrencyId(p.currencyId);
+    if (p.amount != null) setAmount(String(p.amount));
+    if (p.fromBankAccountId != null) setFromBankAccountId(p.fromBankAccountId);
+    if (p.toBankAccountId != null) setToBankAccountId(p.toBankAccountId);
+    if (p.counterpartAccountId != null) setCounterpartAccountId(p.counterpartAccountId);
+    if (Array.isArray(p.selectedCheckIds)) setSelectedCheckIds(p.selectedCheckIds);
+    if (p.memo != null) setMemo(p.memo);
+    if (p.idempotencyKey) setIdempotencyKey(p.idempotencyKey);
+  }, []);
+
+  const getSummary = useCallback(() => {
+    const opKeys = {
+      TRANSFER: 'bank_entry_op_transfer',
+      INCOMING: 'bank_entry_op_incoming',
+      OUTGOING: 'bank_entry_op_outgoing',
+      CHECK_DEPOSIT: 'bank_entry_op_check_deposit',
+    };
+    const opLabel = t(opKeys[operation] || 'bank_entry_operation');
+    const total = operation === 'CHECK_DEPOSIT' ? depositTotal : Number(amount) || 0;
+    const amt = total > 0 ? money(total) : '';
+    return [opLabel, amt, memo].filter(Boolean).join(' — ').slice(0, 500);
+  }, [operation, depositTotal, amount, memo, money, t]);
+
+  useDocumentDraftBinding({
+    registerDraftHandlers,
+    draft,
+    getPayload,
+    applyPayload,
+    getSummary,
+  });
 
   function resetForm() {
     setOperation('TRANSFER');
@@ -222,135 +273,141 @@ export default function BankEntryForm({ accounts, onPosted }) {
         />
       ) : null}
     >
-      <DocSection title={t('bank_entry_operation')} hint={t('bank_entry_hint')}>
-        <div className="dc-doc-op-pills" role="tablist">
-          {[
-            { id: 'TRANSFER', label: t('bank_entry_op_transfer') },
-            { id: 'INCOMING', label: t('bank_entry_op_incoming') },
-            { id: 'OUTGOING', label: t('bank_entry_op_outgoing') },
-            { id: 'CHECK_DEPOSIT', label: t('bank_entry_op_check_deposit') },
-          ].map((op) => (
-            <button
-              key={op.id}
-              type="button"
-              role="tab"
-              className={`dc-doc-op-pill${operation === op.id ? ' is-active' : ''}`}
-              aria-selected={operation === op.id}
-              onClick={() => setOperation(op.id)}
-            >
-              {op.label}
-            </button>
-          ))}
-        </div>
-        <div className="dc-form-field dc-field-date">
-          <label>{t('voucher_date')}</label>
-          <FormattedDateInput value={docDate} onChange={setDocDate} required />
-        </div>
+      <DocSection title={t('doc_section_party')} hint={t('bank_entry_hint')}>
+        <DocPartyDateRow
+          docDate={docDate}
+          onDateChange={setDocDate}
+          showPartyInfo={false}
+        >
+          <div className="dc-form-field dc-field-party dc-bank-op-field">
+            <label>{t('bank_entry_operation')}</label>
+            <div className="dc-doc-op-pills" role="tablist">
+              {[
+                { id: 'TRANSFER', label: t('bank_entry_op_transfer') },
+                { id: 'INCOMING', label: t('bank_entry_op_incoming') },
+                { id: 'OUTGOING', label: t('bank_entry_op_outgoing') },
+                { id: 'CHECK_DEPOSIT', label: t('bank_entry_op_check_deposit') },
+              ].map((op) => (
+                <button
+                  key={op.id}
+                  type="button"
+                  role="tab"
+                  className={`dc-doc-op-pill${operation === op.id ? ' is-active' : ''}`}
+                  aria-selected={operation === op.id}
+                  onClick={() => setOperation(op.id)}
+                >
+                  {op.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </DocPartyDateRow>
+        {(operation === 'INCOMING' || operation === 'OUTGOING') && (
+          <PartyAccountSelect
+            accountList={counterpartOptions}
+            value={counterpartAccountId}
+            onChange={setCounterpartAccountId}
+            label={t('bank_entry_counterpart')}
+            required
+            pickerScope="extended"
+          />
+        )}
       </DocSection>
 
       {operation === 'CHECK_DEPOSIT' ? (
         <DocSection title={t('doc_section_amount')}>
-          <div className="dc-form-field dc-field-party">
-            <label>{t('bank_entry_collection_bank')}</label>
-            <select
-              value={toBankAccountId}
-              onChange={(e) => setToBankAccountId(e.target.value)}
-              required
-            >
-              <option value="">{t('voucher_choose_account')}</option>
-              {collectionBanks.map((b) => (
-                <option key={b.id} value={b.id}>{bankLabel(b)}</option>
-              ))}
-            </select>
-            {collectionBanks.length === 0 && (
-              <p className="dc-muted text-sm">{t('bank_entry_no_collection')}</p>
-            )}
-          </div>
-
-          <div className="dc-form-field">
-            <label>{t('bank_entry_select_checks')}</label>
-            {boxChecks.length === 0 ? (
-              <p className="dc-muted text-sm">{t('bank_entry_no_box_checks')}</p>
-            ) : (
-              <div className="dc-doc-check-list">
-                {boxChecks.map((c) => (
-                  <label key={c.id}>
-                    <input
-                      type="checkbox"
-                      checked={selectedCheckIds.includes(c.id)}
-                      onChange={() => toggleCheck(c.id)}
-                    />
-                    <span>
-                      {c.check_number} — {c.bank_name} — {money(c.amount)}
-                      {c.due_date ? ` (${c.due_date})` : ''}
-                      {c.cash_box_name ? ` · ${c.cash_box_name}` : ''}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        </DocSection>
-      ) : (
-        <DocSection title={t('doc_section_amount')}>
-          <div className="dc-form-row">
-            <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
-            <div className="dc-doc-cash-hero dc-form-field dc-field-amount">
-              <label>{t('amount')}</label>
-              <ClinicNumberInput
-                showCurrency
-                currencySymbol={currencies.find((c) => c.id === currencyId)?.symbol || baseCurrency?.symbol}
-                min="0"
-                step="0.01"
-                value={amount}
-                onChange={setAmount}
-                required
-              />
-            </div>
-          </div>
-
-          {(operation === 'TRANSFER' || operation === 'OUTGOING') && (
+          <div className="dc-doc-panel">
             <div className="dc-form-field dc-field-party">
-              <label>{t('bank_entry_from_bank')}</label>
-              <select
-                value={fromBankAccountId}
-                onChange={(e) => setFromBankAccountId(e.target.value)}
-                required
-              >
-                <option value="">{t('voucher_choose_account')}</option>
-                {bankAccounts.map((b) => (
-                  <option key={b.id} value={b.id}>{bankLabel(b)}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {(operation === 'TRANSFER' || operation === 'INCOMING') && (
-            <div className="dc-form-field dc-field-party">
-              <label>{t('bank_entry_to_bank')}</label>
+              <label>{t('bank_entry_collection_bank')}</label>
               <select
                 value={toBankAccountId}
                 onChange={(e) => setToBankAccountId(e.target.value)}
                 required
               >
                 <option value="">{t('voucher_choose_account')}</option>
-                {bankAccounts.map((b) => (
+                {collectionBanks.map((b) => (
                   <option key={b.id} value={b.id}>{bankLabel(b)}</option>
                 ))}
               </select>
+              {collectionBanks.length === 0 && (
+                <p className="dc-muted text-sm">{t('bank_entry_no_collection')}</p>
+              )}
             </div>
-          )}
 
-          {(operation === 'INCOMING' || operation === 'OUTGOING') && (
-            <PartyAccountSelect
-              accountList={counterpartOptions}
-              value={counterpartAccountId}
-              onChange={setCounterpartAccountId}
-              label={t('bank_entry_counterpart')}
+            <div className="dc-form-field">
+              <label>{t('bank_entry_select_checks')}</label>
+              {boxChecks.length === 0 ? (
+                <p className="dc-muted text-sm">{t('bank_entry_no_box_checks')}</p>
+              ) : (
+                <div className="dc-doc-check-list">
+                  {boxChecks.map((c) => (
+                    <label key={c.id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedCheckIds.includes(c.id)}
+                        onChange={() => toggleCheck(c.id)}
+                      />
+                      <span>
+                        {c.check_number} — {c.bank_name} — {money(c.amount)}
+                        {c.due_date ? ` (${c.due_date})` : ''}
+                        {c.cash_box_name ? ` · ${c.cash_box_name}` : ''}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </DocSection>
+      ) : (
+        <DocSection title={t('doc_section_amount')}>
+          <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
+          <div className="dc-doc-cash-hero dc-form-field dc-field-amount">
+            <label>{t('amount')}</label>
+            <ClinicNumberInput
+              showCurrency
+              currencySymbol={currencies.find((c) => c.id === currencyId)?.symbol || baseCurrency?.symbol}
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={setAmount}
               required
-              pickerScope="extended"
             />
-          )}
+          </div>
+
+          <div className="dc-doc-panel">
+            {(operation === 'TRANSFER' || operation === 'OUTGOING') && (
+              <div className="dc-form-field dc-field-party">
+                <label>{t('bank_entry_from_bank')}</label>
+                <select
+                  value={fromBankAccountId}
+                  onChange={(e) => setFromBankAccountId(e.target.value)}
+                  required
+                >
+                  <option value="">{t('voucher_choose_account')}</option>
+                  {bankAccounts.map((b) => (
+                    <option key={b.id} value={b.id}>{bankLabel(b)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {(operation === 'TRANSFER' || operation === 'INCOMING') && (
+              <div className="dc-form-field dc-field-party">
+                <label>{t('bank_entry_to_bank')}</label>
+                <select
+                  value={toBankAccountId}
+                  onChange={(e) => setToBankAccountId(e.target.value)}
+                  required
+                >
+                  <option value="">{t('voucher_choose_account')}</option>
+                  {bankAccounts.map((b) => (
+                    <option key={b.id} value={b.id}>{bankLabel(b)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
         </DocSection>
       )}
 

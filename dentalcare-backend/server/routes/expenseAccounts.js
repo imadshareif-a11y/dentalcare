@@ -115,8 +115,8 @@ router.post(
         });
         const result = await client.query(
           `SELECT id, account_code, account_name, account_name_ar, account_name_en, account_name_he, account_type, is_active
-           FROM chart_of_accounts WHERE id = $1`,
-          [accountId]
+           FROM chart_of_accounts WHERE id = $1 AND tenant_id = $2`,
+          [accountId, req.user.tenantId]
         );
         return result.rows[0];
       });

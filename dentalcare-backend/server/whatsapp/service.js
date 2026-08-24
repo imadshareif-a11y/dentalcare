@@ -312,13 +312,14 @@ async function sendTomorrowReminders(tenantId) {
     const r = await client.query(
       `SELECT a.id
        FROM appointments a
-       WHERE a.appointment_date = $1::date
+       WHERE a.tenant_id = $2
+         AND a.appointment_date = $1::date
          AND a.status = 'SCHEDULED'
          AND NOT EXISTS (
            SELECT 1 FROM whatsapp_messages w
            WHERE w.appointment_id = a.id AND w.kind = 'reminder' AND w.status = 'SENT'
          )`,
-      [day]
+      [day, tenantId]
     );
     return r.rows;
   });

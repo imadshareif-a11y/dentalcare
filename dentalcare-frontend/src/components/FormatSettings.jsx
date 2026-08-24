@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { api } from '../api/client';
 import {
   applyNumberDigits,
   formatDate,
@@ -42,6 +43,13 @@ export default function FormatSettings({
   locale = 'ar',
 }) {
   const { t } = useTranslation();
+  const [expenseAccounts, setExpenseAccounts] = useState([]);
+
+  useEffect(() => {
+    api.get('/accounts')
+      .then((rows) => setExpenseAccounts((rows || []).filter((a) => a.account_type === 'EXPENSE')))
+      .catch(() => setExpenseAccounts([]));
+  }, []);
 
   const previewSettings = useMemo(() => {
     const currency = currencies.find((c) => String(c.id) === String(formatForm.baseCurrencyId));
@@ -264,6 +272,32 @@ export default function FormatSettings({
               </div>
             )}
           </article>
+        </div>
+
+        <div className="dc-format-card">
+          <div className="dc-format-card-head">
+            <span className="dc-format-card-icon tone-amber">
+              <i className="fa-solid fa-coins" />
+            </span>
+            <div>
+              <h5>{t('settings_fx_account_title')}</h5>
+              <p className="dc-muted text-sm">{t('settings_fx_account_hint')}</p>
+            </div>
+          </div>
+          <label className="dc-field">
+            <span>{t('settings_fx_account_label')}</span>
+            <select
+              value={formatForm.fxGainLossAccountId || ''}
+              onChange={(e) => patch({ fxGainLossAccountId: e.target.value || null })}
+            >
+              <option value="">{t('settings_fx_account_default')}</option>
+              {expenseAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.account_code} — {account.account_name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <div className="dc-format-form-footer">

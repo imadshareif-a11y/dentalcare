@@ -170,7 +170,7 @@ router.get('/accounts/:accountId/voucher-context', requireAuth, requireClinicCon
                 COALESCE(SUM(l.credit), 0) AS total_credit
          FROM journal_entry_lines l
          JOIN journal_entries e ON e.id = l.journal_entry_id
-         WHERE l.account_id = $1 AND e.tenant_id = $2`,
+         WHERE l.account_id = $1 AND e.tenant_id = $2 AND l.tenant_id = $2`,
         [accountId, req.user.tenantId]
       );
       const { total_debit: totalDebit, total_credit: totalCredit } = balanceResult.rows[0];

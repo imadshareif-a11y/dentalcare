@@ -1,4 +1,6 @@
 import { useTranslation } from 'react-i18next';
+import { useDocumentWorkspace } from '../context/DocumentWorkspaceContext';
+import { DocumentNumberRow } from './DocumentNumberHint';
 
 const VARIANT_META = {
   receipt: { icon: 'fa-solid fa-file-invoice-dollar', tone: 'receipt' },
@@ -83,6 +85,7 @@ export default function DocumentFormShell({
   totals,
 }) {
   const { t } = useTranslation();
+  const workspace = useDocumentWorkspace();
   const meta = VARIANT_META[variant] || VARIANT_META.receipt;
   const btnClass = submitClassName
     || (variant === 'payment' ? 'dc-danger' : 'dc-success');
@@ -99,6 +102,9 @@ export default function DocumentFormShell({
         <div className="dc-doc-form-hero-text">
           <h3 className="dc-doc-form-title">{title}</h3>
           {subtitle && <p className="dc-doc-form-subtitle">{subtitle}</p>}
+          {workspace?.sourceType && (
+            <DocumentNumberRow sourceType={workspace.sourceType} />
+          )}
         </div>
       </header>
 

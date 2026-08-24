@@ -2,14 +2,15 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/format';
 import { useAuth } from '../context/AuthContext';
 import PrintHeader from '../components/PrintHeader';
 import PatientForm from '../components/PatientForm';
 import DentalChart from '../components/DentalChart';
 import ToothPanel from '../components/ToothPanel';
 import FormattedDateInput from '../components/FormattedDateInput';
-import PartyModal from '../components/PartyModal';
-import SearchableSelect from '../components/SearchableSelect';
+import PatientSelect from '../components/PatientSelect';
+import PatientPickerModal from '../components/PatientPickerModal';
 import ClinicalImagesAttach from '../components/ClinicalImagesAttach';
 import ClinicalSessionImages from '../components/ClinicalSessionImages';
 import RoomTimelineModal from '../components/RoomTimelineModal';
@@ -17,6 +18,7 @@ import useEscapeClose from '../hooks/useEscapeClose';
 import { localizedDisplay } from '../lib/localizedName';
 import { TOOTH_CONDITIONS, inferConditionFromName, conditionLabelKey } from '../lib/toothConditions';
 import ClinicNumberInput from '../components/ClinicNumberInput';
+import { isSlotInPast, isDateBeforeToday } from '../lib/appointmentTime';
 
 const ROOM_NAME_KEYS = {
   ar: ['name', 'room_name'],
@@ -28,7 +30,7 @@ const CLINIC_OPEN_HOUR = 8;
 const CLINIC_CLOSE_HOUR = 20;
 const SCHEDULE_GRID_COLS = 4;
 
-function buildScheduleGridCells(slots, appointments, doctorId, roomId) {
+function buildScheduleGridCells(slots, appointments, doctorId, roomId, apptDate) {
   const cells = [];
   const skipped = new Set();
 
@@ -36,14 +38,14 @@ function buildScheduleGridCells(slots, appointments, doctorId, roomId) {
     if (skipped.has(i)) continue;
 
     const slot = slots[i];
-    const state = slotAvailability(appointments, slot, doctorId, roomId);
+    const state = slotAvailability(appointments, slot, doctorId, roomId, null, apptDate);
     const row = state.match;
 
     if (row) {
       let span = 1;
       while (i + span < slots.length) {
         if (Math.floor((i + span) / SCHEDULE_GRID_COLS) !== Math.floor(i / SCHEDULE_GRID_COLS)) break;
-        const nextState = slotAvailability(appointments, slots[i + span], doctorId, roomId);
+        const nextState = slotAvailability(appointments, slots[i + span], doctorId, roomId, null, apptDate);
         if (nextState.match?.id !== row.id) break;
         span += 1;
       }
@@ -148,28 +150,33 @@ function slotsInRange(start, end, allSlots) {
   });
 }
 
-function slotAvailability(appointments, slot, doctorId, roomId, excludeId = null) {
-  const active = (appointments || []).filter(
-    (a) => a.status !== 'CANCELLED' && (!excludeId || a.id !== excludeId)
-  );
+function slotAvailability(appointments, slot, doctorId, roomId, excludeId = null, apptDate = null) {
+  const allActive = (appointments || []).filter((a) => a.status !== 'CANCELLED');
+  const excludeAppt = excludeId ? allActive.find((a) => a.id === excludeId) : null;
+  const active = allActive.filter((a) => !excludeId || a.id !== excludeId);
   const covering = active.filter((a) => appointmentCoversSlot(a, slot));
   const forDoctor = covering.find((a) => a.doctor_id === doctorId);
   const forRoom = covering.find((a) => a.room_id === roomId);
   const match = covering.find((a) => a.doctor_id === doctorId && a.room_id === roomId);
   const isContinuation = Boolean(match && match.slot !== slot);
+  const isPast = apptDate ? isSlotInPast(apptDate, slot) : false;
+  const keptFromEdit = excludeAppt && appointmentCoversSlot(excludeAppt, slot);
   return {
     match,
     forDoctor,
     forRoom,
-    available: !forDoctor && !forRoom,
+    available: !forDoctor && !forRoom && (!isPast || keptFromEdit),
     isContinuation,
+    isPast,
   };
 }
 
-function isRangeFullyAvailable(appointments, start, end, doctorId, roomId, allSlots, excludeId = null) {
+function isRangeFullyAvailable(appointments, start, end, doctorId, roomId, allSlots, excludeId = null, apptDate = null) {
   const rangeSlots = slotsInRange(start, end, allSlots);
   if (rangeSlots.length === 0) return false;
-  return rangeSlots.every((s) => slotAvailability(appointments, s, doctorId, roomId, excludeId).available);
+  return rangeSlots.every(
+    (s) => slotAvailability(appointments, s, doctorId, roomId, excludeId, apptDate).available
+  );
 }
 
 function isSlotInModalRange(slot, start, end, allSlots) {
@@ -177,9 +184,9 @@ function isSlotInModalRange(slot, start, end, allSlots) {
   return slotsInRange(start, end || start, allSlots).includes(slot);
 }
 
-function firstAvailableSlot(appointments, doctorId, roomId, allSlots, excludeId = null) {
+function firstAvailableSlot(appointments, doctorId, roomId, allSlots, excludeId = null, apptDate = null) {
   for (const slot of allSlots) {
-    if (slotAvailability(appointments, slot, doctorId, roomId, excludeId).available) return slot;
+    if (slotAvailability(appointments, slot, doctorId, roomId, excludeId, apptDate).available) return slot;
   }
   return '';
 }
@@ -223,7 +230,6 @@ export default function Clinical({
   }, [revenueAccounts]);
 
   const [patients, setPatients] = useState([]);
-  const [patientSearch, setPatientSearch] = useState('');
   const [patientPickerOpen, setPatientPickerOpen] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState(focusPatientId || '');
   const [doctors, setDoctors] = useState([]);
@@ -302,7 +308,6 @@ export default function Clinical({
     setSelectedPatientId(focusPatientId);
     setMobileTab('patient');
     setPatientPickerOpen(false);
-    setPatientSearch('');
   }, [focusPatientId, focusPatientNonce]);
 
   useEffect(() => {
@@ -439,12 +444,6 @@ export default function Clinical({
     };
   }, [printJob]);
 
-  const filteredPatients = useMemo(() => {
-    const q = patientSearch.trim().toLowerCase();
-    if (!q) return patients;
-    return patients.filter((p) => p.name.toLowerCase().includes(q));
-  }, [patients, patientSearch]);
-
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
   const medicalTags = useMemo(
     () => medicalNoteTags(selectedPatient?.medical_notes),
@@ -481,17 +480,9 @@ export default function Clinical({
     () => activeRooms.find((r) => r.id === scheduleRoomId),
     [activeRooms, scheduleRoomId]
   );
-  const patientSelectOptions = useMemo(
-    () => patients.map((p) => ({
-      value: p.id,
-      label: p.name,
-      searchText: `${p.name} ${p.phone || ''}`.trim(),
-    })),
-    [patients]
-  );
   const scheduleGridCells = useMemo(
-    () => buildScheduleGridCells(slots, appointments, scheduleDoctorId, scheduleRoomId),
-    [slots, appointments, scheduleDoctorId, scheduleRoomId]
+    () => buildScheduleGridCells(slots, appointments, scheduleDoctorId, scheduleRoomId, apptDate),
+    [slots, appointments, scheduleDoctorId, scheduleRoomId, apptDate]
   );
 
   function addToCart() {
@@ -712,6 +703,15 @@ export default function Clinical({
   useEscapeClose(apptModalOpen, closeApptModal);
 
   function openApptModal(slot = '', { roomId: roomOverride, planItemId = '', patientId = '', doctorId: doctorOverride = '' } = {}) {
+    if (slot && isSlotInPast(apptDate, slot)) {
+      setError(t('clinical_appointment_past_error'));
+      return;
+    }
+    if (!slot && isDateBeforeToday(apptDate)) {
+      setError(t('clinical_appointment_past_error'));
+      return;
+    }
+
     let doctorId = doctorOverride || scheduleDoctorId || selectedDoctorId || '';
     let roomId = roomOverride || scheduleRoomId;
 
@@ -751,9 +751,8 @@ export default function Clinical({
       return;
     }
 
-    const startSlot = slot
-      || firstAvailableSlot(appointments, doctorId, roomId, slots)
-      || slots[0]
+    const startSlot = (slot && !isSlotInPast(apptDate, slot) ? slot : '')
+      || firstAvailableSlot(appointments, doctorId, roomId, slots, null, apptDate)
       || '';
 
     setError(null);
@@ -820,7 +819,8 @@ export default function Clinical({
         scheduleDoctorId,
         scheduleRoomId,
         slots,
-        editingAppointmentId || null
+        editingAppointmentId || null,
+        apptDate
       )) {
         setError(t('clinical_appointment_range_busy'));
         return prev;
@@ -863,6 +863,7 @@ export default function Clinical({
 
   function handleTimelineBook({ roomId, slot }) {
     if (!canEditAppointments) return;
+    if (isSlotInPast(apptDate, slot)) return;
     setTimelineOpen(false);
     openApptModal(slot, { roomId });
   }
@@ -1203,9 +1204,14 @@ export default function Clinical({
       scheduleDoctorId,
       scheduleRoomId,
       slots,
-      editingAppointmentId || null
+      editingAppointmentId || null,
+      apptDate
     )) {
       setError(t('clinical_appointment_range_busy'));
+      return;
+    }
+    if (!editingAppointmentId && isSlotInPast(apptDate, range.start)) {
+      setError(t('clinical_appointment_past_error'));
       return;
     }
     setError(null);
@@ -1266,6 +1272,8 @@ export default function Clinical({
     }
   }
 
+  const isPastScheduleDay = isDateBeforeToday(apptDate);
+
   return (
     <>
       <nav className="dc-clinical-mobile-tabs" aria-label={t('clinical_mobile_tabs')}>
@@ -1309,7 +1317,6 @@ export default function Clinical({
             type="button"
             className="dc-patient-pick-btn"
             onClick={() => {
-              setPatientSearch('');
               setPatientPickerOpen(true);
             }}
           >
@@ -1776,12 +1783,15 @@ export default function Clinical({
                 {canEditAppointments && (
                   <button
                     type="button"
+                    disabled={isPastScheduleDay}
                     onClick={() => openApptModal('')}
-                    title={!scheduleDoctorId
-                      ? t('clinical_schedule_doctor_required')
-                      : !scheduleRoomId
-                        ? t('clinical_schedule_room_required')
-                        : undefined}
+                    title={isPastScheduleDay
+                      ? t('clinical_appointment_past_error')
+                      : !scheduleDoctorId
+                        ? t('clinical_schedule_doctor_required')
+                        : !scheduleRoomId
+                          ? t('clinical_schedule_room_required')
+                          : undefined}
                   >
                     {t('clinical_appointment_add')}
                   </button>
@@ -1830,13 +1840,16 @@ export default function Clinical({
             )}
             <label className="dc-muted text-sm">{t('clinical_appointment_date')}</label>
             <FormattedDateInput value={apptDate} onChange={setApptDate} />
+            <p className="dc-muted text-sm">{t('clinical_past_view_hint')}</p>
             {scheduleDoctorId && scheduleRoomId && (
             <div className="dc-schedule-grid" role="grid">
               {scheduleGridCells.map((cell) => {
                 const { slot, span, state, row, isApptStart, segmentEnd } = cell;
                 const taken = Boolean(row);
                 const blocked = !state.available && !taken;
-                const blockedLabel = state.forDoctor && state.forRoom
+                const blockedLabel = state.isPast && !taken
+                  ? t('clinical_slot_past')
+                  : state.forDoctor && state.forRoom
                   ? t('clinical_slot_busy_both')
                   : state.forDoctor
                     ? t('clinical_slot_doctor_busy', {
@@ -1859,6 +1872,7 @@ export default function Clinical({
                     className={[
                       'dc-schedule-cell',
                       taken ? ' is-taken' : blocked ? ' is-blocked' : ' is-free',
+                      blocked && state.isPast ? ' is-past' : '',
                       span > 1 ? ' is-merged' : '',
                       taken && !isApptStart ? ' is-segment' : '',
                       row && selectedPatientId === row.patient_id ? ' is-active' : '',
@@ -1928,46 +1942,16 @@ export default function Clinical({
         </section>
       </div>
 
-      <PartyModal
+      <PatientPickerModal
         open={patientPickerOpen}
-        title={t('clinical_pick_patient')}
         onClose={() => setPatientPickerOpen(false)}
-      >
-        <div className="dc-patient-picker">
-          <input
-            type="search"
-            autoFocus
-            placeholder={t('clinical_search_patient')}
-            value={patientSearch}
-            onChange={(e) => setPatientSearch(e.target.value)}
-          />
-          <div className="dc-patient-picker-list">
-            {filteredPatients.length === 0 && (
-              <div className="dc-muted">{t('clinical_patient_search_empty')}</div>
-            )}
-            {filteredPatients.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className={`dc-patient-picker-row${selectedPatientId === p.id ? ' is-active' : ''}`}
-                onClick={() => {
-                  setSelectedPatientId(p.id);
-                  setPatientPickerOpen(false);
-                  setPatientSearch('');
-                }}
-              >
-                <span>
-                  <strong>{p.name}</strong>
-                  <span className="dc-muted">{p.phone || '—'}</span>
-                </span>
-                <span className={`dc-balance-chip${Number(p.balance) > 0 ? '' : ' is-ok'}`}>
-                  {money(p.balance)}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </PartyModal>
+        patients={patients}
+        selectedPatientId={selectedPatientId}
+        onSelect={(id) => {
+          setSelectedPatientId(id);
+          setPatientPickerOpen(false);
+        }}
+      />
 
       {apptModalOpen && (
         <div className="dc-modal-backdrop" onClick={closeApptModal}>
@@ -2028,12 +2012,13 @@ export default function Clinical({
                   setModalRange({ start: '', end: '' });
                 }}
               />
-              <SearchableSelect
+              <PatientSelect
                 label={t('clinical_select_patient')}
+                patients={patients}
                 value={modalPatientId}
                 onChange={setModalPatientId}
-                options={patientSelectOptions}
-                placeholder={t('clinical_search_patient')}
+                placeholder={t('clinical_pick_patient')}
+                required
               />
               <label className="dc-muted text-sm">{t('clinical_appointment_time_range')}</label>
               <p className="dc-muted text-sm">{t('clinical_appointment_time_range_hint')}</p>
@@ -2051,7 +2036,8 @@ export default function Clinical({
                     slot,
                     scheduleDoctorId,
                     scheduleRoomId,
-                    editingAppointmentId || null
+                    editingAppointmentId || null,
+                    apptDate
                   );
                   const inRange = isSlotInModalRange(slot, modalRange.start, modalRange.end, slots);
                   const disabled = !state.available;
@@ -2061,13 +2047,16 @@ export default function Clinical({
                       type="button"
                       disabled={disabled}
                       title={disabled && !state.match
-                        ? (state.forDoctor
+                        ? (state.isPast
+                          ? t('clinical_slot_past')
+                          : state.forDoctor
                           ? t('clinical_slot_doctor_busy', { room: localizedDisplay(state.forDoctor, i18n.language, ROOM_NAME_KEYS) })
                           : t('clinical_slot_room_busy', { doctor: state.forRoom?.doctor_name || '—' }))
                         : undefined}
                       className={[
                         'dc-slot',
                         disabled ? ' is-taken' : ' is-free',
+                        disabled && state.isPast ? ' is-past' : '',
                         inRange ? ' is-in-range' : '',
                         (slot === modalRange.start || slot === modalRange.end) ? ' is-selected' : '',
                       ].filter(Boolean).join(' ')}
@@ -2191,12 +2180,14 @@ export default function Clinical({
         </div>
       )}
 
-      {printJob?.type === 'ledger' && (
+      {printJob?.type === 'ledger' && (() => {
+        const ledgerFmt = (v) => formatMoney(v, settings, printJob.ledger.currencySymbol);
+        return (
         <div className="dc-print-sheet print-document">
           <PrintHeader title={`${t('nav_ledger')} — ${printJob.patient.name}`} />
           <div className="print-summary flex justify-between font-bold">
-            <span>{printJob.ledger.accountName}</span>
-            <span>{t('ledger_opening_balance')}: {money(printJob.ledger.openingBalance)}</span>
+            <span>{printJob.ledger.accountName}{printJob.ledger.currencyCode ? ` (${printJob.ledger.currencyCode})` : ''}</span>
+            <span>{t('ledger_opening_balance')}: {ledgerFmt(printJob.ledger.openingBalance)}</span>
           </div>
           <table className="w-full text-sm print-table">
             <thead>
@@ -2213,18 +2204,19 @@ export default function Clinical({
                 <tr key={i}>
                   <td>{date(m.date)}</td>
                   <td>{m.details}</td>
-                  <td className="dc-money">{money(m.debit)}</td>
-                  <td className="dc-money">{money(m.credit)}</td>
-                  <td className="dc-money">{money(m.runningBalance)}</td>
+                  <td className="dc-money">{m.debit > 0 ? ledgerFmt(m.debit) : '—'}</td>
+                  <td className="dc-money">{m.credit > 0 ? ledgerFmt(m.credit) : '—'}</td>
+                  <td className="dc-money">{ledgerFmt(m.runningBalance)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div className="font-bold">
-            {t('ledger_closing_balance')}: {money(printJob.ledger.closingBalance)}
+            {t('ledger_closing_balance')}: {ledgerFmt(printJob.ledger.closingBalance)}
           </div>
         </div>
-      )}
+        );
+      })()}
     </>
   );
 }

@@ -6,6 +6,10 @@ import PrintHeader, { PrintButton } from '../components/PrintHeader';
 import ReportPeriodPicker from '../components/ReportPeriodPicker';
 import useReportPeriod from '../hooks/useReportPeriod';
 
+const SOURCE_LABEL_KEYS = {
+  FX_REVALUATION: 'source_fx_revaluation',
+};
+
 export default function JournalBook() {
   const { t } = useTranslation();
   const { money, date } = useSettings();
@@ -56,6 +60,7 @@ export default function JournalBook() {
             <thead>
               <tr>
                 <th>{t('ledger_col_date')}</th>
+                <th>{t('journal_book_col_type')}</th>
                 <th>{t('trial_balance_col_code')}</th>
                 <th>{t('trial_balance_col_name')}</th>
                 <th>{t('ledger_col_details')}</th>
@@ -65,8 +70,15 @@ export default function JournalBook() {
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={i}>
+                <tr key={i} className={r.sourceType === 'FX_REVALUATION' ? 'dc-journal-fx-row' : undefined}>
                   <td>{date(r.date)}</td>
+                  <td>
+                    {r.sourceType === 'FX_REVALUATION' ? (
+                      <span className="dc-badge dc-badge-amber">{t(SOURCE_LABEL_KEYS.FX_REVALUATION)}</span>
+                    ) : (
+                      t(SOURCE_LABEL_KEYS[r.sourceType] || r.sourceType || '—')
+                    )}
+                  </td>
                   <td>{r.accountCode}</td>
                   <td>{r.accountName}</td>
                   <td>{r.lineMemo || r.memo}</td>

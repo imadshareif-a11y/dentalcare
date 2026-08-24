@@ -620,9 +620,19 @@ form.space-y-3 > div:not([class]) > input[type="text"] {
   gap: 16px 24px;
 }
 
-.dc-voucher-head-row .dc-field-party {
+.dc-voucher-head-row .dc-field-party,
+.dc-voucher-head-row .dc-field-patient {
   flex: 1 1 var(--dc-w-party);
   max-width: 28rem;
+}
+
+.dc-voucher-head-row .dc-field-party.dc-doc-party-spacer,
+.dc-voucher-head-row .dc-field-party.dc-bank-op-field {
+  max-width: none;
+}
+
+.dc-bank-op-field .dc-doc-op-pills {
+  margin-top: 4px;
 }
 
 .dc-form-field > label {
@@ -1791,23 +1801,34 @@ form.space-y-3 > div:not([class]) > input[type="text"] {
   gap: 10px;
 }
 
-.dc-doc-workspace .dc-field-doc-number {
-  display: inline-flex;
+.dc-doc-number-row {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 8px 12px;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  max-width: max-content;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
-.dc-doc-workspace .dc-field-doc-number input {
-  width: 7.5rem;
+.dc-doc-number-label {
+  color: #64748b;
   font-weight: 700;
-  letter-spacing: 0.02em;
+}
+
+.dc-doc-number-value {
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #0f172a;
+  letter-spacing: 0.03em;
+}
+
+.dc-doc-number-sep {
+  color: #cbd5e1;
+}
+
+.dc-doc-number-hint {
+  color: #94a3b8;
 }
 
 .dc-doc-workspace .dc-doc-form {
@@ -1864,6 +1885,11 @@ form.space-y-3 > div:not([class]) > input[type="text"] {
   font-weight: 800;
   color: #0f172a;
   letter-spacing: -0.01em;
+}
+
+.dc-doc-form-hero-text {
+  min-width: 0;
+  flex: 1;
 }
 
 .dc-doc-form-subtitle {
@@ -2153,11 +2179,19 @@ form.space-y-3 > div:not([class]) > input[type="text"] {
   }
 }
 
-.dc-doc-browse-btn {
+.dc-doc-browse-group {
   position: absolute;
   inset-inline-end: 0;
   top: 0;
   z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  max-width: min(100%, 520px);
+}
+
+.dc-doc-browse-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2169,6 +2203,43 @@ form.space-y-3 > div:not([class]) > input[type="text"] {
   font-weight: 800;
   font-size: 13px;
   cursor: pointer;
+}
+
+.dc-doc-browse-btn.dc-doc-pending-btn {
+  border-color: #fcd34d;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.dc-doc-browse-btn.dc-doc-pending-btn:hover {
+  background: #fde68a;
+}
+
+.dc-doc-save-draft-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 800;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dc-doc-save-draft-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
+.dc-doc-save-draft-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.dc-doc-draft-banner {
+  margin-bottom: 8px;
 }
 
 .dc-doc-browse-btn:hover {
@@ -3495,6 +3566,14 @@ form.space-y-3 > div:not([class]) > input[type="text"] {
   background: #f0f9ff;
 }
 
+.dc-schedule-cell.is-past.is-blocked {
+  background: #f1f5f9;
+  border-style: dashed;
+  border-color: #cbd5e1;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
 .dc-schedule-cell.is-taken {
   cursor: pointer;
   background: #fff;
@@ -3663,9 +3742,61 @@ form.space-y-3 > div:not([class]) > input[type="text"] {
   width: 100%;
 }
 
-.dc-party-select-row .dc-search-select {
+.dc-party-select-row .dc-party-account-display {
   flex: 1;
   min-width: 0;
+}
+
+.dc-party-account-display {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 42px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.dc-party-account-display.is-compact {
+  min-height: 2rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+}
+
+.dc-party-account-display.is-empty .dc-party-account-display-text {
+  color: #94a3b8;
+}
+
+.dc-party-account-display:hover:not(:disabled) {
+  border-color: #0284c7;
+  background: #f8fafc;
+}
+
+.dc-party-account-display:focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: 1px;
+}
+
+.dc-party-account-display:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dc-party-account-display-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dc-party-clear-btn {
+  flex: 0 0 auto;
+  align-self: stretch;
+  min-width: 2rem;
 }
 
 .dc-party-picker-btn {
@@ -3795,7 +3926,7 @@ form.space-y-3 > div:not([class]) > input[type="text"] {
 }
 
 .dc-currency-daily-modal h3 {
-  margin: 0 0 6px;
+  margin: 0;
 }
 
 .dc-doctor-brief-modal {
@@ -3871,6 +4002,13 @@ form.space-y-3 > div:not([class]) > input[type="text"] {
 }
 
 .dc-slot.is-free:hover { border-color: #0284c7; background: #f0f9ff; }
+.dc-slot.is-past.is-taken {
+  border-style: dashed;
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
 .dc-slot.is-selected {
   background: #0284c7;
   border-color: #0284c7;
@@ -4509,6 +4647,10 @@ form.space-y-3 > div:not([class]) > input[type="text"] {
 .dc-format-card-icon.tone-sky { background: #e0f2fe; color: #0284c7; }
 .dc-format-card-icon.tone-emerald { background: #d1fae5; color: #059669; }
 .dc-format-card-icon.tone-amber { background: #fef3c7; color: #d97706; }
+
+.dc-journal-fx-row td {
+  background: color-mix(in srgb, #f59e0b 8%, #fff);
+}
 
 .dc-format-choice-row {
   display: grid;
@@ -5255,6 +5397,7 @@ tr.dc-check-row:hover {
   gap: 12px;
 }
 
+
 .dc-fav-tile {
   display: flex;
   flex-direction: column;
@@ -5293,6 +5436,45 @@ tr.dc-check-row:hover {
   font-weight: 700;
   color: #0f172a;
   text-align: center;
+}
+
+.dc-fav-tile.tone-receipt,
+.dc-fav-tile.tone-teal { --dc-doc-accent: #0d9488; }
+.dc-fav-tile.tone-payment,
+.dc-fav-tile.tone-rose { --dc-doc-accent: #e11d48; }
+.dc-fav-tile.tone-purchase,
+.dc-fav-tile.tone-amber { --dc-doc-accent: #d97706; }
+.dc-fav-tile.tone-credit,
+.dc-fav-tile.tone-violet { --dc-doc-accent: #7c3aed; }
+.dc-fav-tile.tone-debit { --dc-doc-accent: #2563eb; }
+.dc-fav-tile.tone-bank { --dc-doc-accent: #0369a1; }
+.dc-fav-tile.tone-journal,
+.dc-fav-tile.tone-slate { --dc-doc-accent: #475569; }
+.dc-fav-tile.tone-indigo { --dc-doc-accent: #6366f1; }
+.dc-fav-tile.tone-sky { --dc-doc-accent: #0284c7; }
+.dc-fav-tile.tone-emerald { --dc-doc-accent: #059669; }
+
+.dc-fav-tile[class*="tone-"] {
+  border-color: color-mix(in srgb, var(--dc-doc-accent) 28%, #e2e8f0);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dc-doc-accent) 10%, #fff) 0%,
+    #fff 72%
+  );
+}
+
+.dc-fav-tile[class*="tone-"]:hover {
+  border-color: color-mix(in srgb, var(--dc-doc-accent) 45%, #e2e8f0);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--dc-doc-accent) 16%, transparent);
+}
+
+.dc-fav-tile[class*="tone-"] .dc-fav-icon {
+  background: color-mix(in srgb, var(--dc-doc-accent) 16%, #fff);
+  color: var(--dc-doc-accent);
+}
+
+.dc-fav-tile[class*="tone-"] .dc-fav-label {
+  color: color-mix(in srgb, var(--dc-doc-accent) 72%, #0f172a);
 }
 
 .dc-favorites-empty {
@@ -5818,7 +6000,7 @@ tr.dc-check-row:hover {
   align-items: stretch;
 }
 
-.dc-voucher-account-cell .dc-search-select {
+.dc-voucher-account-cell .dc-party-account-display {
   flex: 1;
   min-width: 0;
 }
@@ -7181,6 +7363,100 @@ button.dc-admin-kpi.is-clickable:focus-visible {
   gap: 4px;
   font-weight: 700;
   color: #4338ca;
+}
+
+.dc-admin-currency-panel .dc-admin-panel-head {
+  align-items: flex-start;
+}
+
+.dc-admin-currency-hint {
+  margin: 4px 0 0;
+}
+
+.dc-admin-currency-confirm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid #86efac;
+  background: #ecfdf5;
+  color: #166534;
+  font-weight: 800;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dc-admin-currency-confirm-btn:hover {
+  background: #bbf7d0;
+}
+
+.dc-admin-currency-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.dc-admin-currency-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.dc-admin-currency-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+  display: grid;
+  gap: 6px;
+}
+
+.dc-admin-currency-card.is-base {
+  border-color: #86efac;
+  background: linear-gradient(180deg, #ecfdf5 0%, #f0fdf4 100%);
+}
+
+.dc-admin-currency-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dc-admin-currency-code {
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #0f172a;
+}
+
+.dc-admin-currency-name {
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.35;
+}
+
+.dc-admin-currency-symbol,
+.dc-admin-currency-symbol-inline {
+  font-size: 20px;
+  font-weight: 800;
+  color: #334155;
+}
+
+.dc-admin-currency-rate {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.dc-admin-currency-rate-num {
+  font-size: 22px;
+  font-weight: 900;
+  color: #0f766e;
+  font-variant-numeric: tabular-nums;
 }
 
 .dc-admin-cash-grid {

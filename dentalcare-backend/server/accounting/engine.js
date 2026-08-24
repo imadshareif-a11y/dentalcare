@@ -13,6 +13,10 @@
 const { withTenantClient } = require('../db/pool');
 const { assertEntryDateAllowed, ClosedFiscalYearError } = require('./fiscalYears');
 const { nextDocumentNumber } = require('../settings/numbering');
+const {
+  FX_SOURCE_TYPE,
+  reconcileAfterJournalEntry,
+} = require('./fxReconciliation');
 
 class UnbalancedEntryError extends Error {
   constructor(totalDebit, totalCredit) {
@@ -23,64 +27,7 @@ class UnbalancedEntryError extends Error {
   }
 }
 
-/**
- * يرحّل قيد محاسبي كامل (رأس + أسطر) بشكل ذري (atomic).
- *
- * @param {object} params
- * @param {string} params.tenantId
- * @param {string} params.userId - من رحّل القيد (للـ audit trail)
- * @param {string} params.sourceType - RECEIPT | PAYMENT | JOURNAL | OPENING | CLINICAL_SESSION
- * @param {string} [params.sourceRefId] - ربط اختياري بمصدر العملية
- * @param {string} [params.memo]
- * @param {Array<{accountId: string, debit?: number, credit?: number, lineMemo?: string}>} params.lines
- *
- * @returns {Promise<{journalEntryId: string}>}
- * @throws {UnbalancedEntryError} لو مجموع المدين لا يساوي مجموع الدائن
- */
-async function postJournalEntry({
-  tenantId,
-  userId,
-  sourceType,
-  sourceRefId,
-  memo,
-  lines,
-  idempotencyKey,
-  currencyId = null,
-  exchangeRate = 1,
-  entryDate = null,
-}) {
-  if (!tenantId) {
-    throw new Error('postJournalEntry requires tenantId');
-  }
-  if (!userId) {
-    throw new Error('postJournalEntry requires userId');
-  }
-
-  // --- حماية من التكرار: نفس idempotencyKey ما بيترحّل مرتين ---
-  // لو الواجهة أرسلت نفس الطلب مرتين (تأخر شبكة، ضغط مزدوج،
-  // ريفريش)، نرجّع نفس النتيجة الأولى بدون ما نكرر الترحيل.
-  if (idempotencyKey) {
-    const existing = await withTenantClient(tenantId, async (client) => {
-      const result = await client.query(
-        `SELECT ik.journal_entry_id, je.entry_number
-         FROM idempotency_keys ik
-         JOIN journal_entries je ON je.id = ik.journal_entry_id AND je.tenant_id = ik.tenant_id
-         WHERE ik.key = $1 AND ik.tenant_id = $2`,
-        [idempotencyKey, tenantId]
-      );
-      return result.rows[0] || null;
-    });
-    if (existing?.journal_entry_id) {
-      return {
-        journalEntryId: existing.journal_entry_id,
-        entryNumber: existing.entry_number || null,
-        deduplicated: true,
-      };
-    }
-  }
-
-  // --- الطبقة الأولى من الحماية: تحقق فوري بالتطبيق ---
-  // بيدّي رسالة خطأ واضحة وسريعة قبل ما نلمس قاعدة البيانات أصلاً.
+function validateJournalLines(lines) {
   if (!Array.isArray(lines) || lines.length < 2) {
     throw new Error('القيد يجب أن يحتوي على سطرين على الأقل');
   }
@@ -101,67 +48,155 @@ async function postJournalEntry({
     totalCredit += credit;
   }
 
-  // مقارنة بعد التقريب لتجنّب مشاكل الفاصلة العشرية (floating point)
   const diff = Math.round((totalDebit - totalCredit) * 100);
   if (diff !== 0) {
     throw new UnbalancedEntryError(totalDebit.toFixed(2), totalCredit.toFixed(2));
   }
+}
+
+/**
+ * يرحّل قيد محاسبي داخل transaction موجود (client).
+ */
+async function postJournalEntryWithClient(client, {
+  tenantId,
+  userId,
+  sourceType,
+  sourceRefId,
+  memo,
+  lines,
+  idempotencyKey,
+  currencyId = null,
+  exchangeRate = 1,
+  entryDate = null,
+  reconcileFx = true,
+}) {
+  validateJournalLines(lines);
 
   const rate = Number(exchangeRate) > 0 ? Number(exchangeRate) : 1;
+  const day = entryDate && /^\d{4}-\d{2}-\d{2}$/.test(String(entryDate).slice(0, 10))
+    ? String(entryDate).slice(0, 10)
+    : null;
 
-  // --- الطبقة الثانية من الحماية: transaction + RLS + trigger ---
-  // حتى لو في bug بالتحقق فوق (مثلاً عدّله AI بالمستقبل وكسره)،
-  // الـ trigger بقاعدة البيانات (شوف sql/trigger_balance_check.sql)
-  // رح يرفض أي قيد غير متوازن قبل ما ينترحل نهائيًا.
+  const entryNumber = await nextDocumentNumber(client, tenantId, sourceType);
+
+  const entryResult = await client.query(
+    `INSERT INTO journal_entries
+       (tenant_id, source_type, source_ref_id, memo, created_by, currency_id, exchange_rate, entry_date, entry_number)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::date, CURRENT_DATE), $9)
+     RETURNING id, entry_number`,
+    [tenantId, sourceType, sourceRefId || null, memo || null, userId, currencyId, rate, day, entryNumber]
+  );
+  const journalEntryId = entryResult.rows[0].id;
+  const assignedNumber = entryResult.rows[0].entry_number || entryNumber || null;
+
+  for (const line of lines) {
+    await client.query(
+      `INSERT INTO journal_entry_lines
+         (tenant_id, journal_entry_id, account_id, debit, credit, line_memo,
+          currency_id, exchange_rate, foreign_debit, foreign_credit)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        tenantId,
+        journalEntryId,
+        line.accountId,
+        line.debit || 0,
+        line.credit || 0,
+        line.lineMemo || null,
+        line.currencyId || null,
+        line.exchangeRate != null ? Number(line.exchangeRate) : 1,
+        line.foreignDebit || 0,
+        line.foreignCredit || 0,
+      ]
+    );
+  }
+
+  if (idempotencyKey) {
+    await client.query(
+      `INSERT INTO idempotency_keys (key, tenant_id, journal_entry_id) VALUES ($1, $2, $3)`,
+      [idempotencyKey, tenantId, journalEntryId]
+    );
+  }
+
+  let fxAdjustments = [];
+  if (reconcileFx && sourceType !== FX_SOURCE_TYPE) {
+    fxAdjustments = await reconcileAfterJournalEntry(client, {
+      tenantId,
+      userId,
+      journalEntryId,
+      lines,
+      sourceType,
+      entryDate: day,
+    });
+  }
+
+  return { journalEntryId, entryNumber: assignedNumber, fxAdjustments };
+}
+
+/**
+ * يرحّل قيد محاسبي كامل (رأس + أسطر) بشكل ذري (atomic).
+ */
+async function postJournalEntry({
+  tenantId,
+  userId,
+  sourceType,
+  sourceRefId,
+  memo,
+  lines,
+  idempotencyKey,
+  currencyId = null,
+  exchangeRate = 1,
+  entryDate = null,
+  reconcileFx = true,
+}) {
+  if (!tenantId) {
+    throw new Error('postJournalEntry requires tenantId');
+  }
+  if (!userId) {
+    throw new Error('postJournalEntry requires userId');
+  }
+
+  if (idempotencyKey) {
+    const existing = await withTenantClient(tenantId, async (client) => {
+      const result = await client.query(
+        `SELECT ik.journal_entry_id, je.entry_number
+         FROM idempotency_keys ik
+         JOIN journal_entries je ON je.id = ik.journal_entry_id AND je.tenant_id = ik.tenant_id
+         WHERE ik.key = $1 AND ik.tenant_id = $2`,
+        [idempotencyKey, tenantId]
+      );
+      return result.rows[0] || null;
+    });
+    if (existing?.journal_entry_id) {
+      return {
+        journalEntryId: existing.journal_entry_id,
+        entryNumber: existing.entry_number || null,
+        deduplicated: true,
+        fxAdjustments: [],
+      };
+    }
+  }
+
+  validateJournalLines(lines);
+
   const day = entryDate && /^\d{4}-\d{2}-\d{2}$/.test(String(entryDate).slice(0, 10))
     ? String(entryDate).slice(0, 10)
     : null;
 
   await assertEntryDateAllowed(tenantId, day || new Date().toISOString().slice(0, 10));
 
-  return withTenantClient(tenantId, async (client) => {
-    const entryNumber = await nextDocumentNumber(client, tenantId, sourceType);
-
-    const entryResult = await client.query(
-      `INSERT INTO journal_entries
-         (tenant_id, source_type, source_ref_id, memo, created_by, currency_id, exchange_rate, entry_date, entry_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::date, CURRENT_DATE), $9)
-       RETURNING id, entry_number`,
-      [tenantId, sourceType, sourceRefId || null, memo || null, userId, currencyId, rate, day, entryNumber]
-    );
-    const journalEntryId = entryResult.rows[0].id;
-    const assignedNumber = entryResult.rows[0].entry_number || entryNumber || null;
-
-    for (const line of lines) {
-      await client.query(
-        `INSERT INTO journal_entry_lines
-           (tenant_id, journal_entry_id, account_id, debit, credit, line_memo,
-            currency_id, exchange_rate, foreign_debit, foreign_credit)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [
-          tenantId,
-          journalEntryId,
-          line.accountId,
-          line.debit || 0,
-          line.credit || 0,
-          line.lineMemo || null,
-          line.currencyId || null,
-          line.exchangeRate != null ? Number(line.exchangeRate) : 1,
-          line.foreignDebit || 0,
-          line.foreignCredit || 0,
-        ]
-      );
-    }
-
-    if (idempotencyKey) {
-      await client.query(
-        `INSERT INTO idempotency_keys (key, tenant_id, journal_entry_id) VALUES ($1, $2, $3)`,
-        [idempotencyKey, tenantId, journalEntryId]
-      );
-    }
-
-    return { journalEntryId, entryNumber: assignedNumber };
-  });
+  return withTenantClient(tenantId, async (client) => postJournalEntryWithClient(client, {
+    tenantId,
+    userId,
+    sourceType,
+    sourceRefId,
+    memo,
+    lines,
+    idempotencyKey,
+    currencyId,
+    exchangeRate,
+    entryDate: day,
+    reconcileFx,
+  }));
 }
 
 /**
@@ -171,7 +206,8 @@ async function postJournalEntry({
 async function reverseJournalEntry({ tenantId, userId, originalEntryId, memo }) {
   return withTenantClient(tenantId, async (client) => {
     const linesResult = await client.query(
-      `SELECT account_id, debit, credit FROM journal_entry_lines
+      `SELECT account_id, debit, credit, foreign_debit, foreign_credit, currency_id, exchange_rate
+       FROM journal_entry_lines
        WHERE journal_entry_id = $1 AND tenant_id = $2`,
       [originalEntryId, tenantId]
     );
@@ -188,35 +224,33 @@ async function reverseJournalEntry({ tenantId, userId, originalEntryId, memo }) 
       : new Date().toISOString().slice(0, 10);
     await assertEntryDateAllowed(tenantId, originalDay, client);
 
-    // نعكس كل سطر: المدين يصير دائن والعكس
     const reversedLines = linesResult.rows.map((row) => ({
       accountId: row.account_id,
       debit: row.credit,
       credit: row.debit,
+      foreignDebit: Number(row.foreign_credit) || 0,
+      foreignCredit: Number(row.foreign_debit) || 0,
+      currencyId: row.currency_id || null,
+      exchangeRate: row.exchange_rate != null ? Number(row.exchange_rate) : 1,
     }));
 
-    const entryResult = await client.query(
-      `INSERT INTO journal_entries (tenant_id, source_type, source_ref_id, memo, created_by, entry_date)
-       VALUES ($1, 'REVERSAL', $2, $3, $4, $5::date)
-       RETURNING id`,
-      [tenantId, originalEntryId, memo || 'قيد عكسي لتصحيح', userId, originalDay]
-    );
-    const reversalId = entryResult.rows[0].id;
-
-    for (const line of reversedLines) {
-      await client.query(
-        `INSERT INTO journal_entry_lines (tenant_id, journal_entry_id, account_id, debit, credit)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [tenantId, reversalId, line.accountId, line.debit, line.credit]
-      );
-    }
+    const result = await postJournalEntryWithClient(client, {
+      tenantId,
+      userId,
+      sourceType: 'REVERSAL',
+      sourceRefId: originalEntryId,
+      memo: memo || 'قيد عكسي لتصحيح',
+      lines: reversedLines,
+      entryDate: originalDay,
+      reconcileFx: true,
+    });
 
     await client.query(
       `UPDATE journal_entries SET reversed_by = $1 WHERE id = $2 AND tenant_id = $3`,
-      [reversalId, originalEntryId, tenantId]
+      [result.journalEntryId, originalEntryId, tenantId]
     );
 
-    return { reversalEntryId: reversalId };
+    return { reversalEntryId: result.journalEntryId, fxAdjustments: result.fxAdjustments || [] };
   });
 }
 
@@ -240,6 +274,7 @@ async function getAccountBalance({ tenantId, accountId }) {
 
 module.exports = {
   postJournalEntry,
+  postJournalEntryWithClient,
   reverseJournalEntry,
   getAccountBalance,
   UnbalancedEntryError,

@@ -1,9 +1,12 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import LiveKpiValue from '../components/LiveKpiValue';
 import PartyModal from '../components/PartyModal';
+import CurrencyRatesSummary from '../components/CurrencyRatesSummary';
+import CurrencyDailyConfirm from '../components/CurrencyDailyConfirm';
 import {
   dashboardErrorMessage,
   relativeUpdated,
@@ -19,6 +22,7 @@ const SOURCE_LABEL_KEYS = {
   CREDIT_NOTE: 'nav_credit_note',
   DEBIT_NOTE: 'nav_debit_note',
   OPENING: 'admin_source_opening',
+  FX_REVALUATION: 'source_fx_revaluation',
 };
 
 const AUTH_EVENT_KEYS = {
@@ -60,9 +64,11 @@ function apptPhaseLabel(phase, t) {
 
 export default function AdminDashboard() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const { money, dateTime } = useSettings();
   const [activityFilter, setActivityFilter] = useState('all');
   const [kpiModal, setKpiModal] = useState(null);
+  const [showCurrencyConfirm, setShowCurrencyConfirm] = useState(false);
 
   const fetchDashboard = useCallback(async () => api.get('/admin/dashboard'), []);
   const {
@@ -87,6 +93,14 @@ export default function AdminDashboard() {
     const set = new Set((data?.activity || []).map((r) => r.sourceType).filter(Boolean));
     return ['all', ...set];
   }, [data?.activity]);
+
+  const canConfirmRates = useMemo(() => {
+    const level = (key) => user?.permissions?.[key] || 'none';
+    return level('accounts') !== 'none'
+      || level('receipts') === 'edit'
+      || level('payments') === 'edit'
+      || level('journal') === 'edit';
+  }, [user?.permissions]);
 
   if (loading && !data) {
     return <div className="dc-admin-dashboard">{t('ledger_loading')}</div>;
@@ -187,6 +201,14 @@ export default function AdminDashboard() {
           </div>
         </button>
       </div>
+
+      <CurrencyRatesSummary
+        currencies={data?.currencies}
+        baseCurrency={data?.baseCurrency}
+        confirmedAt={data?.currencyRatesConfirmedAt}
+        canConfirm={canConfirmRates}
+        onConfirmClick={() => setShowCurrencyConfirm(true)}
+      />
 
       <div className="dc-admin-main-grid">
         <section className="dc-admin-panel dc-live-panel">
@@ -523,6 +545,17 @@ export default function AdminDashboard() {
           </div>
         )}
       </PartyModal>
+
+      {showCurrencyConfirm && (
+        <CurrencyDailyConfirm
+          user={user}
+          onConfirmed={() => {
+            setShowCurrencyConfirm(false);
+            reload();
+          }}
+          onClose={() => setShowCurrencyConfirm(false)}
+        />
+      )}
     </div>
   );
 }

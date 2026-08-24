@@ -253,6 +253,13 @@ router.post(
           [req.user.tenantId]
         );
         confirmedAt = stamp.rows[0]?.currency_rates_confirmed_at || new Date().toISOString();
+
+        const { reconcileAllForeignAccounts } = require('../accounting/fxReconciliation');
+        await reconcileAllForeignAccounts(client, {
+          tenantId: req.user.tenantId,
+          userId: req.user.id,
+          memo: 'تسوية فروق بعد تحديث أسعار الصرف',
+        });
       });
       res.json({ success: true, confirmedAt });
     } catch (err) {

@@ -59,12 +59,16 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
                 c.code AS currency_code, c.symbol AS currency_symbol, c.is_base,
                 c.rate_to_base,
                 a.account_type,
-                COALESCE(SUM(l.debit), 0) AS total_debit,
-                COALESCE(SUM(l.credit), 0) AS total_credit
+                COALESCE(SUM(
+                  CASE WHEN c.is_base THEN l.debit ELSE l.foreign_debit END
+                ), 0) AS total_debit,
+                COALESCE(SUM(
+                  CASE WHEN c.is_base THEN l.credit ELSE l.foreign_credit END
+                ), 0) AS total_credit
          FROM cash_boxes cb
          JOIN chart_of_accounts a ON a.id = cb.account_id
          JOIN currencies c ON c.id = cb.currency_id
-         LEFT JOIN journal_entry_lines l ON l.account_id = cb.account_id
+         LEFT JOIN journal_entry_lines l ON l.account_id = cb.account_id AND l.tenant_id = cb.tenant_id
          WHERE cb.tenant_id = $1 AND cb.is_active = TRUE
          GROUP BY cb.id, cb.name, cb.box_kind, cb.currency_id,
                   c.code, c.symbol, c.is_base, c.rate_to_base, a.account_type
@@ -95,7 +99,7 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
          FROM (
            SELECT COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS balance
            FROM parties p
-           LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
+           LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id AND l.tenant_id = p.tenant_id
            WHERE p.tenant_id = $1 AND p.party_type = 'PATIENT'
            GROUP BY p.id
          ) sub`,
@@ -107,7 +111,7 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
          FROM (
            SELECT COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS balance
            FROM parties p
-           LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
+           LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id AND l.tenant_id = p.tenant_id
            WHERE p.tenant_id = $1 AND p.party_type = 'SUPPLIER'
            GROUP BY p.id
          ) sub`,
@@ -120,7 +124,7 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
            SELECT p.id,
                   COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS balance
            FROM parties p
-           LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
+           LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id AND l.tenant_id = p.tenant_id
            WHERE p.tenant_id = $1 AND p.party_type = 'PATIENT'
            GROUP BY p.id
            HAVING COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) > 0
@@ -132,7 +136,7 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
         `SELECT p.id, p.name, p.phone,
                 COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS balance
          FROM parties p
-         LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
+         LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id AND l.tenant_id = p.tenant_id
          WHERE p.tenant_id = $1 AND p.party_type = 'PATIENT'
          GROUP BY p.id, p.name, p.phone
          HAVING COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) > 0
@@ -145,7 +149,7 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
         `SELECT p.id, p.name, p.phone,
                 COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS balance
          FROM parties p
-         LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id
+         LEFT JOIN journal_entry_lines l ON l.account_id = p.account_id AND l.tenant_id = p.tenant_id
          WHERE p.tenant_id = $1 AND p.party_type = 'SUPPLIER'
          GROUP BY p.id, p.name, p.phone
          HAVING COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) > 0
@@ -224,6 +228,27 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
       const activeUsers = await fetchTenantActiveUsers(client, req.user.tenantId);
       const authEvents = await fetchTenantAuthEvents(client, req.user.tenantId, 30);
 
+      const currenciesResult = await client.query(
+        `SELECT id, code, name, name_en, name_he, symbol, rate_to_base, is_base, is_active
+         FROM currencies
+         WHERE tenant_id = $1 AND is_active = TRUE
+         ORDER BY is_base DESC, code ASC`,
+        [req.user.tenantId]
+      );
+
+      let currencyRatesConfirmedAt = null;
+      try {
+        const ratesStatus = await client.query(
+          `SELECT currency_rates_confirmed_at
+           FROM tenant_settings
+           WHERE tenant_id = $1`,
+          [req.user.tenantId]
+        );
+        currencyRatesConfirmedAt = ratesStatus.rows[0]?.currency_rates_confirmed_at || null;
+      } catch (ratesErr) {
+        if (ratesErr.code !== '42703') throw ratesErr;
+      }
+
       return {
         generatedAt: new Date().toISOString(),
         today,
@@ -270,6 +295,18 @@ router.get('/admin/dashboard', requireAuth, ADMIN_ACCESS, async (req, res) => {
         },
         activeUsers,
         authEvents,
+        currencyRatesConfirmedAt,
+        currencies: currenciesResult.rows.map((row) => ({
+          id: row.id,
+          code: row.code,
+          name: row.name,
+          nameEn: row.name_en,
+          nameHe: row.name_he,
+          symbol: row.symbol,
+          rateToBase: Number(row.rate_to_base) || 1,
+          isBase: Boolean(row.is_base),
+          isActive: row.is_active !== false,
+        })),
       };
     });
 

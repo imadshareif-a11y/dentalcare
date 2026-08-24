@@ -118,7 +118,7 @@ router.patch('/banks/:id', requireAuth, requirePermission('accounts', 'edit'), a
       }
 
       const fields = [];
-      const values = [req.params.id];
+      const values = [req.params.id, req.user.tenantId];
       const push = (col, val) => {
         values.push(val);
         fields.push(`${col} = $${values.length}`);
@@ -141,7 +141,7 @@ router.patch('/banks/:id', requireAuth, requirePermission('accounts', 'edit'), a
       if (req.body.isActive !== undefined) push('is_active', Boolean(req.body.isActive));
 
       if (fields.length) {
-        await client.query(`UPDATE banks SET ${fields.join(', ')} WHERE id = $1`, values);
+        await client.query(`UPDATE banks SET ${fields.join(', ')} WHERE id = $1 AND tenant_id = $2`, values);
       }
     });
     res.json({ success: true });
@@ -181,7 +181,7 @@ router.get('/bank-accounts', requireAuth, LIST_ACCESS, async (req, res) => {
                 c.code AS currency_code,
                 a.account_code
          FROM bank_accounts ba
-         LEFT JOIN banks b ON b.id = ba.bank_id
+         LEFT JOIN banks b ON b.id = ba.bank_id AND b.tenant_id = ba.tenant_id
          LEFT JOIN currencies c ON c.id = ba.currency_id
          JOIN chart_of_accounts a ON a.id = ba.chart_account_id
          WHERE ${where.join(' AND ')}
@@ -256,7 +256,7 @@ router.patch('/bank-accounts/:id', requireAuth, requirePermission('accounts', 'e
       }
 
       const fields = [];
-      const values = [req.params.id];
+      const values = [req.params.id, req.user.tenantId];
       const push = (col, val) => {
         values.push(val);
         fields.push(`${col} = $${values.length}`);
@@ -279,12 +279,12 @@ router.patch('/bank-accounts/:id', requireAuth, requirePermission('accounts', 'e
       if (req.body.isActive !== undefined) push('is_active', Boolean(req.body.isActive));
 
       if (fields.length) {
-        await client.query(`UPDATE bank_accounts SET ${fields.join(', ')} WHERE id = $1`, values);
+        await client.query(`UPDATE bank_accounts SET ${fields.join(', ')} WHERE id = $1 AND tenant_id = $2`, values);
       }
 
       const updated = await client.query(
-        `SELECT chart_account_id, name, name_en, name_he, is_active FROM bank_accounts WHERE id = $1`,
-        [req.params.id]
+        `SELECT chart_account_id, name, name_en, name_he, is_active FROM bank_accounts WHERE id = $1 AND tenant_id = $2`,
+        [req.params.id, req.user.tenantId]
       );
       const u = updated.rows[0];
       await client.query(
@@ -294,8 +294,8 @@ router.patch('/bank-accounts/:id', requireAuth, requirePermission('accounts', 'e
              account_name_en = COALESCE($3, account_name_en),
              account_name_he = COALESCE($4, account_name_he),
              is_active = $5
-         WHERE id = $1`,
-        [u.chart_account_id, u.name, u.name_en, u.name_he, u.is_active]
+         WHERE id = $1 AND tenant_id = $6`,
+        [u.chart_account_id, u.name, u.name_en, u.name_he, u.is_active, req.user.tenantId]
       );
     });
     res.json({ success: true });

@@ -1,16 +1,18 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import CheckFields from './CheckFields';
 import FormattedDateInput from './FormattedDateInput';
 import PartyAccountSelect from './PartyAccountSelect';
 import ClinicNumberInput from './ClinicNumberInput';
-import PartyVoucherInfo from './PartyVoucherInfo';
+import DocPartyDateRow from './DocPartyDateRow';
 import DocumentFormShell, { DocSection, DocToggle, DocTotalBar } from './DocumentFormShell';
 import { partyAccounts } from '../lib/partyAccounts';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useCashBoxes } from '../hooks/useCashBoxes';
 import { useSettings } from '../context/SettingsContext';
+import { useDocumentDraftBinding } from '../hooks/useDocumentDraftBinding';
+import { foreignToBase, roundMoney } from '../lib/currencyMath';
 
 function todayIso() {
   const d = new Date();
@@ -21,7 +23,7 @@ function emptyForeignPayment() {
   return { currencyId: '', cashAccountId: '', amount: '', key: newIdempotencyKey() };
 }
 
-export default function PaymentForm({ accounts, onPosted }) {
+export default function PaymentForm({ accounts, onPosted, draft, registerDraftHandlers }) {
   const { t } = useTranslation();
   const { money, currencySymbol } = useSettings();
   const { currencies, baseCurrency } = useCurrencies();
@@ -98,8 +100,14 @@ export default function PaymentForm({ accounts, onPosted }) {
     .reduce((sum, c) => sum + Number(c.amount), 0);
 
   const shekelCashNum = Number(shekelAmount) || 0;
-  const foreignTotal = foreignPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-  const checksTotal = checkList.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+  const foreignTotalBase = foreignPayments.reduce(
+    (sum, p) => sum + foreignToBase(p.amount, p.currencyId, currencies),
+    0
+  );
+  const checksTotalBase = checkList.reduce(
+    (sum, c) => sum + foreignToBase(c.amount, c.currencyId, currencies),
+    0
+  );
 
   function toggleCheckSelection(id) {
     setSelectedCheckIds((prev) => {
@@ -328,14 +336,69 @@ export default function PaymentForm({ accounts, onPosted }) {
     }
   }
 
-  const documentTotal = shekelCashNum + foreignTotal + checksTotal + (includeExistingChecks ? selectedTotal : 0);
+  const documentTotal = roundMoney(
+    shekelCashNum + foreignTotalBase + checksTotalBase + (includeExistingChecks ? selectedTotal : 0)
+  );
   const totalItems = [];
   if (shekelCashNum > 0) totalItems.push({ label: t('doc_total_cash'), value: money(shekelCashNum) });
-  if (foreignTotal > 0) totalItems.push({ label: t('doc_total_foreign'), value: money(foreignTotal) });
-  if (checksTotal > 0) totalItems.push({ label: t('doc_total_checks'), value: money(checksTotal) });
+  if (foreignTotalBase > 0) totalItems.push({ label: t('doc_total_foreign'), value: money(foreignTotalBase) });
+  if (checksTotalBase > 0) totalItems.push({ label: t('doc_total_checks'), value: money(checksTotalBase) });
   if (includeExistingChecks && selectedTotal > 0) {
     totalItems.push({ label: t('paid_by_existing_check'), value: money(selectedTotal) });
   }
+
+  const getPayload = useCallback(() => ({
+    payeeAccountId,
+    docDate,
+    shekelAmount,
+    includeForeign,
+    foreignPayments,
+    memo,
+    includeChecks,
+    checkList: checkList.map(({ imageFront, imageBack, ...rest }) => rest),
+    includeExistingChecks,
+    selectedCheckIds: [...selectedCheckIds],
+    searchText,
+    dueFrom,
+    dueTo,
+    idempotencyKey,
+  }), [
+    payeeAccountId, docDate, shekelAmount, includeForeign, foreignPayments, memo,
+    includeChecks, checkList, includeExistingChecks, selectedCheckIds,
+    searchText, dueFrom, dueTo, idempotencyKey,
+  ]);
+
+  const applyPayload = useCallback((p) => {
+    if (p.payeeAccountId != null) setPayeeAccountId(p.payeeAccountId);
+    if (p.docDate) setDocDate(p.docDate);
+    if (p.shekelAmount != null) setShekelAmount(String(p.shekelAmount));
+    if (typeof p.includeForeign === 'boolean') setIncludeForeign(p.includeForeign);
+    if (Array.isArray(p.foreignPayments)) setForeignPayments(p.foreignPayments);
+    if (p.memo != null) setMemo(p.memo);
+    if (typeof p.includeChecks === 'boolean') setIncludeChecks(p.includeChecks);
+    if (Array.isArray(p.checkList)) setCheckList(p.checkList);
+    if (typeof p.includeExistingChecks === 'boolean') setIncludeExistingChecks(p.includeExistingChecks);
+    if (Array.isArray(p.selectedCheckIds)) setSelectedCheckIds(new Set(p.selectedCheckIds));
+    if (p.searchText != null) setSearchText(p.searchText);
+    if (p.dueFrom != null) setDueFrom(p.dueFrom);
+    if (p.dueTo != null) setDueTo(p.dueTo);
+    if (p.idempotencyKey) setIdempotencyKey(p.idempotencyKey);
+  }, []);
+
+  const getSummary = useCallback(() => {
+    const party = payeeAccounts.find((a) => a.id === payeeAccountId);
+    const name = party?.account_name || '';
+    const amt = documentTotal > 0 ? money(documentTotal) : '';
+    return [name, amt, memo].filter(Boolean).join(' — ').slice(0, 500);
+  }, [payeeAccounts, payeeAccountId, documentTotal, memo, money]);
+
+  useDocumentDraftBinding({
+    registerDraftHandlers,
+    draft,
+    getPayload,
+    applyPayload,
+    getSummary,
+  });
 
   return (
     <DocumentFormShell
@@ -353,7 +416,11 @@ export default function PaymentForm({ accounts, onPosted }) {
       ) : null}
     >
       <DocSection title={t('doc_section_party')}>
-        <div className="dc-form-row dc-voucher-head-row">
+        <DocPartyDateRow
+          accountId={payeeAccountId}
+          docDate={docDate}
+          onDateChange={setDocDate}
+        >
           <PartyAccountSelect
             accountList={payeeAccounts}
             value={payeeAccountId}
@@ -362,12 +429,7 @@ export default function PaymentForm({ accounts, onPosted }) {
             required
             pickerScope="extended"
           />
-          <div className="dc-form-field dc-field-date dc-voucher-date-col dc-doc-party-meta">
-            <PartyVoucherInfo accountId={payeeAccountId} />
-            <label>{t('voucher_date')}</label>
-            <FormattedDateInput value={docDate} onChange={setDocDate} required />
-          </div>
-        </div>
+        </DocPartyDateRow>
       </DocSection>
 
       <DocSection title={t('doc_section_amount')}>

@@ -61,7 +61,7 @@ async function loadDocumentBundle(client, entryId, tenantId) {
             u.name AS created_by_name,
             c.code AS currency_code, c.symbol AS currency_symbol
      FROM journal_entries je
-     LEFT JOIN users u ON u.id = je.created_by
+     LEFT JOIN users u ON u.id = je.created_by AND u.tenant_id = je.tenant_id
      LEFT JOIN currencies c ON c.id = je.currency_id AND c.tenant_id = je.tenant_id
      WHERE je.id = $1 AND je.tenant_id = $2`,
     [entryId, tenantId]
@@ -159,7 +159,8 @@ router.post(
   requireAuth,
   requirePermission('journal', 'edit'),
   async (req, res) => {
-    const { lines, memo, idempotencyKey } = req.body;
+    const { lines, memo, idempotencyKey, date } = req.body;
+    const entryDate = date ? String(date).slice(0, 10) : null;
 
     if (!Array.isArray(lines) || lines.length < 2) {
       return res.status(400).json({ error: 'القيد يجب أن يحتوي على سطرين على الأقل' });
@@ -225,6 +226,7 @@ router.post(
         userId: req.user.userId,
         sourceType: 'JOURNAL',
         memo,
+        entryDate,
         idempotencyKey,
         currencyId: baseCurrencyId,
         exchangeRate: 1,
@@ -318,7 +320,7 @@ router.get('/journal-entries', requireAuth, DOC_VIEW, async (req, res) => {
                 ) AS party_names
          FROM journal_entries je
          LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id AND l.tenant_id = je.tenant_id
-         LEFT JOIN users u ON u.id = je.created_by
+         LEFT JOIN users u ON u.id = je.created_by AND u.tenant_id = je.tenant_id
          WHERE je.tenant_id = $1
            AND je.source_type = $2
            AND ($3::DATE IS NULL OR COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date) >= $3::DATE)

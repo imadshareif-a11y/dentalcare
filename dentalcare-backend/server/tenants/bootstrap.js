@@ -35,6 +35,7 @@ const BASE_ACCOUNTS = [
   ['5100', 'عمولات الأطباء', 'Doctor Commissions', 'עמלות רופאים', 'EXPENSE'],
   ['5200', 'المشتريات', 'Purchases', 'רכש', 'EXPENSE'],
   ['5300', 'الخصم المسموح به', 'Sales discounts allowed', 'הנחה מותרת', 'EXPENSE'],
+  ['5400', 'فروق العملات', 'FX Gains & Losses', 'הפרשי מט"ח', 'EXPENSE'],
 ];
 
 function slugifyClinicName(name) {
@@ -118,8 +119,12 @@ async function bootstrapClinic(client, {
     ]
   );
 
+  const { seedClinicFoundation, seedClinicExtras } = require('../settings/defaults');
+  await seedClinicFoundation(client, tenantId);
+
+  let fxAccountId = null;
   for (const [code, nameAr, nameEn, nameHe, type] of BASE_ACCOUNTS) {
-    await ensureChartAccount(client, tenantId, {
+    const accountId = await ensureChartAccount(client, tenantId, {
       accountCode: code,
       accountName: nameAr,
       accountNameAr: nameAr,
@@ -127,9 +132,16 @@ async function bootstrapClinic(client, {
       accountNameHe: nameHe,
       accountType: type,
     });
+    if (code === '5400') fxAccountId = accountId;
   }
 
-  const { seedClinicExtras } = require('../settings/defaults');
+  if (fxAccountId) {
+    await client.query(
+      `UPDATE tenant_settings SET fx_gain_loss_account_id = $2 WHERE tenant_id = $1`,
+      [tenantId, fxAccountId]
+    );
+  }
+
   await seedClinicExtras(client, tenantId);
 
   return { tenantId, slug: tenantResult.rows[0].slug };

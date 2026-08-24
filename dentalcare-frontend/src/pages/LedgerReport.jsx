@@ -13,12 +13,13 @@ import { api } from '../api/client';
 import PartyAccountSelect from '../components/PartyAccountSelect';
 import PrintHeader, { PrintButton } from '../components/PrintHeader';
 import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/format';
 import ReportPeriodPicker from '../components/ReportPeriodPicker';
 import useReportPeriod from '../hooks/useReportPeriod';
 
 export default function LedgerReport({ accounts }) {
   const { t } = useTranslation();
-  const { money, date } = useSettings();
+  const { money, date, settings } = useSettings();
   const { fromDate, toDate, preset, setFromDate, setToDate, setPreset } = useReportPeriod();
   const [accountId, setAccountId] = useState('');
   const [report, setReport] = useState(null);
@@ -73,15 +74,17 @@ export default function LedgerReport({ accounts }) {
 
       {error && <div className="text-rose-700 font-bold">{error}</div>}
 
-      {report && (
+      {report && (() => {
+        const fmt = (v) => formatMoney(v, settings, report.currencySymbol);
+        return (
         <div className="print-document">
           <PrintHeader
             title={t('nav_ledger')}
             subtitle={t('report_period_range', { from: date(fromDate), to: date(toDate) })}
           />
           <div className="flex justify-between font-bold border-b pb-2">
-            <span>{report.accountName}</span>
-            <span>{t('ledger_opening_balance')}: {money(report.openingBalance)}</span>
+            <span>{report.accountName}{report.currencyCode ? ` (${report.currencyCode})` : ''}</span>
+            <span>{t('ledger_opening_balance')}: {fmt(report.openingBalance)}</span>
           </div>
           <table className="w-full text-sm print-table">
             <thead>
@@ -94,18 +97,19 @@ export default function LedgerReport({ accounts }) {
                 <tr key={i}>
                   <td>{date(m.date)}</td>
                   <td>{m.details}</td>
-                  <td className="dc-money">{money(m.debit)}</td>
-                  <td className="dc-money">{money(m.credit)}</td>
-                  <td className="dc-money">{money(m.runningBalance)}</td>
+                  <td className="dc-money">{m.debit > 0 ? fmt(m.debit) : '—'}</td>
+                  <td className="dc-money">{m.credit > 0 ? fmt(m.credit) : '—'}</td>
+                  <td className="dc-money">{fmt(m.runningBalance)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div className="font-bold text-left">
-            {t('ledger_closing_balance')}: {money(report.closingBalance)}
+            {t('ledger_closing_balance')}: {fmt(report.closingBalance)}
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { resolveQuickActions } from '../lib/quickActions';
+import { hubTileToneForKey } from '../lib/documentTones';
 
 export default function Favorites({ permissions, quickActionIds, onAction }) {
   const { t } = useTranslation();
@@ -14,17 +15,20 @@ export default function Favorites({ permissions, quickActionIds, onAction }) {
         <div className="dc-favorites-empty">{t('favorites_empty')}</div>
       ) : (
         <div className="dc-favorites-grid">
-          {actions.map((action) => (
+          {actions.map((action) => {
+            const tone = hubTileToneForKey(action.tab || action.id);
+            return (
             <button
               key={action.id}
               type="button"
-              className="dc-fav-tile"
+              className={['dc-fav-tile', tone ? `tone-${tone}` : ''].filter(Boolean).join(' ')}
               onClick={() => onAction?.(action)}
             >
               <span className="dc-fav-icon"><i className={action.icon} /></span>
               <span className="dc-fav-label">{t(action.labelKey)}</span>
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

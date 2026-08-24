@@ -203,8 +203,8 @@ router.post(
           const parent = await loadAccount(client, req.user.tenantId, parentId);
           if (parent && !parent.is_group && !parent.has_movements) {
             await client.query(
-              `UPDATE chart_of_accounts SET is_group = TRUE WHERE id = $1`,
-              [parentId]
+              `UPDATE chart_of_accounts SET is_group = TRUE WHERE id = $1 AND tenant_id = $2`,
+              [parentId, req.user.tenantId]
             );
           }
         }

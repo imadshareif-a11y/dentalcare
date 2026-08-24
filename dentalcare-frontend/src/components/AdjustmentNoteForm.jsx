@@ -1,12 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import PartyAccountSelect from './PartyAccountSelect';
 import CurrencySelect from './CurrencySelect';
 import ClinicNumberInput from './ClinicNumberInput';
+import DocPartyDateRow from './DocPartyDateRow';
 import DocumentFormShell, { DocSection, DocTotalBar } from './DocumentFormShell';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useSettings } from '../context/SettingsContext';
+import { useDocumentDraftBinding } from '../hooks/useDocumentDraftBinding';
+
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 function isDiscountAccount(account) {
   if (['4200', '5300'].includes(account.account_code)) return true;
@@ -22,7 +29,7 @@ function discountAccountsForNote(accounts, isCredit) {
     || (isDiscountAccount(a) && a.account_type === 'REVENUE' && a.account_code !== '5300'));
 }
 
-export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
+export default function AdjustmentNoteForm({ type, accounts, onPosted, draft, registerDraftHandlers }) {
   const { t } = useTranslation();
   const { money } = useSettings();
   const { currencies, baseCurrency } = useCurrencies();
@@ -36,6 +43,7 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
     || discountAccounts[0];
 
   const [partyAccountId, setPartyAccountId] = useState('');
+  const [docDate, setDocDate] = useState(todayIso);
   const [discountAccountId, setDiscountAccountId] = useState('');
   const [currencyId, setCurrencyId] = useState('');
   const [amount, setAmount] = useState('');
@@ -51,6 +59,41 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
   useEffect(() => {
     setDiscountAccountId(defaultDiscount?.id || '');
   }, [defaultDiscount?.id, isCredit]);
+
+  const getPayload = useCallback(() => ({
+    partyAccountId,
+    docDate,
+    discountAccountId,
+    currencyId,
+    amount,
+    memo,
+    idempotencyKey,
+  }), [partyAccountId, docDate, discountAccountId, currencyId, amount, memo, idempotencyKey]);
+
+  const applyPayload = useCallback((p) => {
+    if (p.partyAccountId != null) setPartyAccountId(p.partyAccountId);
+    if (p.docDate) setDocDate(p.docDate);
+    if (p.discountAccountId != null) setDiscountAccountId(p.discountAccountId);
+    if (p.currencyId) setCurrencyId(p.currencyId);
+    if (p.amount != null) setAmount(String(p.amount));
+    if (p.memo != null) setMemo(p.memo);
+    if (p.idempotencyKey) setIdempotencyKey(p.idempotencyKey);
+  }, []);
+
+  const getSummary = useCallback(() => {
+    const party = accounts.find((a) => a.id === partyAccountId);
+    const name = party?.account_name || '';
+    const amt = Number(amount) > 0 ? money(Number(amount)) : '';
+    return [name, amt, memo].filter(Boolean).join(' — ').slice(0, 500);
+  }, [accounts, partyAccountId, amount, memo, money]);
+
+  useDocumentDraftBinding({
+    registerDraftHandlers,
+    draft,
+    getPayload,
+    applyPayload,
+    getSummary,
+  });
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -68,6 +111,10 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
       setError(t('amount_required'));
       return;
     }
+    if (!docDate) {
+      setError(t('voucher_date_required'));
+      return;
+    }
     setSubmitting(true);
     try {
       const result = await api.post(isCredit ? '/credit-notes' : '/debit-notes', {
@@ -75,10 +122,12 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
         discountAccountId,
         currencyId,
         amount: numericAmount,
+        date: docDate,
         memo: memo || undefined,
         idempotencyKey,
       });
       setPartyAccountId('');
+      setDocDate(todayIso());
       setCurrencyId(baseCurrency?.id || '');
       setAmount('');
       setMemo('');
@@ -112,13 +161,19 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
         title={t('doc_section_party')}
         hint={isCredit ? t('credit_note_hint') : t('debit_note_hint')}
       >
-        <PartyAccountSelect
-          accounts={accounts}
-          value={partyAccountId}
-          onChange={setPartyAccountId}
-          label={t('party_account')}
-          required
-        />
+        <DocPartyDateRow
+          accountId={partyAccountId}
+          docDate={docDate}
+          onDateChange={setDocDate}
+        >
+          <PartyAccountSelect
+            accounts={accounts}
+            value={partyAccountId}
+            onChange={setPartyAccountId}
+            label={t('party_account')}
+            required
+          />
+        </DocPartyDateRow>
         <div className="dc-form-field dc-field-select-md">
           <label>{isCredit ? t('note_discount_allowed') : t('note_discount_earned')}</label>
           <select value={discountAccountId} onChange={(e) => setDiscountAccountId(e.target.value)} required>
@@ -134,20 +189,18 @@ export default function AdjustmentNoteForm({ type, accounts, onPosted }) {
       </DocSection>
 
       <DocSection title={t('doc_section_amount')}>
-        <div className="dc-form-row">
-          <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
-          <div className="dc-doc-cash-hero dc-form-field dc-field-amount">
-            <label>{t('amount')}</label>
-            <ClinicNumberInput
-              showCurrency
-              currencySymbol={currencies.find((c) => c.id === currencyId)?.symbol || baseCurrency?.symbol}
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={setAmount}
-              required
-            />
-          </div>
+        <CurrencySelect value={currencyId} onChange={setCurrencyId} currencies={currencies} />
+        <div className="dc-doc-cash-hero dc-form-field dc-field-amount">
+          <label>{t('amount')}</label>
+          <ClinicNumberInput
+            showCurrency
+            currencySymbol={currencies.find((c) => c.id === currencyId)?.symbol || baseCurrency?.symbol}
+            min="0"
+            step="0.01"
+            value={amount}
+            onChange={setAmount}
+            required
+          />
         </div>
       </DocSection>
 

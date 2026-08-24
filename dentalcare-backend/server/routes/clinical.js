@@ -392,8 +392,8 @@ router.post(
             const done = await client.query(
               `UPDATE appointments
                SET status = 'DONE'
-               WHERE id = $1 AND patient_id = $2 AND status = 'SCHEDULED'`,
-              [linkAppointmentId, patientId]
+               WHERE id = $1 AND patient_id = $2 AND tenant_id = $3 AND status = 'SCHEDULED'`,
+              [linkAppointmentId, patientId, req.user.tenantId]
             );
             if (done.rowCount === 0) {
               throw Object.assign(
@@ -414,8 +414,8 @@ router.post(
       } else if (posted.journalEntryId) {
         sessionId = await withTenantClient(req.user.tenantId, async (client) => {
           const result = await client.query(
-            `SELECT id FROM clinical_sessions WHERE journal_entry_id = $1 LIMIT 1`,
-            [posted.journalEntryId]
+            `SELECT id FROM clinical_sessions WHERE journal_entry_id = $1 AND tenant_id = $2 LIMIT 1`,
+            [posted.journalEntryId, req.user.tenantId]
           );
           return result.rows[0]?.id || null;
         });
@@ -452,27 +452,27 @@ router.get(
           `SELECT s.id, to_char(s.created_at, 'YYYY-MM-DD') AS session_date, s.total,
                   s.notes, d.name AS doctor_name
            FROM clinical_sessions s
-           LEFT JOIN parties d ON d.id = s.doctor_id
-           WHERE s.patient_id = $1
+           LEFT JOIN parties d ON d.id = s.doctor_id AND d.tenant_id = s.tenant_id
+           WHERE s.patient_id = $1 AND s.tenant_id = $2
            ORDER BY s.created_at DESC`,
-          [req.params.patientId]
+          [req.params.patientId, req.user.tenantId]
         );
         const items = await client.query(
           `SELECT i.session_id, i.tooth, i.name, i.cost
            FROM clinical_session_items i
-           JOIN clinical_sessions s ON s.id = i.session_id
-           WHERE s.patient_id = $1
+           JOIN clinical_sessions s ON s.id = i.session_id AND s.tenant_id = i.tenant_id
+           WHERE s.patient_id = $1 AND s.tenant_id = $2
            ORDER BY i.name`,
-          [req.params.patientId]
+          [req.params.patientId, req.user.tenantId]
         );
         const images = await client.query(
           `SELECT img.id, img.session_id, img.kind, img.label, img.mime, img.sort_order,
                   img.ai_report, img.ai_analyzed_at, img.ai_model, img.created_at
            FROM clinical_session_images img
-           JOIN clinical_sessions s ON s.id = img.session_id
-           WHERE s.patient_id = $1
+           JOIN clinical_sessions s ON s.id = img.session_id AND s.tenant_id = img.tenant_id
+           WHERE s.patient_id = $1 AND s.tenant_id = $2
            ORDER BY img.sort_order ASC, img.created_at ASC`,
-          [req.params.patientId]
+          [req.params.patientId, req.user.tenantId]
         );
 
         const bySession = new Map();
@@ -541,8 +541,8 @@ router.post(
 
         const maxOrder = await client.query(
           `SELECT COALESCE(MAX(sort_order), -1) AS max_order
-           FROM clinical_session_images WHERE session_id = $1`,
-          [req.params.sessionId]
+           FROM clinical_session_images WHERE session_id = $1 AND tenant_id = $2`,
+          [req.params.sessionId, req.user.tenantId]
         );
         let aiReports = [];
         try {
@@ -601,8 +601,8 @@ router.get(
       const file = await withTenantClient(req.user.tenantId, async (client) => {
         const result = await client.query(
           `SELECT mime, bytes FROM clinical_session_images
-           WHERE id = $1 AND session_id = $2`,
-          [req.params.imageId, req.params.sessionId]
+           WHERE id = $1 AND session_id = $2 AND tenant_id = $3`,
+          [req.params.imageId, req.params.sessionId, req.user.tenantId]
         );
         return result.rows[0] || null;
       });
@@ -626,9 +626,9 @@ router.delete(
       const deleted = await withTenantClient(req.user.tenantId, async (client) => {
         const result = await client.query(
           `DELETE FROM clinical_session_images
-           WHERE id = $1 AND session_id = $2
+           WHERE id = $1 AND session_id = $2 AND tenant_id = $3
            RETURNING id`,
-          [req.params.imageId, req.params.sessionId]
+          [req.params.imageId, req.params.sessionId, req.user.tenantId]
         );
         return result.rowCount > 0;
       });
@@ -651,8 +651,8 @@ router.post(
       const image = await withTenantClient(req.user.tenantId, async (client) => {
         const result = await client.query(
           `SELECT id, mime, bytes FROM clinical_session_images
-           WHERE id = $1 AND session_id = $2`,
-          [req.params.imageId, req.params.sessionId]
+           WHERE id = $1 AND session_id = $2 AND tenant_id = $3`,
+          [req.params.imageId, req.params.sessionId, req.user.tenantId]
         );
         return result.rows[0] || null;
       });
@@ -671,9 +671,9 @@ router.post(
         const result = await client.query(
           `UPDATE clinical_session_images
            SET ai_report = $3, ai_analyzed_at = now(), ai_model = $4
-           WHERE id = $1 AND session_id = $2
+           WHERE id = $1 AND session_id = $2 AND tenant_id = $5
            RETURNING id, kind, label, mime, sort_order, ai_report, ai_analyzed_at, ai_model, created_at`,
-          [req.params.imageId, req.params.sessionId, report, model]
+          [req.params.imageId, req.params.sessionId, report, model, req.user.tenantId]
         );
         return result.rows[0] || null;
       });

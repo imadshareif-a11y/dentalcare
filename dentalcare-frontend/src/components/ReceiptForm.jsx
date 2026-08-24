@@ -1,15 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import CheckFields from './CheckFields';
 import FormattedDateInput from './FormattedDateInput';
 import PartyAccountSelect from './PartyAccountSelect';
 import ClinicNumberInput from './ClinicNumberInput';
-import PartyVoucherInfo from './PartyVoucherInfo';
+import DocPartyDateRow from './DocPartyDateRow';
 import DocumentFormShell, { DocSection, DocToggle, DocTotalBar } from './DocumentFormShell';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useCashBoxes } from '../hooks/useCashBoxes';
 import { useSettings } from '../context/SettingsContext';
+import { useDocumentDraftBinding } from '../hooks/useDocumentDraftBinding';
+import { foreignToBase, roundMoney } from '../lib/currencyMath';
 
 function todayIso() {
   const d = new Date();
@@ -20,7 +22,7 @@ function emptyForeignPayment() {
   return { currencyId: '', cashAccountId: '', amount: '', key: newIdempotencyKey() };
 }
 
-export default function ReceiptForm({ accounts, onPosted }) {
+export default function ReceiptForm({ accounts, onPosted, draft, registerDraftHandlers }) {
   const { t } = useTranslation();
   const { settings, money, currencySymbol } = useSettings();
   const { currencies, baseCurrency } = useCurrencies();
@@ -87,10 +89,60 @@ export default function ReceiptForm({ accounts, onPosted }) {
   }
 
   const shekelCashNum = Number(shekelAmount) || 0;
-  const foreignTotal = foreignPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-  const checksTotal = checkList.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
-  const documentTotal = shekelCashNum + foreignTotal + checksTotal;
+  const foreignTotalBase = foreignPayments.reduce(
+    (sum, p) => sum + foreignToBase(p.amount, p.currencyId, currencies),
+    0
+  );
+  const checksTotalBase = checkList.reduce(
+    (sum, c) => sum + foreignToBase(c.amount, c.currencyId, currencies),
+    0
+  );
+  const documentTotal = roundMoney(shekelCashNum + foreignTotalBase + checksTotalBase);
   const showTotals = documentTotal > 0;
+
+  const getPayload = useCallback(() => ({
+    patientAccountId,
+    docDate,
+    shekelAmount,
+    includeForeign,
+    foreignPayments,
+    memo,
+    includeChecks,
+    checkList: checkList.map(({ imageFront, imageBack, ...rest }) => rest),
+    idempotencyKey,
+    sendWaConfirm,
+  }), [
+    patientAccountId, docDate, shekelAmount, includeForeign, foreignPayments,
+    memo, includeChecks, checkList, idempotencyKey, sendWaConfirm,
+  ]);
+
+  const applyPayload = useCallback((p) => {
+    if (p.patientAccountId != null) setPatientAccountId(p.patientAccountId);
+    if (p.docDate) setDocDate(p.docDate);
+    if (p.shekelAmount != null) setShekelAmount(String(p.shekelAmount));
+    if (typeof p.includeForeign === 'boolean') setIncludeForeign(p.includeForeign);
+    if (Array.isArray(p.foreignPayments)) setForeignPayments(p.foreignPayments);
+    if (p.memo != null) setMemo(p.memo);
+    if (typeof p.includeChecks === 'boolean') setIncludeChecks(p.includeChecks);
+    if (Array.isArray(p.checkList)) setCheckList(p.checkList);
+    if (p.idempotencyKey) setIdempotencyKey(p.idempotencyKey);
+    if (typeof p.sendWaConfirm === 'boolean') setSendWaConfirm(p.sendWaConfirm);
+  }, []);
+
+  const getSummary = useCallback(() => {
+    const party = accounts.find((a) => a.id === patientAccountId);
+    const name = party?.account_name || '';
+    const amt = documentTotal > 0 ? money(documentTotal) : '';
+    return [name, amt, memo].filter(Boolean).join(' — ').slice(0, 500);
+  }, [accounts, patientAccountId, documentTotal, memo, money]);
+
+  useDocumentDraftBinding({
+    registerDraftHandlers,
+    draft,
+    getPayload,
+    applyPayload,
+    getSummary,
+  });
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -194,7 +246,7 @@ export default function ReceiptForm({ accounts, onPosted }) {
           await api.post('/whatsapp/send', {
             kind: 'payment',
             patientAccountId,
-            amount: shekelCashNum + foreignTotal + checksTotal,
+            amount: documentTotal,
             entryDate: docDate,
             skipDedupe: true,
           });
@@ -213,8 +265,13 @@ export default function ReceiptForm({ accounts, onPosted }) {
 
   const totalItems = [];
   if (shekelCashNum > 0) totalItems.push({ label: t('doc_total_cash'), value: money(shekelCashNum) });
-  if (foreignTotal > 0) totalItems.push({ label: t('doc_total_foreign'), value: money(foreignTotal) });
-  if (checksTotal > 0) totalItems.push({ label: t('doc_total_checks'), value: money(checksTotal) });
+  if (foreignTotalBase > 0) {
+    totalItems.push({
+      label: t('doc_total_foreign'),
+      value: money(foreignTotalBase),
+    });
+  }
+  if (checksTotalBase > 0) totalItems.push({ label: t('doc_total_checks'), value: money(checksTotalBase) });
 
   return (
     <DocumentFormShell
@@ -249,7 +306,11 @@ export default function ReceiptForm({ accounts, onPosted }) {
       )}
     >
       <DocSection title={t('doc_section_party')}>
-        <div className="dc-form-row dc-voucher-head-row">
+        <DocPartyDateRow
+          accountId={patientAccountId}
+          docDate={docDate}
+          onDateChange={setDocDate}
+        >
           <PartyAccountSelect
             accounts={accounts}
             value={patientAccountId}
@@ -257,12 +318,7 @@ export default function ReceiptForm({ accounts, onPosted }) {
             label={t('party_account')}
             required
           />
-          <div className="dc-form-field dc-field-date dc-voucher-date-col dc-doc-party-meta">
-            <PartyVoucherInfo accountId={patientAccountId} />
-            <label>{t('voucher_date')}</label>
-            <FormattedDateInput value={docDate} onChange={setDocDate} required />
-          </div>
-        </div>
+        </DocPartyDateRow>
       </DocSection>
 
       <DocSection title={t('doc_section_amount')}>

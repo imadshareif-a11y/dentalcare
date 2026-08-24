@@ -9,11 +9,18 @@ import { useTranslation } from 'react-i18next';
 import { api, ApiError, newIdempotencyKey } from '../api/client';
 import ClinicNumberInput from './ClinicNumberInput';
 import PartyAccountSelect from './PartyAccountSelect';
+import DocPartyDateRow from './DocPartyDateRow';
 import DocumentFormShell, { DocSection, DocTotalBar } from './DocumentFormShell';
 import { useCurrencies } from '../hooks/useCurrencies';
 import { useCashBoxes } from '../hooks/useCashBoxes';
 import { useSettings } from '../context/SettingsContext';
 import { accountOptionLabel, accountSearchText } from '../lib/partyAccounts';
+import { useDocumentDraftBinding } from '../hooks/useDocumentDraftBinding';
+
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 function roundMoney(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -62,13 +69,14 @@ function currencyMetaFromId(currencyId, currencies, baseCurrency) {
   };
 }
 
-export default function VoucherForm({ accounts, onPosted }) {
+export default function VoucherForm({ accounts, onPosted, draft, registerDraftHandlers }) {
   const { t } = useTranslation();
   const { money } = useSettings();
   const { currencies, baseCurrency } = useCurrencies();
   const { boxes: cashBoxes } = useCashBoxes();
   const [bankAccounts, setBankAccounts] = useState([]);
   const [lines, setLines] = useState([emptyLine(null)]);
+  const [docDate, setDocDate] = useState(todayIso);
   const [memo, setMemo] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -204,12 +212,46 @@ export default function VoucherForm({ accounts, onPosted }) {
     lineAccountRefs.current.splice(index, 1);
   }
 
+  const getPayload = useCallback(() => ({
+    lines,
+    docDate,
+    memo,
+    idempotencyKey,
+  }), [lines, docDate, memo, idempotencyKey]);
+
+  const applyPayload = useCallback((p) => {
+    if (Array.isArray(p.lines) && p.lines.length > 0) {
+      setLines(p.lines);
+      lineAccountRefs.current = [];
+    }
+    if (p.docDate) setDocDate(p.docDate);
+    if (p.memo != null) setMemo(p.memo);
+    if (p.idempotencyKey) setIdempotencyKey(p.idempotencyKey);
+  }, []);
+
+  const getSummary = useCallback(() => {
+    const amt = totalBaseDebit > 0 ? money(totalBaseDebit) : '';
+    return [memo, amt].filter(Boolean).join(' — ').slice(0, 500);
+  }, [memo, totalBaseDebit, money]);
+
+  useDocumentDraftBinding({
+    registerDraftHandlers,
+    draft,
+    getPayload,
+    applyPayload,
+    getSummary,
+  });
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
 
     if (!isBalanced) {
       setError(t('voucher_unbalanced_base', { diff: Math.abs(diff), symbol: baseSymbol }));
+      return;
+    }
+    if (!docDate) {
+      setError(t('voucher_date_required'));
       return;
     }
 
@@ -233,12 +275,14 @@ export default function VoucherForm({ accounts, onPosted }) {
     try {
       const result = await api.post('/journal-entries', {
         memo,
+        date: docDate,
         idempotencyKey,
         lines: payloadLines,
       });
 
       setLines([emptyLine(baseCurrency)]);
       lineAccountRefs.current = [];
+      setDocDate(todayIso());
       setMemo('');
       setIdempotencyKey(newIdempotencyKey());
       onPosted?.(result);
@@ -276,6 +320,16 @@ export default function VoucherForm({ accounts, onPosted }) {
         />
       )}
     >
+      <DocSection title={t('doc_section_party')}>
+        <DocPartyDateRow
+          docDate={docDate}
+          onDateChange={setDocDate}
+          showPartyInfo={false}
+        >
+          <div className="dc-form-field dc-field-party dc-doc-party-spacer" aria-hidden="true" />
+        </DocPartyDateRow>
+      </DocSection>
+
       <DocSection title={t('doc_section_lines')} hint={t('voucher_line_nav_hint')}>
         <p className="dc-muted text-sm">{t('voucher_multi_currency_hint')}</p>
 

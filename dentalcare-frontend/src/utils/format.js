@@ -31,7 +31,7 @@ export function resolveCurrencySymbol(settings) {
   return '₪';
 }
 
-export function formatMoney(value, settings) {
+export function formatMoney(value, settings, symbolOverride) {
   const n = Number(toWesternDigits(value));
   const amount = Number.isFinite(n) ? n : 0;
   const places = Number(settings?.decimalPlaces ?? 2);
@@ -43,7 +43,7 @@ export function formatMoney(value, settings) {
     ? `${grouped}${settings?.decimalSeparator || '.'}${decPart}`
     : grouped;
   const withDigits = applyNumberDigits(formatted, settings);
-  const symbol = resolveCurrencySymbol(settings);
+  const symbol = String(symbolOverride || '').trim() || resolveCurrencySymbol(settings);
   return `${withDigits} ${symbol}`;
 }
 

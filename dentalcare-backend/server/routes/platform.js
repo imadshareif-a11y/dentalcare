@@ -87,7 +87,7 @@ router.post('/platform/tenants', async (req, res) => {
     if (err.code === '23505') {
       return res.status(409).json({ error: 'اسم المستخدم هذا مستخدم مسبقًا على المنصة' });
     }
-    if (err.message && (err.message.includes('تفعيل') || err.message.includes('تاريخ'))) {
+    if (err.statusCode === 400 || (err.message && (err.message.includes('تفعيل') || err.message.includes('تاريخ')))) {
       return res.status(400).json({ error: err.message });
     }
     console.error('Creating tenant failed:', err);
