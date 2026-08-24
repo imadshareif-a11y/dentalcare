@@ -242,6 +242,7 @@ router.post('/platform/tenants/:id/support-access', async (req, res) => {
         token,
         user: {
           id: supportUser.id,
+          tenantId: tenant.id,
           name: supportUser.name,
           username: supportUser.username,
           role: 'OWNER',

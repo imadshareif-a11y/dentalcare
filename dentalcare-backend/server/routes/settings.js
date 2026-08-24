@@ -94,6 +94,10 @@ router.get('/settings', requireAuth, requireClinicContext, async (req, res) => {
   try {
     await ensureTenantSettingsSchema();
     const data = await withTenantClient(req.user.tenantId, async (client) => {
+      await client.query(
+        `INSERT INTO tenant_settings (tenant_id) VALUES ($1) ON CONFLICT (tenant_id) DO NOTHING`,
+        [req.user.tenantId]
+      );
       const result = await client.query(SETTINGS_SELECT, [req.user.tenantId]);
       const base = await client.query(
         `SELECT id, code, symbol FROM currencies WHERE tenant_id = $1 AND is_base = TRUE LIMIT 1`,
@@ -118,7 +122,11 @@ router.get('/settings', requireAuth, requireClinicContext, async (req, res) => {
     });
   } catch (err) {
     console.error('Loading settings failed:', err);
-    res.status(500).json({ error: 'تعذّر جلب الإعدادات' });
+    res.status(500).json({
+      error: 'تعذّر جلب الإعدادات',
+      detail: err.message || null,
+      code: err.code || null,
+    });
   }
 });
 

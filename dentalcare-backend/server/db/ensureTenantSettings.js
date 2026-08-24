@@ -1,10 +1,11 @@
 // db/ensureTenantSettings.js — يضمن كل أعمدة tenant_settings (تُشغَّل عند كل إقلاع — آمنة)
+// ملاحظة: لا نلمس سياسات RLS هنا — ensureTenantIsolation هو المسؤول عنها
+// (إعادة إنشاء السياسة هنا كانت تمسح app.bypass_rls وتكسر الإعدادات).
 
 const { pool } = require('./pool');
 
 let ensured = false;
 
-/** كل الأعمدة التي يقرأها SETTINGS_SELECT / SETTINGS_RETURNING */
 const ENSURE_TENANT_SETTINGS_SQL = `
 ALTER TABLE tenant_settings
   ADD COLUMN IF NOT EXISTS patients_prefix VARCHAR(10) NOT NULL DEFAULT 'C',
@@ -63,11 +64,6 @@ ALTER TABLE tenant_settings
   ADD COLUMN IF NOT EXISTS number_digits VARCHAR(16) NOT NULL DEFAULT 'western',
   ADD COLUMN IF NOT EXISTS time_format VARCHAR(8) NOT NULL DEFAULT '12h',
   ADD COLUMN IF NOT EXISTS letterhead_layout JSONB NOT NULL DEFAULT '{}'::jsonb;
-
-DROP POLICY IF EXISTS tenant_isolation_settings ON tenant_settings;
-CREATE POLICY tenant_isolation_settings ON tenant_settings
-  USING (tenant_id = current_setting('app.current_tenant')::UUID)
-  WITH CHECK (tenant_id = current_setting('app.current_tenant')::UUID);
 `;
 
 async function ensureTenantSettingsSchema() {
