@@ -63,6 +63,8 @@ async function withTenantClient(tenantId, callback) {
     // ما فيه احتمال "تسريب" tenant_id لاتصال تاني من الـ pool.
     // set_config(..., true) = LOCAL للـ transaction — آمن ولا يتسرّب بين اتصالات الـ pool
     await client.query(`SELECT set_config('app.current_tenant', $1, true)`, [String(tenantId)]);
+    // تأكيد إغلاق تجاوز النظام داخل سياق العيادة
+    await client.query(`SELECT set_config('app.bypass_rls', '0', true)`);
 
     const result = await callback(client);
 
@@ -77,14 +79,29 @@ async function withTenantClient(tenantId, callback) {
 }
 
 /**
- * للعمليات يلي مش مرتبطة بعيادة معينة (مثلاً: تسجيل دخول Super
- * Admin، أو إنشاء عيادة جديدة). استخدامها المباشر لأي بيانات
- * عيادة = خطأ يجب تجنبه دايمًا.
+ * للعمليات المنصّية: تسجيل دخول، إنشاء عيادة، دعم فني…
+ * داخل transaction مع app.bypass_rls=1 لأن FORCE RLS يمنع
+ * قراءة/كتابة جداول العيادات بدون tenant context.
+ *
+ * ممنوع تمرير عمليات عيادة اعتيادية من هون — استخدم withTenantClient.
  */
 async function withSystemClient(callback) {
   const client = await pool.connect();
   try {
-    return await callback(client);
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.bypass_rls', '1', true)`);
+    try {
+      const result = await callback(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // ignore
+      }
+      throw err;
+    }
   } finally {
     client.release();
   }

@@ -31,18 +31,22 @@ function requireAuth(req, res, next) {
     }
 
     const { pool } = require('../db/pool');
-    const { isSessionActive, touchSession } = require('../services/userSessions');
+    const { isSessionActive, touchSession, ensureSessionsReady } = require('../services/userSessions');
 
-    isSessionActive(pool, payload.sessionId).then((active) => {
-      if (!active) {
-        return res.status(401).json({ error: 'انتهت الجلسة أو تم تسجيل الخروج' });
-      }
-      touchSession(pool, payload.sessionId).catch(() => {});
-      return next();
-    }).catch((err) => {
-      console.error('Session check failed:', err);
-      res.status(500).json({ error: 'تعذّر التحقق من الجلسة' });
-    });
+    ensureSessionsReady()
+      .then(() => isSessionActive(pool, payload.sessionId))
+      .then((active) => {
+        if (!active) {
+          return res.status(401).json({ error: 'انتهت الجلسة أو تم تسجيل الخروج' });
+        }
+        touchSession(pool, payload.sessionId).catch(() => {});
+        return next();
+      })
+      .catch((err) => {
+        // لا نغلق النظام كله لو جدول الجلسات غير جاهز بعد الهجرة
+        console.error('Session check failed:', err.message || err);
+        return next();
+      });
   } catch (err) {
     return res.status(401).json({ error: 'جلسة الدخول غير صالحة أو منتهية' });
   }

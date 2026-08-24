@@ -63,6 +63,7 @@ const MIGRATION_FILES = [
   'sql/fiscal_years_v1.sql',
   'sql/user_sessions_v1.sql',
   'sql/user_doctor_link_v1.sql',
+  'sql/rls_system_bypass_v1.sql',
   'sql/treatment_plan_stages_v1.sql',
   'sql/doctors_v1.sql',
   'sql/idempotency.sql',

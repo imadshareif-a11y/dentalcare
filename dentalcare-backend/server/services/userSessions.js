@@ -111,7 +111,12 @@ async function endSession(client, { sessionId, userId, tenantId, req }) {
   });
 }
 
+async function ensureSessionsReady() {
+  await ensureUserSessionsSchema();
+}
+
 async function isSessionActive(client, sessionId) {
+  await ensureUserSessionsSchema();
   const result = await client.query(
     `SELECT id FROM user_sessions
      WHERE id = $1 AND revoked_at IS NULL AND expires_at > now()`,
@@ -300,6 +305,7 @@ module.exports = {
   startLoginSession,
   recordFailedLogin,
   endSession,
+  ensureSessionsReady,
   isSessionActive,
   touchSession,
   fetchTenantActiveUsers,

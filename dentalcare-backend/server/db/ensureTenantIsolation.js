@@ -1,49 +1,83 @@
-// db/ensureTenantIsolation.js — يفرض FORCE RLS على كل جداول العيادات عند الإقلاع
+// db/ensureTenantIsolation.js — FORCE RLS + سياسات تسمح بتجاوز النظام الآمن
 
 const { pool } = require('./pool');
 
 let ensured = false;
 
-const ENSURE_TENANT_ISOLATION_SQL = `
-ALTER TABLE IF EXISTS users FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS parties FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS chart_of_accounts FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS journal_entries FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS journal_entry_lines FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS checks FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS tenant_settings FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS treatment_catalog FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS clinical_sessions FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS clinical_session_items FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS appointments FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS doctors FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS currencies FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS tooth_conditions FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS tooth_chart_entries FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS treatment_plans FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS treatment_plan_items FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS whatsapp_messages FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS cash_boxes FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS clinical_session_images FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS checkbooks FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS fiscal_years FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS banks FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS bank_accounts FORCE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS rooms FORCE ROW LEVEL SECURITY;
+/** تجاوز نظامي أو تطابق tenant الحالي (بدون رمي خطأ إذا الإعداد غير مضبوط) */
+const TENANT_MATCH = `(
+  current_setting('app.bypass_rls', true) = '1'
+  OR (
+    NULLIF(current_setting('app.current_tenant', true), '') IS NOT NULL
+    AND tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid
+  )
+)`;
 
-ALTER TABLE IF EXISTS idempotency_keys ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS idempotency_keys FORCE ROW LEVEL SECURITY;
+const LINE_MATCH = `(
+  current_setting('app.bypass_rls', true) = '1'
+  OR journal_entry_id IN (
+    SELECT id FROM journal_entries
+    WHERE NULLIF(current_setting('app.current_tenant', true), '') IS NOT NULL
+      AND tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid
+  )
+)`;
 
-DROP POLICY IF EXISTS tenant_isolation_idempotency ON idempotency_keys;
-CREATE POLICY tenant_isolation_idempotency ON idempotency_keys
-  USING (tenant_id = current_setting('app.current_tenant')::UUID)
-  WITH CHECK (tenant_id = current_setting('app.current_tenant')::UUID);
-`;
+const TABLES = [
+  ['users', 'tenant_isolation_users'],
+  ['parties', 'tenant_isolation_parties'],
+  ['chart_of_accounts', 'tenant_isolation_accounts'],
+  ['journal_entries', 'tenant_isolation_journal'],
+  ['journal_entry_lines', 'tenant_isolation_lines', LINE_MATCH],
+  ['checks', 'tenant_isolation_checks'],
+  ['tenant_settings', 'tenant_isolation_settings'],
+  ['treatment_catalog', 'tenant_isolation_treatments'],
+  ['clinical_sessions', 'tenant_isolation_sessions'],
+  ['clinical_session_items', 'tenant_isolation_session_items'],
+  ['appointments', 'tenant_isolation_appointments'],
+  ['doctors', 'tenant_isolation_doctors'],
+  ['currencies', 'tenant_isolation_currencies'],
+  ['tooth_conditions', 'tenant_isolation_tooth_conditions'],
+  ['tooth_chart_entries', 'tenant_isolation_tooth_chart'],
+  ['treatment_plans', 'tenant_isolation_treatment_plans'],
+  ['treatment_plan_items', 'tenant_isolation_treatment_plan_items'],
+  ['whatsapp_messages', 'tenant_isolation_whatsapp_messages'],
+  ['cash_boxes', 'tenant_isolation_cash_boxes'],
+  ['clinical_session_images', 'tenant_isolation_session_images'],
+  ['checkbooks', 'tenant_isolation_checkbooks'],
+  ['fiscal_years', 'tenant_isolation_fiscal_years'],
+  ['banks', 'tenant_isolation_banks'],
+  ['bank_accounts', 'tenant_isolation_bank_accounts'],
+  ['rooms', 'tenant_isolation_rooms'],
+  ['idempotency_keys', 'tenant_isolation_idempotency'],
+  ['treatment_catalog_stages', 'tenant_isolation_catalog_stages'],
+  ['treatment_plan_stages', 'tenant_isolation_plan_stages'],
+];
+
+async function applyTablePolicy(client, table, policyName, usingExpr = TENANT_MATCH) {
+  const exists = await client.query(`SELECT to_regclass('public.${table}') AS t`);
+  if (!exists.rows[0]?.t) return;
+
+  await client.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`);
+  await client.query(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`);
+  await client.query(`DROP POLICY IF EXISTS ${policyName} ON ${table}`);
+  await client.query(`
+    CREATE POLICY ${policyName} ON ${table}
+      USING ${usingExpr}
+      WITH CHECK ${usingExpr}
+  `);
+}
 
 async function ensureTenantIsolation() {
   if (ensured) return;
-  await pool.query(ENSURE_TENANT_ISOLATION_SQL);
-  ensured = true;
+  const client = await pool.connect();
+  try {
+    for (const [table, policyName, expr] of TABLES) {
+      await applyTablePolicy(client, table, policyName, expr || TENANT_MATCH);
+    }
+    ensured = true;
+  } finally {
+    client.release();
+  }
 }
 
 module.exports = { ensureTenantIsolation };

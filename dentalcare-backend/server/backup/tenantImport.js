@@ -162,40 +162,32 @@ async function restoreTenantFromZipBuffer(tenantId, buffer, { confirmTenantId } 
   }
 
   await withSystemClient(async (client) => {
-    await client.query('BEGIN');
-    try {
-      await wipeTenantData(client, tenantId);
+    await wipeTenantData(client, tenantId);
 
-      // chart بدون party_id أولًا، ثم parties، ثم تحديث party_id على الحسابات
-      const charts = (tables.chart_of_accounts || []).map((r) => ({ ...r, party_id: null }));
-      const parties = tables.parties || [];
-      await insertRows(client, 'users', tables.users || []);
-      await insertRows(client, 'currencies', tables.currencies || []);
-      await insertRows(client, 'chart_of_accounts', charts);
-      await insertRows(client, 'parties', parties);
+    // chart بدون party_id أولًا، ثم parties، ثم تحديث party_id على الحسابات
+    const charts = (tables.chart_of_accounts || []).map((r) => ({ ...r, party_id: null }));
+    const parties = tables.parties || [];
+    await insertRows(client, 'users', tables.users || []);
+    await insertRows(client, 'currencies', tables.currencies || []);
+    await insertRows(client, 'chart_of_accounts', charts);
+    await insertRows(client, 'parties', parties);
 
-      for (const row of (tables.chart_of_accounts || [])) {
-        if (row.party_id) {
-          await client.query(
-            `UPDATE chart_of_accounts SET party_id = $2 WHERE id = $1 AND tenant_id = $3`,
-            [row.id, row.party_id, tenantId]
-          );
-        }
+    for (const row of (tables.chart_of_accounts || [])) {
+      if (row.party_id) {
+        await client.query(
+          `UPDATE chart_of_accounts SET party_id = $2 WHERE id = $1 AND tenant_id = $3`,
+          [row.id, row.party_id, tenantId]
+        );
       }
+    }
 
-      for (const key of INSERT_ORDER) {
-        if (['users', 'currencies', 'chart_of_accounts', 'parties'].includes(key)) continue;
-        if (key === 'journal_entry_lines') {
-          await insertRows(client, 'journal_entry_lines', tables.journal_entry_lines || []);
-          continue;
-        }
-        await insertRows(client, key, tables[key] || []);
+    for (const key of INSERT_ORDER) {
+      if (['users', 'currencies', 'chart_of_accounts', 'parties'].includes(key)) continue;
+      if (key === 'journal_entry_lines') {
+        await insertRows(client, 'journal_entry_lines', tables.journal_entry_lines || []);
+        continue;
       }
-
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
+      await insertRows(client, key, tables[key] || []);
     }
   });
 

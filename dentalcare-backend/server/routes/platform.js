@@ -71,26 +71,16 @@ router.post('/platform/tenants', async (req, res) => {
   }
 
   try {
-    const created = await withSystemClient(async (client) => {
-      await client.query('BEGIN');
-      try {
-        const result = await bootstrapClinic(client, {
-          clinicName: name.trim(),
-          slug: slugifyClinicName(name),
-          ownerName: ownerName?.trim(),
-          ownerUsername: ownerUsername.trim(),
-          ownerPassword,
-          activeFrom,
-          activeUntil,
-          maxUsers,
-        });
-        await client.query('COMMIT');
-        return result;
-      } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-      }
-    });
+    const created = await withSystemClient(async (client) => bootstrapClinic(client, {
+      clinicName: name.trim(),
+      slug: slugifyClinicName(name),
+      ownerName: ownerName?.trim(),
+      ownerUsername: ownerUsername.trim(),
+      ownerPassword,
+      activeFrom,
+      activeUntil,
+      maxUsers,
+    }));
 
     res.status(201).json({ success: true, tenantId: created.tenantId });
   } catch (err) {
@@ -162,17 +152,7 @@ router.patch('/platform/tenants/:id', async (req, res) => {
 
 router.delete('/platform/tenants/:id', async (req, res) => {
   try {
-    const deleted = await withSystemClient(async (client) => {
-      await client.query('BEGIN');
-      try {
-        const row = await purgeTenant(client, req.params.id);
-        await client.query('COMMIT');
-        return row;
-      } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-      }
-    });
+    const deleted = await withSystemClient(async (client) => purgeTenant(client, req.params.id));
     if (!deleted) return res.status(404).json({ error: 'العيادة غير موجودة' });
     res.json({ success: true, tenant: deleted });
   } catch (err) {
