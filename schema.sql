@@ -126,6 +126,7 @@ CREATE INDEX idx_journal_tenant_date ON journal_entries(tenant_id, entry_date);
 -- مش بعده.
 CREATE TABLE journal_entry_lines (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id           UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     journal_entry_id    UUID NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
     account_id          UUID NOT NULL REFERENCES chart_of_accounts(id),
     debit               NUMERIC(14,2) NOT NULL DEFAULT 0.00,
@@ -137,6 +138,7 @@ CREATE TABLE journal_entry_lines (
 
 CREATE INDEX idx_lines_account ON journal_entry_lines(account_id);
 CREATE INDEX idx_lines_entry ON journal_entry_lines(journal_entry_id);
+CREATE INDEX idx_lines_tenant ON journal_entry_lines(tenant_id);
 
 -- ملاحظة مهمة: ما في عمود "balance" مخزّن بجدول chart_of_accounts.
 -- الرصيد الحالي لأي حساب = SUM(debit) - SUM(credit) من هذا الجدول

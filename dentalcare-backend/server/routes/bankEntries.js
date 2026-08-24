@@ -17,14 +17,14 @@ const ACCESS = requireAnyPermission([
 
 const OPS = new Set(['TRANSFER', 'INCOMING', 'OUTGOING', 'CHECK_DEPOSIT']);
 
-async function resolveBankChartAccount(client, bankAccountId, { requireKind } = {}) {
+async function resolveBankChartAccount(client, tenantId, bankAccountId, { requireKind } = {}) {
   const result = await client.query(
     `SELECT ba.id, ba.chart_account_id, ba.name, ba.account_kind, ba.is_active,
             a.is_active AS account_active
      FROM bank_accounts ba
-     JOIN chart_of_accounts a ON a.id = ba.chart_account_id
-     WHERE ba.id = $1`,
-    [bankAccountId]
+     JOIN chart_of_accounts a ON a.id = ba.chart_account_id AND a.tenant_id = ba.tenant_id
+     WHERE ba.id = $1 AND ba.tenant_id = $2`,
+    [bankAccountId, tenantId]
   );
   if (result.rowCount === 0) {
     throw Object.assign(new Error('الحساب البنكي غير موجود'), { statusCode: 400 });
@@ -44,10 +44,10 @@ async function resolveBankChartAccount(client, bankAccountId, { requireKind } = 
   return row;
 }
 
-async function assertActiveAccount(client, accountId) {
+async function assertActiveAccount(client, tenantId, accountId) {
   const result = await client.query(
-    `SELECT id FROM chart_of_accounts WHERE id = $1 AND is_active = TRUE`,
-    [accountId]
+    `SELECT id FROM chart_of_accounts WHERE id = $1 AND tenant_id = $2 AND is_active = TRUE`,
+    [accountId, tenantId]
   );
   if (result.rowCount === 0) {
     throw Object.assign(new Error('الحساب المقابل غير موجود أو غير نشط'), { statusCode: 400 });
@@ -92,16 +92,16 @@ router.post(
         }
 
         const deposit = await withTenantClient(req.user.tenantId, async (client) => {
-          const bank = await resolveBankChartAccount(client, toBankAccountId, {
+          const bank = await resolveBankChartAccount(client, req.user.tenantId, toBankAccountId, {
             requireKind: 'COLLECTION',
           });
 
           const checksResult = await client.query(
             `SELECT id, amount, holding_account_id, location_account_id, location, status, check_type
              FROM checks
-             WHERE id = ANY($1::uuid[])
+             WHERE id = ANY($1::uuid[]) AND tenant_id = $2
              FOR UPDATE`,
-            [ids]
+            [ids, req.user.tenantId]
           );
           if (checksResult.rowCount !== ids.length) {
             throw Object.assign(new Error('بعض الشيكات غير موجودة'), { statusCode: 400 });
@@ -201,8 +201,8 @@ router.post(
           if (fromBankAccountId === toBankAccountId) {
             throw Object.assign(new Error('لا يمكن التحويل لنفس الحساب البنكي'), { statusCode: 400 });
           }
-          const from = await resolveBankChartAccount(client, fromBankAccountId);
-          const to = await resolveBankChartAccount(client, toBankAccountId);
+          const from = await resolveBankChartAccount(client, req.user.tenantId, fromBankAccountId);
+          const to = await resolveBankChartAccount(client, req.user.tenantId, toBankAccountId);
           return [
             { accountId: to.chart_account_id, debit: baseAmount, lineMemo: 'تحويل وارد' },
             { accountId: from.chart_account_id, credit: baseAmount, lineMemo: 'تحويل صادر' },
@@ -213,8 +213,8 @@ router.post(
           if (!toBankAccountId || !counterpartAccountId) {
             throw Object.assign(new Error('حدد الحساب البنكي المستلم والطرف المقابل'), { statusCode: 400 });
           }
-          const to = await resolveBankChartAccount(client, toBankAccountId);
-          await assertActiveAccount(client, counterpartAccountId);
+          const to = await resolveBankChartAccount(client, req.user.tenantId, toBankAccountId);
+          await assertActiveAccount(client, req.user.tenantId, counterpartAccountId);
           if (to.chart_account_id === counterpartAccountId) {
             throw Object.assign(new Error('الحساب البنكي والطرف المقابل لا يمكن أن يكونا نفس الحساب'), { statusCode: 400 });
           }
@@ -228,8 +228,8 @@ router.post(
         if (!fromBankAccountId || !counterpartAccountId) {
           throw Object.assign(new Error('حدد الحساب البنكي الصادر والطرف المقابل'), { statusCode: 400 });
         }
-        const from = await resolveBankChartAccount(client, fromBankAccountId);
-        await assertActiveAccount(client, counterpartAccountId);
+        const from = await resolveBankChartAccount(client, req.user.tenantId, fromBankAccountId);
+        await assertActiveAccount(client, req.user.tenantId, counterpartAccountId);
         if (from.chart_account_id === counterpartAccountId) {
           throw Object.assign(new Error('الحساب البنكي والطرف المقابل لا يمكن أن يكونا نفس الحساب'), { statusCode: 400 });
         }

@@ -24,6 +24,7 @@ app.get('/api/health', (req, res) => {
       || process.env.RAILWAY_DEPLOYMENT_ID
       || null,
     replaceFull: true,
+    tenantIsolation: 'v2-explicit-tenant-id',
     builtAt: process.env.RAILWAY_DEPLOYMENT_CREATED || null,
   });
 });
@@ -104,6 +105,7 @@ const { ensureUsersAvatarSchema } = require('./db/ensureUsersAvatar');
 const { ensureToothConditionsSchema } = require('./db/ensureToothConditions');
 const { ensureJournalEntryNumberSchema } = require('./db/ensureJournalEntryNumber');
 const { ensureJournalLineCurrencySchema } = require('./db/ensureJournalLineCurrency');
+const { ensureJournalLineTenantSchema } = require('./db/ensureJournalLineTenant');
 const { ensureChartAccountCurrencySchema } = require('./db/ensureChartAccountCurrency');
 
 Promise.all([
@@ -115,6 +117,10 @@ Promise.all([
     .catch((err) => console.error('tenant isolation ensure failed:', err.message)),
   ensureJournalEntryNumberSchema().catch((err) => console.error('journal entry_number ensure failed:', err.message)),
   ensureJournalLineCurrencySchema().catch((err) => console.error('journal line currency ensure failed:', err.message)),
+  ensureJournalLineTenantSchema()
+    .catch((err) => console.error('journal line tenant ensure failed:', err.message))
+    .then(() => ensureTenantIsolation())
+    .catch((err) => console.error('tenant isolation re-apply failed:', err.message)),
   ensureChartAccountCurrencySchema().catch((err) => console.error('chart account currency ensure failed:', err.message)),
   ensureUsersAvatarSchema().catch((err) => console.error('users avatar ensure failed:', err.message)),
   ensureToothConditionsSchema().catch((err) => console.error('tooth_conditions ensure failed:', err.message)),

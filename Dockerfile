@@ -10,7 +10,7 @@ RUN npm --prefix dentalcare-frontend ci \
  && npm --prefix dentalcare-backend ci --omit=dev
 
 # CACHEBUST يفرض إعادة نسخ الكود وبناء الواجهة من الصفر عند كل نشر كامل
-ARG CACHEBUST=20260824-1645
+ARG CACHEBUST=20260824-1715
 COPY schema.sql ./schema.sql
 COPY package.json ./package.json
 COPY dentalcare-frontend ./dentalcare-frontend

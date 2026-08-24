@@ -65,8 +65,9 @@ router.get(
           AND TRIM(issuer.bank_number) = TRIM(c.bank_number)
          WHERE ($1::VARCHAR IS NULL OR c.status = $1)
            AND ($2::VARCHAR IS NULL OR c.location = $2)
+           AND c.tenant_id = $3
          ORDER BY c.due_date ASC`,
-        [status || null, location || null]
+        [status || null, location || null, req.user.tenantId]
       );
       return result.rows.map((row) => ({
         id: row.id,
@@ -115,7 +116,8 @@ async function loadJournalBundle(client, entryId) {
     `SELECT id, source_type, memo,
             to_char(COALESCE(entry_date, (created_at AT TIME ZONE 'UTC')::date), 'YYYY-MM-DD') AS entry_date,
             created_at
-     FROM journal_entries WHERE id = $1`,
+     FROM journal_entries WHERE id = $1
+       AND tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid`,
     [entryId]
   );
   if (entryResult.rowCount === 0) return null;
@@ -129,10 +131,12 @@ async function loadJournalBundle(client, entryId) {
             ba.name AS bank_account_name, ba.account_kind AS bank_account_kind
      FROM journal_entry_lines l
      JOIN chart_of_accounts a ON a.id = l.account_id
-     LEFT JOIN parties p ON p.account_id = a.id
-     LEFT JOIN cash_boxes cb ON cb.account_id = a.id
-     LEFT JOIN bank_accounts ba ON ba.chart_account_id = a.id
+       AND a.tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid
+     LEFT JOIN parties p ON p.account_id = a.id AND p.tenant_id = a.tenant_id
+     LEFT JOIN cash_boxes cb ON cb.account_id = a.id AND cb.tenant_id = a.tenant_id
+     LEFT JOIN bank_accounts ba ON ba.chart_account_id = a.id AND ba.tenant_id = a.tenant_id
      WHERE l.journal_entry_id = $1
+       AND l.tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid
      ORDER BY l.debit DESC, l.credit DESC`,
     [entryId]
   );
@@ -220,8 +224,8 @@ router.get(
            LEFT JOIN banks issuer
              ON c.bank_number IS NOT NULL
             AND TRIM(issuer.bank_number) = TRIM(c.bank_number)
-           WHERE c.id = $1`,
-          [req.params.id]
+           WHERE c.id = $1 AND c.tenant_id = $2`,
+          [req.params.id, req.user.tenantId]
         );
         if (checkResult.rowCount === 0) return null;
         const check = checkResult.rows[0];
@@ -231,6 +235,7 @@ router.get(
           const bounce = await client.query(
             `SELECT id FROM journal_entries
              WHERE source_type = 'REVERSAL' AND source_ref_id = $1
+               AND tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid
              ORDER BY created_at DESC LIMIT 1`,
             [check.journal_entry_id]
           );
@@ -386,7 +391,7 @@ router.post(
       const ctx = await withTenantClient(req.user.tenantId, async (client) => {
         const checkResult = await client.query(
           `SELECT id, amount, holding_account_id, location_account_id, location, status, check_type
-           FROM checks WHERE id = $1`,
+           FROM checks WHERE id = $1 AND tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid`,
           [id]
         );
         const check = checkResult.rows[0] || null;
@@ -476,7 +481,7 @@ router.post(
     try {
       const check = await withTenantClient(req.user.tenantId, async (client) => {
         const result = await client.query(
-          `SELECT id, journal_entry_id, status, location FROM checks WHERE id = $1`,
+          `SELECT id, journal_entry_id, status, location FROM checks WHERE id = $1 AND tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid`,
           [id]
         );
         return result.rows[0] || null;
@@ -528,7 +533,7 @@ router.post(
       const check = await withTenantClient(req.user.tenantId, async (client) => {
         const result = await client.query(
           `SELECT id, amount, holding_account_id, location_account_id, status, location, check_type
-           FROM checks WHERE id = $1`,
+           FROM checks WHERE id = $1 AND tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid`,
           [id]
         );
         return result.rows[0] || null;
@@ -605,7 +610,7 @@ router.post(
           `SELECT id,
                   (image_front_bytes IS NOT NULL) AS has_front_image,
                   (image_back_bytes IS NOT NULL) AS has_back_image
-           FROM checks WHERE id = $1`,
+           FROM checks WHERE id = $1 AND tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid`,
           [req.params.id]
         );
         if (exists.rowCount === 0) return null;
@@ -631,7 +636,7 @@ router.post(
           `SELECT id,
                   (image_front_bytes IS NOT NULL) AS has_front_image,
                   (image_back_bytes IS NOT NULL) AS has_back_image
-           FROM checks WHERE id = $1`,
+           FROM checks WHERE id = $1 AND tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid`,
           [req.params.id]
         );
         return result.rows[0];
@@ -656,7 +661,7 @@ async function sendCheckImage(req, res, side) {
   try {
     const file = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(
-        `SELECT ${mimeCol} AS mime, ${bytesCol} AS bytes FROM checks WHERE id = $1`,
+        `SELECT ${mimeCol} AS mime, ${bytesCol} AS bytes FROM checks WHERE id = $1 AND tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid`,
         [req.params.id]
       );
       return result.rows[0] || null;

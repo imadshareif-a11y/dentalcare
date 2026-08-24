@@ -37,8 +37,8 @@ router.get('/reports/ledger', requireAuth, requirePermission('reports', 'view'),
     const data = await withTenantClient(req.user.tenantId, async (client) => {
       const accountInfo = await client.query(
         `SELECT account_code, account_name_ar, account_name_en, account_name_he
-         FROM chart_of_accounts WHERE id = $1`,
-        [accountId]
+         FROM chart_of_accounts WHERE id = $1 AND tenant_id = $2`,
+        [accountId, req.user.tenantId]
       );
       if (accountInfo.rows.length === 0) {
         throw new Error('الحساب غير موجود');
@@ -49,8 +49,8 @@ router.get('/reports/ledger', requireAuth, requirePermission('reports', 'view'),
         `SELECT COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS opening_balance
          FROM journal_entry_lines l
          JOIN journal_entries e ON e.id = l.journal_entry_id
-         WHERE l.account_id = $1 AND e.entry_date < $2`,
-        [accountId, fromDate]
+         WHERE l.account_id = $1 AND e.tenant_id = $3 AND e.entry_date < $2`,
+        [accountId, fromDate, req.user.tenantId]
       );
       const openingBalance = Number(openingResult.rows[0].opening_balance);
 
@@ -60,9 +60,9 @@ router.get('/reports/ledger', requireAuth, requirePermission('reports', 'view'),
         `SELECT e.entry_date, e.memo, l.debit, l.credit, l.line_memo
          FROM journal_entry_lines l
          JOIN journal_entries e ON e.id = l.journal_entry_id
-         WHERE l.account_id = $1 AND e.entry_date BETWEEN $2 AND $3
+         WHERE l.account_id = $1 AND e.tenant_id = $4 AND e.entry_date BETWEEN $2 AND $3
          ORDER BY e.entry_date ASC, e.created_at ASC`,
-        [accountId, fromDate, toDate]
+        [accountId, fromDate, toDate, req.user.tenantId]
       );
 
       // نحسب الرصيد المتحرك سطر بسطر (running balance)
@@ -110,8 +110,8 @@ router.get('/reports/trial-balance', requireAuth, requirePermission('reports', '
            COALESCE(SUM(l.credit), 0) AS total_credit,
            COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS balance
          FROM chart_of_accounts a
-         LEFT JOIN journal_entry_lines l ON l.account_id = a.id
-         LEFT JOIN journal_entries e ON e.id = l.journal_entry_id ${dateFilter}
+         LEFT JOIN journal_entry_lines l ON l.account_id = a.id AND l.tenant_id = a.tenant_id
+         LEFT JOIN journal_entries e ON e.id = l.journal_entry_id AND e.tenant_id = a.tenant_id ${dateFilter}
          WHERE a.tenant_id = $1
          GROUP BY a.id, a.account_code, a.account_type,
                   a.account_name_ar, a.account_name_en, a.account_name_he
@@ -151,8 +151,8 @@ router.get('/reports/profit-loss', requireAuth, requirePermission('reports', 'vi
            a.account_type, a.account_name_ar, a.account_name_en, a.account_name_he, a.account_code,
            COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) AS net_amount
          FROM chart_of_accounts a
-         JOIN journal_entry_lines l ON l.account_id = a.id
-         JOIN journal_entries e ON e.id = l.journal_entry_id
+         JOIN journal_entry_lines l ON l.account_id = a.id AND l.tenant_id = a.tenant_id
+         JOIN journal_entries e ON e.id = l.journal_entry_id AND e.tenant_id = a.tenant_id
          WHERE a.tenant_id = $1
            AND a.account_type IN ('REVENUE', 'EXPENSE')
            AND e.entry_date BETWEEN $2 AND $3
@@ -198,8 +198,8 @@ router.get('/reports/journal-book', requireAuth, requirePermission('reports', 'v
                 a.account_code, a.account_name_ar, a.account_name_en, a.account_name_he,
                 l.debit, l.credit, l.line_memo
          FROM journal_entries e
-         JOIN journal_entry_lines l ON l.journal_entry_id = e.id
-         JOIN chart_of_accounts a ON a.id = l.account_id
+         JOIN journal_entry_lines l ON l.journal_entry_id = e.id AND l.tenant_id = e.tenant_id
+         JOIN chart_of_accounts a ON a.id = l.account_id AND a.tenant_id = e.tenant_id
          WHERE e.tenant_id = $1 AND e.entry_date BETWEEN $2 AND $3
          ORDER BY e.entry_date ASC, e.created_at ASC, e.id ASC`,
         [req.user.tenantId, fromDate, toDate]

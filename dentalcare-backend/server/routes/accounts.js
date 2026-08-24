@@ -101,7 +101,7 @@ router.get('/accounts/picker', requireAuth, requireClinicContext, VOUCHER_CONTEX
           COALESCE(SUM(l.credit), 0) AS total_credit
         FROM chart_of_accounts a
         INNER JOIN parties p ON p.account_id = a.id AND p.tenant_id = a.tenant_id
-        LEFT JOIN journal_entry_lines l ON l.account_id = a.id
+        LEFT JOIN journal_entry_lines l ON l.account_id = a.id AND l.tenant_id = a.tenant_id
         WHERE a.tenant_id = $1 AND a.is_active = TRUE
         GROUP BY a.id, a.account_code, a.account_type,
                  a.account_name_ar, a.account_name_en, a.account_name_he,
@@ -123,7 +123,7 @@ router.get('/accounts/picker', requireAuth, requireClinicContext, VOUCHER_CONTEX
             COALESCE(SUM(l.credit), 0) AS total_credit
           FROM chart_of_accounts a
           LEFT JOIN parties p ON p.account_id = a.id AND p.tenant_id = a.tenant_id
-          LEFT JOIN journal_entry_lines l ON l.account_id = a.id
+          LEFT JOIN journal_entry_lines l ON l.account_id = a.id AND l.tenant_id = a.tenant_id AND l.tenant_id = a.tenant_id
           WHERE a.tenant_id = $1 AND a.is_active = TRUE
             AND p.id IS NULL
             AND a.account_type IN ('EXPENSE', 'REVENUE', 'ASSET')

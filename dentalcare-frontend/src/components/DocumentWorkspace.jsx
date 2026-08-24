@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import PartyModal from './PartyModal';
 import DocumentPrintView from './DocumentPrintView';
@@ -33,6 +34,7 @@ export default function DocumentWorkspace({
   children,
 }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const { money, date, reload: reloadSettings } = useSettings();
   const [browseOpen, setBrowseOpen] = useState(false);
   const [fromDate, setFromDate] = useState(monthStartIso);
@@ -63,6 +65,14 @@ export default function DocumentWorkspace({
       setLoading(false);
     }
   }, [sourceType, fromDate, toDate, t]);
+
+  useEffect(() => {
+    setRows([]);
+    setViewDoc(null);
+    setBrowseOpen(false);
+    setPrintDocs(null);
+    setError(null);
+  }, [user?.tenantId, sourceType]);
 
   const filteredRows = useMemo(() => {
     const q = searchText.trim().toLowerCase();

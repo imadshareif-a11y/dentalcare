@@ -112,7 +112,7 @@ router.post('/banks', requireAuth, requirePermission('accounts', 'edit'), async 
 router.patch('/banks/:id', requireAuth, requirePermission('accounts', 'edit'), async (req, res) => {
   try {
     await withTenantClient(req.user.tenantId, async (client) => {
-      const existing = await client.query(`SELECT id FROM banks WHERE id = $1`, [req.params.id]);
+      const existing = await client.query(`SELECT id FROM banks WHERE id = $1 AND tenant_id = $2`, [req.params.id, req.user.tenantId]);
       if (existing.rowCount === 0) {
         throw Object.assign(new Error('البنك غير موجود'), { statusCode: 404 });
       }
@@ -216,8 +216,8 @@ router.post('/bank-accounts', requireAuth, requirePermission('accounts', 'edit')
       const names = await namesFromBody(client, req.user.tenantId, req.body);
       if (bankId) {
         const bank = await client.query(
-          `SELECT id FROM banks WHERE id = $1 AND is_active = TRUE`,
-          [bankId]
+          `SELECT id FROM banks WHERE id = $1 AND tenant_id = $2 AND is_active = TRUE`,
+          [bankId, req.user.tenantId]
         );
         if (bank.rowCount === 0) {
           throw Object.assign(new Error('البنك غير موجود'), { statusCode: 400 });
@@ -248,8 +248,8 @@ router.patch('/bank-accounts/:id', requireAuth, requirePermission('accounts', 'e
   try {
     await withTenantClient(req.user.tenantId, async (client) => {
       const existing = await client.query(
-        `SELECT id, chart_account_id FROM bank_accounts WHERE id = $1`,
-        [req.params.id]
+        `SELECT id, chart_account_id FROM bank_accounts WHERE id = $1 AND tenant_id = $2`,
+        [req.params.id, req.user.tenantId]
       );
       if (existing.rowCount === 0) {
         throw Object.assign(new Error('الحساب البنكي غير موجود'), { statusCode: 404 });

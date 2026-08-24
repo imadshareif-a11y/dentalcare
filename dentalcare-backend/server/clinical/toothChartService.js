@@ -432,8 +432,8 @@ async function updatePlanItemDoctor(client, tenantId, patientId, itemId, doctorI
     throw Object.assign(new Error('بند الخطة غير موجود'), { statusCode: 404 });
   }
   const doctor = await client.query(
-    `SELECT name FROM parties WHERE id = $1`,
-    [doctorId]
+    `SELECT name FROM parties WHERE id = $1 AND tenant_id = $2`,
+    [doctorId, tenantId]
   );
   return {
     id: result.rows[0].id,
@@ -442,15 +442,15 @@ async function updatePlanItemDoctor(client, tenantId, patientId, itemId, doctorI
   };
 }
 
-async function resolveTreatmentCondition(client, item) {
+async function resolveTreatmentCondition(client, tenantId, item) {
   if (item.conditionCode) {
     const code = normalizeConditionCode(item.conditionCode);
     if (code) return code;
   }
   if (item.catalogId) {
     const cat = await client.query(
-      `SELECT condition_code, name FROM treatment_catalog WHERE id = $1`,
-      [item.catalogId]
+      `SELECT condition_code, name FROM treatment_catalog WHERE id = $1 AND tenant_id = $2`,
+      [item.catalogId, tenantId]
     );
     const row = cat.rows[0];
     if (row?.condition_code) {
@@ -600,7 +600,7 @@ async function finishPlanItemWithChart(client, tenantId, patientId, planItemId, 
   if (!item) return;
 
   const tooth = normalizeToothFdi(treatmentMeta?.tooth || item.tooth_fdi);
-  const conditionCode = await resolveTreatmentCondition(client, {
+  const conditionCode = await resolveTreatmentCondition(client, tenantId, {
     conditionCode: treatmentMeta?.conditionCode || item.condition_code,
     catalogId: treatmentMeta?.catalogId || item.catalog_id,
     name: treatmentMeta?.name || item.name,
@@ -681,7 +681,7 @@ async function completePlanItemAndChart(client, tenantId, patientId, itemId) {
      WHERE plan_item_id = $1 AND status IN ('PLANNED', 'IN_PROGRESS')`,
     [itemId]
   );
-  const conditionCode = await resolveTreatmentCondition(client, {
+  const conditionCode = await resolveTreatmentCondition(client, tenantId, {
     conditionCode: item.condition_code,
     catalogId: item.catalog_id,
     name: item.name,
@@ -744,7 +744,7 @@ async function applySessionTreatmentsToChart(client, tenantId, patientId, treatm
     const tooth = normalizeToothFdi(item.tooth);
     if (!tooth) continue;
 
-    const conditionCode = await resolveTreatmentCondition(client, item);
+    const conditionCode = await resolveTreatmentCondition(client, tenantId, item);
     if (conditionCode && conditionCode !== 'HEALTHY') {
       await setToothCurrent(client, tenantId, patientId, tooth, conditionCode, null);
     }

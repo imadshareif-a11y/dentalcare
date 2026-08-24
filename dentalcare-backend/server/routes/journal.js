@@ -50,8 +50,8 @@ const SOURCE_TYPES = new Set([
   'DEBIT_NOTE',
 ]);
 
-async function loadDocumentBundle(client, entryId) {
-  if (!entryId) return null;
+async function loadDocumentBundle(client, entryId, tenantId) {
+  if (!entryId || !tenantId) return null;
   const entryResult = await client.query(
     `SELECT je.id, je.entry_number, je.source_type, je.source_ref_id, je.memo,
             to_char(COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date), 'YYYY-MM-DD') AS entry_date,
@@ -62,9 +62,9 @@ async function loadDocumentBundle(client, entryId) {
             c.code AS currency_code, c.symbol AS currency_symbol
      FROM journal_entries je
      LEFT JOIN users u ON u.id = je.created_by
-     LEFT JOIN currencies c ON c.id = je.currency_id
-     WHERE je.id = $1`,
-    [entryId]
+     LEFT JOIN currencies c ON c.id = je.currency_id AND c.tenant_id = je.tenant_id
+     WHERE je.id = $1 AND je.tenant_id = $2`,
+    [entryId, tenantId]
   );
   if (entryResult.rowCount === 0) return null;
   const entry = entryResult.rows[0];
@@ -77,12 +77,12 @@ async function loadDocumentBundle(client, entryId) {
             a.account_name_ar, a.account_name_en, a.account_name_he,
             p.name AS party_name, p.party_type
      FROM journal_entry_lines l
-     JOIN chart_of_accounts a ON a.id = l.account_id
-     LEFT JOIN currencies lc ON lc.id = l.currency_id
-     LEFT JOIN parties p ON p.account_id = a.id
-     WHERE l.journal_entry_id = $1
+     JOIN chart_of_accounts a ON a.id = l.account_id AND a.tenant_id = $2
+     LEFT JOIN currencies lc ON lc.id = l.currency_id AND lc.tenant_id = $2
+     LEFT JOIN parties p ON p.account_id = a.id AND p.tenant_id = $2
+     WHERE l.journal_entry_id = $1 AND l.tenant_id = $2
      ORDER BY l.debit DESC, l.credit DESC, a.account_code`,
-    [entryId]
+    [entryId, tenantId]
   );
 
   const checksResult = await client.query(
@@ -90,12 +90,15 @@ async function loadDocumentBundle(client, entryId) {
             (image_front_bytes IS NOT NULL) AS has_front_image,
             (image_back_bytes IS NOT NULL) AS has_back_image
      FROM checks
-     WHERE journal_entry_id = $1
-        OR deposited_journal_entry_id = $1
-        OR cleared_journal_entry_id = $1
-        OR endorsed_journal_entry_id = $1
+     WHERE tenant_id = $2
+       AND (
+         journal_entry_id = $1
+         OR deposited_journal_entry_id = $1
+         OR cleared_journal_entry_id = $1
+         OR endorsed_journal_entry_id = $1
+       )
      ORDER BY check_number`,
-    [entryId]
+    [entryId, tenantId]
   );
 
   const lines = linesResult.rows.map((row) => ({
@@ -309,21 +312,22 @@ router.get('/journal-entries', requireAuth, DOC_VIEW, async (req, res) => {
                 (
                   SELECT string_agg(DISTINCT p.name, '، ')
                   FROM journal_entry_lines lx
-                  JOIN chart_of_accounts ax ON ax.id = lx.account_id
-                  JOIN parties p ON p.account_id = ax.id
-                  WHERE lx.journal_entry_id = je.id
+                  JOIN chart_of_accounts ax ON ax.id = lx.account_id AND ax.tenant_id = je.tenant_id
+                  JOIN parties p ON p.account_id = ax.id AND p.tenant_id = je.tenant_id
+                  WHERE lx.journal_entry_id = je.id AND lx.tenant_id = je.tenant_id
                 ) AS party_names
          FROM journal_entries je
-         LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+         LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id AND l.tenant_id = je.tenant_id
          LEFT JOIN users u ON u.id = je.created_by
-         WHERE je.source_type = $1
-           AND ($2::DATE IS NULL OR COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date) >= $2::DATE)
-           AND ($3::DATE IS NULL OR COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date) <= $3::DATE)
-           AND ($5::text = '' OR je.entry_number ILIKE '%' || $5 || '%')
+         WHERE je.tenant_id = $1
+           AND je.source_type = $2
+           AND ($3::DATE IS NULL OR COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date) >= $3::DATE)
+           AND ($4::DATE IS NULL OR COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date) <= $4::DATE)
+           AND ($6::text = '' OR je.entry_number ILIKE '%' || $6 || '%')
          GROUP BY je.id, je.entry_number, u.name
          ORDER BY COALESCE(je.entry_date, (je.created_at AT TIME ZONE 'UTC')::date) DESC, je.created_at DESC
-         LIMIT $4`,
-        [sourceType, fromDate || null, toDate || null, take, numberQ]
+         LIMIT $5`,
+        [req.user.tenantId, sourceType, fromDate || null, toDate || null, take, numberQ]
       );
       return result.rows.map((row) => ({
         id: row.id,
@@ -351,7 +355,7 @@ router.get('/journal-entries', requireAuth, DOC_VIEW, async (req, res) => {
 router.get('/journal-entries/:id', requireAuth, DOC_VIEW, async (req, res) => {
   try {
     const doc = await withTenantClient(req.user.tenantId, async (client) => (
-      loadDocumentBundle(client, req.params.id)
+      loadDocumentBundle(client, req.params.id, req.user.tenantId)
     ));
     if (!doc) return res.status(404).json({ error: 'المستند غير موجود' });
     res.json(doc);
@@ -376,10 +380,10 @@ router.post(
         const result = await client.query(
           `UPDATE journal_entries
            SET attachment_mime = $2, attachment_bytes = $3
-           WHERE id = $1
+           WHERE id = $1 AND tenant_id = $4
            RETURNING id, attachment_mime,
                      (attachment_bytes IS NOT NULL) AS has_attachment`,
-          [req.params.id, req.file.mimetype, req.file.buffer]
+          [req.params.id, req.file.mimetype, req.file.buffer, req.user.tenantId]
         );
         return result.rows[0] || null;
       });
@@ -400,8 +404,8 @@ router.get('/journal-entries/:id/attachment', requireAuth, DOC_VIEW, async (req,
   try {
     const file = await withTenantClient(req.user.tenantId, async (client) => {
       const result = await client.query(
-        `SELECT attachment_mime, attachment_bytes FROM journal_entries WHERE id = $1`,
-        [req.params.id]
+        `SELECT attachment_mime, attachment_bytes FROM journal_entries WHERE id = $1 AND tenant_id = $2`,
+        [req.params.id, req.user.tenantId]
       );
       return result.rows[0] || null;
     });

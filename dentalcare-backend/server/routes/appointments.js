@@ -328,8 +328,8 @@ router.patch(
           `SELECT id, patient_id, doctor_id, room_id, notes, status,
                   appointment_date::text AS appointment_date, slot,
                   COALESCE(end_slot, slot) AS end_slot, plan_item_id
-           FROM appointments WHERE id = $1`,
-          [req.params.id]
+           FROM appointments WHERE id = $1 AND tenant_id = $2`,
+          [req.params.id, req.user.tenantId]
         );
         if (current.rowCount === 0) {
           throw Object.assign(new Error('الموعد غير موجود'), { statusCode: 404 });
@@ -418,7 +418,7 @@ router.patch(
                starts_at = ($6::date + $9::time),
                plan_item_id = $10,
                status = $11
-             WHERE id = $1`,
+             WHERE id = $1 AND tenant_id = $12`,
             [
               req.params.id,
               nextPatientId,
@@ -431,6 +431,7 @@ router.patch(
               nextSlot,
               linkedPlanItemId,
               nextStatus,
+              req.user.tenantId,
             ]
           );
           if (updated.rowCount === 0) {
@@ -440,8 +441,8 @@ router.patch(
         }
 
         const result = await client.query(
-          `UPDATE appointments SET status = $2 WHERE id = $1`,
-          [req.params.id, nextStatus]
+          `UPDATE appointments SET status = $2 WHERE id = $1 AND tenant_id = $3`,
+          [req.params.id, nextStatus, req.user.tenantId]
         );
         if (result.rowCount === 0) {
           throw Object.assign(new Error('الموعد غير موجود'), { statusCode: 404 });
